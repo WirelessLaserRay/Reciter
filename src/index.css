@@ -128,3 +128,33 @@
     @apply font-sans;
     }
 }
+
+/* ============ Phase 5 打磨 ============ */
+
+/* 主题切换平滑过渡（暗/亮） */
+body,
+.bg-background,
+.bg-card,
+.bg-sidebar,
+.bg-muted {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
+}
+
+/* 页面淡入 */
+@keyframes reciter-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+main {
+  animation: reciter-fade-in 0.25s ease;
+}

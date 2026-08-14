@@ -20,8 +20,8 @@
 | 🧠 科学记忆系统 | FSRS-5 间隔重复算法（ts-fsrs v5），目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转，评分按钮实时显示下一间隔，悬停查看四档含义 | ✅ Phase 3 |
 | 📝 测试模式 | 填空（中译英）+ 选择（中译英/英译中）三种题型，掌握度评价回填 FSRS；预留 AI 出题接口（Phase 4 接入语境题） | ✅ Phase 3 / Phase 4 |
 | 🤖 AI 语境测试 | AI 深度复习（流式完形/语境题 + AI 判分 + 申诉）、测试模式 AI 出题；DeepSeek/Ollama/OpenAI 预设一键切换 | ✅ Phase 4 |
-| 📊 学习统计 | 复习量柱状图、记忆保留率折线图、365 天热力图（自定义 CSS Grid 实现） | Phase 5 |
-| 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；JSON 导出 + WebDAV 备份 | ✅ Phase 2 / Phase 5 |
+| 📊 学习统计 | 复习量堆叠柱状图、记忆保留率折线图、未来 7 天预期复习量、365 天热力图（自定义 CSS Grid） | ✅ Phase 5 |
+| 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；全量 JSON 导出/恢复（不包含 WebDAV 同步） | ✅ Phase 2 / Phase 5 |
 | ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Phase 3 |
 
 **差异化亮点**（主流竞品未实现）：Markdown 原生导入、AI 语境测试、记忆可检索度实时可视化（ts-fsrs `get_retrievability`）。
@@ -125,7 +125,8 @@ F:\AI\Reciter
 │   │   └── layout/                   # Sidebar / Header / MainLayout
 │   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
 │   ├── stores/                       # Zustand store（theme/deck/db/study）
-│   ├── lib/                          # db / fsrs / day / review / ai-client / ai-parse / ai-prompts / settings / markdown-parser / importer / utils
+│   ├── lib/                          # db / fsrs / day / review / stats / stats-utils / backup / ai-* / settings / markdown-parser / importer / utils
+│   ├── components/stats/              # HeatmapGrid（自定义热力图）
 │   ├── components/ai/                 # AI 深度复习对话框
 │   ├── components/quiz/               # 测试模式（QuizSession）
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
@@ -162,7 +163,7 @@ F:\AI\Reciter
 | **2** | SQLite 接入 + 迁移，Deck/Card CRUD + upsert，Markdown/CSV/JSON 导入解析 + 预览 | ✅ 已完成 |
 | **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ✅ 已完成 |
 | **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ✅ 已完成 |
-| **5** | 统计图表 + 自定义热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨 | ⏳ 进行中 |
+| **5** | 统计图表 + 自定义热力图、JSON 导出/恢复、翻转动画、主题打磨（无 WebDAV） | ✅ 已完成 |
 
 ---
 

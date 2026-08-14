@@ -17,8 +17,38 @@
 ## [Unreleased]
 
 ### Planned
-- **Phase 5 · 统计与打磨**（图表/热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨）
+- 全部 5 个阶段已完成。后续方向：Easy Days 负载均衡、更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
 
+---
+
+## [0.5.0] - 2026-08-14
+
+> **里程碑**：Phase 5 完成 —— 统计图表（含自定义热力图）+ JSON 导出/恢复 + 动效打磨。（按需求**不做 WebDAV 备份适配**）
+
+### Added
+
+- **统计页**（Recharts 3 图 + 自定义热力图）：
+  - 复习量趋势堆叠柱状图（近 30 天：新学 + 复习）
+  - 记忆保留率折线图（1 − again/review，0~100%）
+  - 未来 7 天预期复习量柱状图（按 FSRS due 本地日分组）
+  - **365 天学习热力图**（GitHub 贡献图风格，纯 CSS Grid 零依赖，5 级颜色 + 图例 + 悬停提示）
+  - 概览卡片：近 30 天复习/新学/平均保留率
+- **数据备份**（设置 → 数据 标签）：
+  - **导出备份**：全量 JSON（decks/cards+FSRS状态/review_logs/settings/daily_stats），tauri-plugin-dialog 保存对话框 + Rust 命令写文件
+  - **导入恢复**：对话框选择 JSON → 清空现有数据后整体恢复（保留原始 ID 与关联）
+- **统计查询层 `src/lib/stats.ts` + 纯函数 `stats-utils.ts`**（日期填充补零、保留率计算，可单测）
+- **动效打磨**：主题切换平滑过渡（背景/卡片/边框 0.3s）、路由切换页面淡入（main key=pathname）
+- Rust：`tauri-plugin-dialog` + 自定义命令 `write_text_file` / `read_text_file`
+
+### Verified
+
+- ✅ 统计纯函数单测 5 项通过（日期填充/补零/保留率 80%/100%/null）
+- ✅ 备份查询只读验证：113 卡片 JOIN、daily_stats、未来 7 天 due=20、外键模式安全
+- ✅ `npm run build` + `npm run tauri dev`（488 crates）窗口正常
+
+---
+
+## [0.4.3] - 2026-08-14
 ---
 
 ## [0.4.3] - 2026-08-14

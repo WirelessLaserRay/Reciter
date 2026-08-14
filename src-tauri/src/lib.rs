@@ -1,5 +1,17 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+/// 写文本文件（JSON 导出用）
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("写入失败: {}", e))
+}
+
+/// 读文本文件（JSON 恢复用）
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -25,11 +37,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:reciter.db", migrations)
                 .build(),
         )
+        .invoke_handler(tauri::generate_handler![write_text_file, read_text_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

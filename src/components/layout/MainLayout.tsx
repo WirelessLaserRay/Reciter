@@ -1,9 +1,10 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { useDbStore } from "@/stores/useDbStore";
 
 export default function MainLayout() {
+  const location = useLocation();
   const dbError = useDbStore((s) => s.error);
 
   return (
@@ -16,7 +17,7 @@ export default function MainLayout() {
             数据库不可用：{dbError}。请通过 <code>npm run tauri dev</code> 在桌面环境中运行。
           </div>
         )}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main key={location.pathname} className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
       </div>

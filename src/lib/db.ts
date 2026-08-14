@@ -359,6 +359,94 @@ class ReciterDB {
     return map;
   }
 
+  /** 区间内到期卡片（用于未来复习量预测） */
+  async getDueDatesBetween(from: string, to: string): Promise<string[]> {
+    const rows = await this.requireDb().select<{ due: string }[]>(
+      "SELECT due FROM card_states WHERE due >= ? AND due < ? AND reps > 0",
+      [from, to]
+    );
+    return rows.map((r) => r.due);
+  }
+
+
+  // ==================== 备份 / 恢复（Phase 5） ====================
+
+  /** 导出：全部卡片（含 FSRS 状态） */
+  async getAllCardsWithState(): Promise<(Card & CardState)[]> {
+    return this.requireDb().select(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags,
+              c.created_at, c.updated_at,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       ORDER BY c.id ASC`
+    );
+  }
+
+  async getAllSettings(): Promise<{ key: string; value: string }[]> {
+    return this.requireDb().select("SELECT key, value FROM settings ORDER BY key");
+  }
+
+  async getAllDailyStats(): Promise<DailyStats[]> {
+    return this.requireDb().select("SELECT * FROM daily_stats ORDER BY date");
+  }
+
+  /** 清空全部业务数据（恢复前调用，注意外键顺序） */
+  async clearAllData(): Promise<void> {
+    const db = this.requireDb();
+    await db.execute("DELETE FROM review_logs");
+    await db.execute("DELETE FROM card_states");
+    await db.execute("DELETE FROM cards");
+    await db.execute("DELETE FROM decks");
+    await db.execute("DELETE FROM daily_stats");
+    await db.execute("DELETE FROM settings");
+  }
+
+  async restoreDeck(d: Deck): Promise<void> {
+    await this.requireDb().execute(
+      "INSERT INTO decks (id, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [d.id, d.name, d.description ?? "", d.new_cards_per_day, d.created_at, d.updated_at]
+    );
+  }
+
+  async restoreCard(c: Card & CardState): Promise<void> {
+    await this.requireDb().execute(
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [c.id, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.created_at, c.updated_at]
+    );
+    await this.requireDb().execute(
+      `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,
+              scheduled_days, learning_steps, reps, lapses, desired_retention, algorithm_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        c.id, c.state, c.stability, c.difficulty, c.due, c.last_review, c.elapsed_days,
+        c.scheduled_days, c.learning_steps, c.reps, c.lapses, c.desired_retention, c.algorithm_version,
+      ]
+    );
+  }
+
+  async restoreReviewLog(l: ReviewLog): Promise<void> {
+    await this.requireDb().execute(
+      `INSERT INTO review_logs (id, card_id, grade, reviewed_at, response_time_ms, source, ai_question, ai_answer)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [l.id, l.card_id, l.grade, l.reviewed_at, l.response_time_ms, l.source, l.ai_question, l.ai_answer]
+    );
+  }
+
+  async restoreSetting(key: string, value: string): Promise<void> {
+    await this.requireDb().execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", [key, value]);
+  }
+
+  async restoreDailyStat(s: DailyStats): Promise<void> {
+    await this.requireDb().execute(
+      `INSERT OR IGNORE INTO daily_stats (date, new_count, review_count, again_count, total_time_ms, retention_rate)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [s.date, s.new_count, s.review_count, s.again_count, s.total_time_ms, s.retention_rate]
+    );
+  }
+
   // ==================== DailyStats ====================
 
   /** 累加式更新日报（date: 'YYYY-MM-DD'）；新行直接写入增量，已有行累加（excluded 模式） */

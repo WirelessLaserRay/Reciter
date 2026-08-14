@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Moon, Sun, XCircle } from "lucide-react";
+import { CheckCircle2, Database, Download, Loader2, Moon, Sun, Upload, XCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -20,6 +20,7 @@ import { useDbStore } from "@/stores/useDbStore";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
+import { exportToJSON, importFromJSON } from "@/lib/backup";
 import {
   DEFAULT_PROMPTS,
   getPromptTemplate,
@@ -58,6 +59,10 @@ export default function Settings() {
     grading: DEFAULT_PROMPTS.grading.default,
   });
   const [promptSaved, setPromptSaved] = useState(false);
+
+  // 数据备份
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // 加载设置
   useEffect(() => {
@@ -161,6 +166,22 @@ export default function Settings() {
     flashPromptSaved();
   };
 
+  const handleExport = async () => {
+    setBackupBusy(true);
+    const r = await exportToJSON();
+    setBackupBusy(false);
+    setBackupMsg({ ok: r.ok, text: r.message });
+  };
+
+  const handleImport = async () => {
+    const confirm = window.confirm("导入将清空现有数据并恢复为备份内容，确定继续？");
+    if (!confirm) return;
+    setBackupBusy(true);
+    const r = await importFromJSON();
+    setBackupBusy(false);
+    setBackupMsg({ ok: r.ok, text: r.message });
+  };
+
   const isLocal = aiBaseURL.includes("localhost") || aiBaseURL.includes("127.0.0.1");
 
   return (
@@ -178,6 +199,7 @@ export default function Settings() {
           <TabsTrigger value="appearance">外观</TabsTrigger>
           <TabsTrigger value="learning">学习设置</TabsTrigger>
           <TabsTrigger value="ai">AI 配置</TabsTrigger>
+          <TabsTrigger value="data">数据</TabsTrigger>
         </TabsList>
 
         {/* 外观 */}
@@ -408,6 +430,40 @@ export default function Settings() {
                   </TabsContent>
                 ))}
               </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* 数据备份 */}
+        <TabsContent value="data" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>数据备份</CardTitle>
+              <CardDescription>全量导出（词库/卡片/记忆状态/复习记录/设置/日报）为 JSON 文件，可随时恢复</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={handleExport} disabled={backupBusy}>
+                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                  导出备份
+                </Button>
+                <Button variant="outline" onClick={handleImport} disabled={backupBusy}>
+                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                  导入恢复
+                </Button>
+              </div>
+              {backupMsg && (
+                <p className={backupMsg.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                  {backupMsg.ok ? <CheckCircle2 className="mr-1 inline size-3.5" /> : <XCircle className="mr-1 inline size-3.5" />}
+                  {backupMsg.text}
+                </p>
+              )}
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                <Database className="mt-0.5 size-3.5 shrink-0" />
+                <div>
+                  <p>备份文件为本地 JSON（不含 WebDAV 同步，按需自行保存/迁移）。</p>
+                  <p>恢复操作会清空当前全部数据后写入备份内容，请谨慎使用。</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
