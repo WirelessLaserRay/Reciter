@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isTauri } from "@/lib/env";
 import { db } from "@/lib/db";
 import { getPromptTemplate } from "@/lib/ai-prompts";
 import { parseGradeResult, parseSSELine } from "@/lib/ai-parse";
@@ -75,6 +76,9 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
   return out;
 }
 
+/** 环境自适应 fetch：Tauri 走 plugin-http（无 CORS）；Web 走 window.fetch（受 CORS 限制，需代理） */
+const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
+
 /** 构建 OpenAI 兼容 chat/completions 请求体 */
 function buildBody(messages: ChatMessage[], model: string, temperature: number, stream: boolean) {
   return JSON.stringify({ model, messages, temperature, stream });
@@ -113,7 +117,7 @@ export class AIClient {
 
   /** 非流式对话，返回完整回复文本 */
   async chat(messages: ChatMessage[], temperature?: number): Promise<string> {
-    const res = await tauriFetch(this.endpoint(), {
+    const res = await httpFetch(this.endpoint(), {
       method: "POST",
       headers: buildHeaders(this.config),
       body: buildBody(messages, this.config.model, temperature ?? this.config.temperature, false),
@@ -139,7 +143,7 @@ export class AIClient {
     onToken: (token: string) => void,
     temperature?: number
   ): Promise<string> {
-    const res = await tauriFetch(this.endpoint(), {
+    const res = await httpFetch(this.endpoint(), {
       method: "POST",
       headers: buildHeaders(this.config),
       body: buildBody(messages, this.config.model, temperature ?? this.config.temperature, true),

@@ -206,6 +206,13 @@ npm run tauri build          # 构建正式版（输出 src-tauri/target/release
 npm run tauri dev            # 热更新开发（需要 Rust 工具链）
 ```
 
+### PWA 网页版（平板/手机直接使用，零工具链）
+
+- 同一套代码构建为 PWA：`npm run build:web` → `dist/`（sql.js WASM SQLite + IndexedDB，数据离线持久化）
+- 已配置 GitHub Pages 自动部署（`.github/workflows/deploy-pages.yml`），推送 main 后自动发布
+- 平板/手机浏览器打开网址 → **添加到主屏幕** → 全屏离线运行
+- ⚠️ Web 端 AI 受浏览器 CORS 限制（DeepSeek/OpenAI 直连可能被拒，需代理）；Windows/Tauri 端 AI 不受影响
+
 ### 移动端移植（Tauri 2 官方支持）
 
 - **可行性**：Tauri 2 官方支持 Android（SDK/NDK）与 iOS（Xcode）。Rust 核心 + React 前端完全复用，SQLite/HTTP 插件移动端可用

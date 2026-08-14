@@ -1,5 +1,9 @@
-import Database from "@tauri-apps/plugin-sql";
 import type { Card, CardState, DailyStats, Deck, ReviewLog } from "@/types";
+import type { SQLBackend } from "@/lib/sql/backend";
+import { TauriBackend } from "@/lib/sql/tauri-backend";
+import { SqlJsBackend } from "@/lib/sql/sqljs-backend";
+import { isTauri } from "@/lib/env";
+import { runMigrations } from "@/lib/migrations";
 
 export interface UpsertResult {
   cardId: number;
@@ -55,22 +59,38 @@ function tagParam(tag?: string): string[] {
 }
 
 class ReciterDB {
-  private db: Database | null = null;
+  private backend: SQLBackend | null = null;
   private readyPromise: Promise<void> | null = null;
 
-  /** 加载数据库（幂等，可重复调用） */
+  /**
+   * 加载数据库（幂等）：Tauri 环境用 tauri-plugin-sql；Web/PWA 用 sql.js（WASM SQLite + IndexedDB）。
+   * 两种后端跑完全相同的 SQL，Windows 端行为与之前完全一致。
+   */
   init(): Promise<void> {
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
-        this.db = await Database.load("sqlite:reciter.db");
+        const b: SQLBackend = isTauri() ? new TauriBackend() : new SqlJsBackend();
+        await b.init();
+        if (b.kind === "sqljs") {
+          // Web 端无 Rust 迁移，手动执行镜像迁移
+          await runMigrations((sql) => b.execute(sql));
+        }
+        this.backend = b;
       })();
     }
     return this.readyPromise;
   }
 
-  private requireDb(): Database {
-    if (!this.db) throw new Error("数据库未初始化，请先调用 db.init()");
-    return this.db;
+  /** 强制重新初始化（测试用） */
+  async reinit(): Promise<void> {
+    this.readyPromise = null;
+    this.backend = null;
+    await this.init();
+  }
+
+  private requireDb(): SQLBackend {
+    if (!this.backend) throw new Error("数据库未初始化，请先调用 db.init()");
+    return this.backend;
   }
 
   // ==================== Decks ====================

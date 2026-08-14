@@ -953,3 +953,546 @@ export async function backupToWebDAV(
 + 新增 记忆可检索度实时展示（ts-fsrs get_retrievability）
 + 新增 Easy Days 负载均衡功能（差异化竞争力）
 ```
+
+---
+---
+
+## 七、安卓移动端移植实施方案
+
+> 调研日期：2026-08-14
+>
+> 基于 Tauri 2 官方 Android 支持能力，将现有桌面应用移植到 Android 移动端
+
+---
+
+### 7.1 可行性总评
+
+Tauri 2 原生支持 Android 构建目标。Reciter 项目的技术栈天然适合移植：
+
+| 层 | 桌面现状 | Android 可行性 | 适配难度 |
+|---|---|---|---|
+| **Rust 壳** | Tauri 2 Builder + 3 个 plugin | ✅ 官方支持 `crate-type = ["cdylib"]` 已配置 | 🟢 零改动 |
+| **前端 React** | React 18 + Vite 7 + Tailwind v4 | ✅ WebView 渲染，完全复用 | 🟢 零改动 |
+| **SQLite** | `tauri-plugin-sql` (WAL) | ✅ 插件原生支持 Android | 🟢 零改动 |
+| **HTTP** | `tauri-plugin-http` | ✅ 插件原生支持 Android | 🟢 零改动 |
+| **文件对话框** | `tauri-plugin-dialog` (open/save) | ⚠️ 移动端 `save()` 不支持，需适配 | 🟡 中等 |
+| **自定义命令** | `write_text_file` / `read_text_file` | ⚠️ 路径需改用沙箱目录 | 🟡 中等 |
+| **UI 布局** | 固定侧边栏 + 1280×800 桌面窗口 | ❌ 需重构为移动端响应式 | 🔴 较大 |
+| **状态管理** | Zustand + React Router | ✅ 完全复用 | 🟢 零改动 |
+| **SRS 算法** | ts-fsrs（纯 JS） | ✅ 无平台依赖 | 🟢 零改动 |
+| **AI 客户端** | OpenAI 兼容接口 | ✅ 经 tauri-plugin-http（绕过 CORS） | 🟢 零改动 |
+
+**结论**：核心业务逻辑（数据库/SRS/AI/解析）**100% 复用**，工作量集中在**环境搭建、UI 响应式改造、文件系统适配**三个方面。
+
+---
+
+### 7.2 开发环境搭建
+
+#### 7.2.1 前置依赖安装
+
+| 依赖 | 版本要求 | 说明 |
+|---|---|---|
+| Android Studio | 最新稳定版 (Ladybug+) | 提供 SDK Manager / AVD |
+| Android SDK | API 24+（推荐 API 34） | Tauri 2 最低支持 API 24 (Android 7.0) |
+| Android NDK | r27+（推荐 r27c） | Rust 交叉编译原生库 |
+| Java JDK | 17+ | Android Gradle 构建需要 |
+| Rust targets | `aarch64-linux-android` 等 | 交叉编译目标 |
+| Node.js + npm | 现有版本即可 | 前端构建不变 |
+
+#### 7.2.2 Windows 环境配置步骤
+
+```powershell
+# ===== Step 1: 安装 Android Studio =====
+# 手动下载安装 https://developer.android.com/studio
+# 或 winget：
+winget install Google.AndroidStudio
+
+# ===== Step 2: SDK / NDK 配置 =====
+# 打开 Android Studio → Settings → SDK Manager
+# 勾选安装：
+#   - Android SDK Platform 34 (或更高)
+#   - Android SDK Build-Tools 34.0.0
+#   - NDK (Side by side) 27.2.xxxxx
+#   - Android SDK Command-line Tools
+#   - CMake 3.22+
+
+# ===== Step 3: 环境变量 =====
+# 写入系统环境变量（或用户 profile）
+[System.Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Android\Android Studio\jbr", "User")
+[System.Environment]::SetEnvironmentVariable("ANDROID_HOME", "$env:LOCALAPPDATA\Android\Sdk", "User")
+[System.Environment]::SetEnvironmentVariable("NDK_HOME", "$env:LOCALAPPDATA\Android\Sdk\ndk\27.2.12479018", "User")
+
+# 追加 PATH
+$env:Path += ";$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin"
+
+# ===== Step 4: Rust Android 交叉编译目标 =====
+rustup target add aarch64-linux-android   # ARM 64-bit（主流设备）
+rustup target add armv7-linux-androideabi  # ARM 32-bit（旧设备）
+rustup target add i686-linux-android       # x86 模拟器
+rustup target add x86_64-linux-android     # x86_64 模拟器
+
+# ===== Step 5: Tauri Android 初始化 =====
+cd F:\AI\Reciter
+npm run tauri android init
+```
+
+#### 7.2.3 初始化产物说明
+
+`npm run tauri android init` 将在 `src-tauri/gen/android/` 下生成完整的 Android 工程：
+
+```
+src-tauri/gen/android/
+├── app/
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml    # 应用清单（权限声明）
+│   │   ├── java/.../MainActivity.kt
+│   │   └── res/                   # 图标 / 启动屏等资源
+│   └── build.gradle.kts
+├── buildSrc/
+├── gradle/
+├── build.gradle.kts               # 根构建脚本
+└── settings.gradle.kts
+```
+
+---
+
+### 7.3 Tauri 配置适配
+
+#### 7.3.1 `tauri.conf.json` 无需改动
+
+现有配置已满足 Android 构建要求：
+- `identifier: "com.reciter.app"` → Android 包名（反向域名格式 ✅）
+- `build.beforeBuildCommand` / `frontendDist` → 前端构建逻辑复用
+- `bundle.icon` → Android 图标由 `tauri icon` 命令另行生成
+
+#### 7.3.2 `Cargo.toml` 已就绪
+
+```toml
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+#                          ^^^^^^^ Android 需要 cdylib，已配置 ✅
+```
+
+#### 7.3.3 `lib.rs` 已就绪
+
+```rust
+#[cfg_attr(mobile, tauri::mobile_entry_point)]  // ← 移动端入口点，已配置 ✅
+pub fn run() { ... }
+```
+
+#### 7.3.4 capabilities 需新增移动端权限文件
+
+现有 [`default.json`](file:///F:/AI/Reciter/src-tauri/capabilities/default.json) 的 `$schema` 引用桌面 schema，需新增移动端 capability：
+
+```jsonc
+// src-tauri/capabilities/mobile.json（新建）
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Capability for mobile",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*:*" },
+        { "url": "http://localhost:*" },
+        { "url": "http://127.0.0.1:*" }
+      ]
+    },
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-select",
+    "sql:allow-execute",
+    "sql:allow-close"
+  ]
+}
+```
+
+#### 7.3.5 AndroidManifest.xml 权限补充
+
+`npm run tauri android init` 生成的清单文件需确认包含网络权限（AI 接口 / WebDAV）：
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+```
+
+---
+
+### 7.4 代码适配：三个需要改动的模块
+
+#### 7.4.1 文件系统适配 — [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts)
+
+**问题**：桌面端备份使用 `tauri-plugin-dialog` 的 `save()` 选择保存路径 + `invoke("write_text_file")` 写入任意文件路径。Android 沙箱不允许写入任意路径，`save()` 对话框在移动端不可用。
+
+**适配方案**：
+
+```
+                    ┌─────────────────────┐
+                    │  平台检测分支逻辑    │
+                    └──────┬──────────────┘
+                           │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+      【桌面端：现有逻辑】        【Android 端】
+      save() → 用户选路径         写入应用沙箱 appDataDir
+      write_text_file              + 通过 Android Share Intent
+                                     分享到其他应用/文件管理器
+```
+
+**具体改动**：
+
+```typescript
+// src/lib/backup.ts — 新增平台感知逻辑
+
+import { platform } from "@tauri-apps/plugin-os";  // 新增依赖
+
+export async function exportToJSON(): Promise<BackupResult> {
+  const data = await buildBackup();
+  const json = JSON.stringify(data, null, 2);
+  const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+  const fileName = "reciter-backup-" + stamp + ".json";
+
+  if (platform() === "android") {
+    // Android：写入 appDataDir 后触发系统分享
+    const dir = await appDataDir();           // tauri-plugin-fs
+    const filePath = dir + "/" + fileName;
+    await invoke("write_text_file", { path: filePath, content: json });
+    // 可选：调用 Android Share Intent 分享文件
+    return { ok: true, message: "已保存到应用数据目录", decks: data.decks.length, cards: data.cards.length };
+  } else {
+    // 桌面端：原有逻辑不变
+    const path = await save({ defaultPath: fileName, filters: [...] });
+    ...
+  }
+}
+```
+
+**需新增 Cargo 依赖**：
+```toml
+# src-tauri/Cargo.toml
+tauri-plugin-os = "2"     # 平台检测
+tauri-plugin-fs = "2"     # 移动端文件操作（appDataDir）
+```
+
+#### 7.4.2 文件导入适配 — [`Import.tsx`](file:///F:/AI/Reciter/src/pages/Import.tsx)
+
+**现状**：桌面端导入页使用 HTML5 `<input type="file">` + 拖拽 `onDrop`，通过浏览器 File API 读取文件内容（`FileReader`）。
+
+**Android 适配**：
+- ✅ HTML5 File API 在 Android WebView 中**可用**
+- ✅ `<input type="file">` 会调用系统文件选择器
+- ⚠️ 拖拽事件在触屏不可用，但导入按钮仍可触发文件选择
+- **改动极小**：仅需确保触控交互可达，无需改底层逻辑
+
+#### 7.4.3 Rust 自定义命令适配 — [`lib.rs`](file:///F:/AI/Reciter/src-tauri/src/lib.rs)
+
+**问题**：`write_text_file` / `read_text_file` 使用 `std::fs::write/read_to_string` 写入用户指定的绝对路径，Android 沙箱限制文件访问。
+
+**适配方案**：
+
+```rust
+// 方案 A（推荐）：改用 tauri-plugin-fs，前端直接调用
+//   → 删除自定义命令，用插件 API 替代
+//   → 插件自动处理沙箱路径作用域
+
+// 方案 B（最小改动）：保持自定义命令，但路径由前端传入沙箱相对路径
+//   → 前端通过 appDataDir() 获取沙箱根目录
+//   → Rust 侧拼接完整路径
+```
+
+---
+
+### 7.5 UI 响应式改造（核心工作量）
+
+#### 7.5.1 布局架构变更
+
+桌面端采用固定 `w-56` 侧边栏 + 右侧内容区的经典桌面布局。移动端需改为底部标签栏导航。
+
+```
+桌面端布局：                     移动端布局：
+┌──────┬──────────────┐         ┌──────────────────┐
+│      │              │         │     Header       │
+│ Side │    Content   │    →    ├──────────────────┤
+│ bar  │              │         │                  │
+│      │              │         │    Content       │
+│      │              │         │                  │
+│      │              │         ├──────────────────┤
+└──────┴──────────────┘         │  BottomTabBar    │
+                                └──────────────────┘
+```
+
+#### 7.5.2 组件改造清单
+
+| 组件 | 改动内容 | 优先级 |
+|---|---|---|
+| [`MainLayout.tsx`](file:///F:/AI/Reciter/src/components/layout/MainLayout.tsx) | 响应式切换：桌面侧边栏 ↔ 移动底部标签栏 | P0 |
+| [`Sidebar.tsx`](file:///F:/AI/Reciter/src/components/layout/Sidebar.tsx) | 桌面保持不变；移动端隐藏，新建 `BottomTabBar` | P0 |
+| [`Header.tsx`](file:///F:/AI/Reciter/src/components/layout/Header.tsx) | 移动端显示页面标题 + 汉堡菜单（可选） | P1 |
+| [`Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx) | 卡片区域全屏化；四档评分按钮改为底部固定条 | P0 |
+| [`Dashboard.tsx`](file:///F:/AI/Reciter/src/pages/Dashboard.tsx) | 网格布局改为单列堆叠 | P1 |
+| [`DeckList.tsx`](file:///F:/AI/Reciter/src/pages/DeckList.tsx) | 卡片网格改为列表 | P1 |
+| [`DeckDetail.tsx`](file:///F:/AI/Reciter/src/pages/DeckDetail.tsx) | 表格改为卡片列表，按钮组紧凑化 | P1 |
+| [`Import.tsx`](file:///F:/AI/Reciter/src/pages/Import.tsx) | 移除拖拽区域交互，保留按钮触发 | P1 |
+| [`Stats.tsx`](file:///F:/AI/Reciter/src/pages/Stats.tsx) | 图表宽度 100%；热力图横向可滚动 | P2 |
+| [`Settings.tsx`](file:///F:/AI/Reciter/src/pages/Settings.tsx) | 表单布局改为全宽单列 | P2 |
+
+#### 7.5.3 响应式策略 — Tailwind 断点
+
+```css
+/* 利用 Tailwind v4 的断点系统 */
+/* sm: 640px  md: 768px  lg: 1024px */
+
+/* 核心策略：
+   - < md (768px)  → 移动端布局（底部导航、单列、全宽）
+   - >= md         → 桌面布局（侧边栏、多列、固定宽）
+*/
+```
+
+**MainLayout 改造示意**：
+
+```tsx
+// src/components/layout/MainLayout.tsx — 响应式改造
+export default function MainLayout() {
+  return (
+    <div className="flex h-screen w-full flex-col md:flex-row overflow-hidden">
+      {/* 桌面侧边栏：仅 md 以上显示 */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header />
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
+          <Outlet />
+        </main>
+      </div>
+
+      {/* 移动底部导航：仅 md 以下显示 */}
+      <div className="md:hidden">
+        <BottomTabBar />
+      </div>
+    </div>
+  );
+}
+```
+
+**BottomTabBar 新组件**：
+
+```tsx
+// src/components/layout/BottomTabBar.tsx（新建）
+const TAB_ITEMS = [
+  { to: "/",        label: "首页", icon: LayoutDashboard },
+  { to: "/decks",   label: "词库", icon: BookOpen },
+  { to: "/study",   label: "学习", icon: GraduationCap },
+  { to: "/import",  label: "导入", icon: FileUp },
+  { to: "/settings",label: "设置", icon: Settings },
+];
+
+export default function BottomTabBar() {
+  return (
+    <nav className="fixed bottom-0 inset-x-0 z-50 flex h-16 items-center
+                    justify-around border-t bg-background/95 backdrop-blur
+                    safe-bottom">
+      {TAB_ITEMS.map(item => (
+        <NavLink key={item.to} to={item.to} end={item.to === "/"} ...>
+          <item.icon className="size-5" />
+          <span className="text-[10px]">{item.label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+```
+
+#### 7.5.4 触控交互适配
+
+| 桌面交互 | 移动端替代 |
+|---|---|
+| hover 悬停提示（Tooltip） | 长按或直接显示文案 |
+| 右键菜单 | 长按菜单 |
+| 拖拽导入文件 | 点击按钮触发系统文件选择器 |
+| 双击编辑 | 点击进入编辑模式 |
+| 精密鼠标滚轮 | 惯性滚动 + 过渡弹性 |
+| 小号按钮（24px） | 最小触控目标 44×44px |
+
+**CSS 全局补丁**：
+
+```css
+/* src/index.css — 追加移动端适配 */
+
+/* 安全区域（刘海屏/底部手势条） */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-top    { padding-top: env(safe-area-inset-top); }
+
+/* 移动端最小触控目标 */
+@media (max-width: 767px) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* 禁止 WebView 长按选中文本（学习页面） */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+```
+
+---
+
+### 7.6 构建、调试与发布
+
+#### 7.6.1 开发调试
+
+```powershell
+# 启动 Android 模拟器（或连接物理设备，开启 USB 调试）
+# 确认设备已连接：
+adb devices
+
+# 开发模式运行（热更新）
+npm run tauri android dev
+
+# 指定设备运行（多设备时）
+npm run tauri android dev -- --device <device-id>
+```
+
+**调试方法**：
+- Chrome DevTools 远程调试：`chrome://inspect` → 选择 WebView
+- Android Studio Logcat：过滤 `Tauri` / `RustLog` 查看 Rust 日志
+- React DevTools：通过 Flipper 或远程连接
+
+#### 7.6.2 生产构建
+
+```powershell
+# 构建 APK / AAB
+npm run tauri android build
+
+# 产物位置：
+#   src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+#   src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
+```
+
+#### 7.6.3 应用签名
+
+```powershell
+# 生成签名密钥（首次）
+keytool -genkey -v -keystore reciter-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias reciter
+
+# 配置签名：编辑 src-tauri/gen/android/app/build.gradle.kts
+# 或使用 Tauri 的 signing 配置
+```
+
+#### 7.6.4 应用图标生成
+
+```powershell
+# 准备一张 1024x1024 PNG 图标，然后：
+npx tauri icon path/to/icon.png
+# 自动生成 Android 所有尺寸的 mipmap 资源
+```
+
+---
+
+### 7.7 分阶段实施计划
+
+```
+Phase A: 环境搭建 + 最小可运行 (1~2 天)
+├─ A.1 安装 Android Studio + SDK/NDK + Rust targets
+├─ A.2 npm run tauri android init
+├─ A.3 新建 mobile.json capability
+├─ A.4 AndroidManifest.xml 加网络权限
+├─ A.5 npm run tauri android dev → 在模拟器验证启动
+└─ 验收：应用在模拟器启动，桌面布局虽不理想但功能可用
+
+Phase B: 响应式 UI 改造 (3~5 天)
+├─ B.1 MainLayout 响应式分支（侧边栏 / 底部标签栏）
+├─ B.2 新建 BottomTabBar 组件
+├─ B.3 Study 页面移动端全屏卡片布局
+├─ B.4 Dashboard / DeckList / DeckDetail 单列适配
+├─ B.5 Import 页面：移除拖拽，优化按钮触控
+├─ B.6 Stats 页面：图表全宽 + 热力图横向滚动
+├─ B.7 Settings 页面：表单全宽
+├─ B.8 全局触控适配（44px 最小目标、安全区域）
+└─ 验收：所有 7 个页面在移动端布局正常、交互流畅
+
+Phase C: 文件系统 + 备份适配 (1~2 天)
+├─ C.1 新增 tauri-plugin-os + tauri-plugin-fs 依赖
+├─ C.2 backup.ts 平台分支（Android 沙箱写入 + 分享）
+├─ C.3 lib.rs 自定义命令沙箱路径适配
+├─ C.4 导入/导出功能在 Android 端验证
+└─ 验收：Android 上可正常导入 Markdown、导出/恢复 JSON 备份
+
+Phase D: 测试 + 打包发布 (1~2 天)
+├─ D.1 真机测试（ARM64 设备）
+├─ D.2 AI 功能验证（DeepSeek / Ollama 连接）
+├─ D.3 性能验证（大词库 1000+ 卡片流畅度）
+├─ D.4 签名 + 构建 Release APK
+├─ D.5 更新 README.md 移动端使用说明
+└─ 验收：Release APK 可安装、全功能可用
+```
+
+**总工期估计：6~11 天**（一人开发，熟悉 Android 基础设施前提下）
+
+---
+
+### 7.8 风险与对策
+
+| 风险 | 概率 | 影响 | 对策 |
+|---|---|---|---|
+| Android Studio + SDK/NDK 安装体积大 (~15GB) | 确定 | 低 | 一次性成本，文档明确磁盘需求 |
+| Rust 交叉编译首次较慢 (10~20 min) | 确定 | 低 | 增量编译后秒级；CI 可缓存 |
+| WebView 性能不如原生 | 低 | 中 | Reciter 无复杂动画需求，WebView 足够 |
+| Android 11+ Scoped Storage 限制 | 中 | 中 | 使用 Tauri 插件 API，自动适配沙箱 |
+| 移动端 AI API 网络不稳定 | 中 | 低 | 已有 timeout + 错误提示机制 |
+| 不同 Android 版本 WebView 内核差异 | 低 | 中 | Tauri 使用系统 WebView，最低 API 24 覆盖 95%+ 设备 |
+| 触控误操作（学习评分按钮） | 中 | 中 | 加大按钮尺寸 + 间距 + 确认机制 |
+
+---
+
+### 7.9 Tauri API 依赖全景图
+
+以下为代码中使用的所有 Tauri API 及其 Android 兼容性：
+
+| 使用位置 | Tauri API | Android 支持 | 备注 |
+|---|---|---|---|
+| [`db.ts`](file:///F:/AI/Reciter/src/lib/db.ts) | `@tauri-apps/plugin-sql` (Database.load) | ✅ | SQLite 跨平台无差异 |
+| [`ai-client.ts`](file:///F:/AI/Reciter/src/lib/ai-client.ts) | `@tauri-apps/plugin-http` (fetch) | ✅ | HTTP 跨平台无差异 |
+| [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts) | `@tauri-apps/plugin-dialog` (open, save) | ⚠️ | `open()` 可用，`save()` 需适配 |
+| [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts) | `@tauri-apps/api/core` (invoke) | ✅ | 跨平台 IPC 无差异 |
+| [`lib.rs`](file:///F:/AI/Reciter/src-tauri/src/lib.rs) | `std::fs::write/read_to_string` | ⚠️ | 路径需限制在沙箱内 |
+
+---
+
+### 7.10 与桌面端共存策略
+
+移植后项目结构变为双目标共存，无需分仓：
+
+```
+F:\AI\Reciter
+├── src/                          # React 前端（共用）
+│   ├── components/layout/
+│   │   ├── Sidebar.tsx           # 桌面端侧边栏
+│   │   ├── BottomTabBar.tsx      # 移动端底部导航（新增）
+│   │   └── MainLayout.tsx        # 响应式分支
+│   └── ...
+├── src-tauri/
+│   ├── capabilities/
+│   │   ├── default.json          # 桌面端权限
+│   │   └── mobile.json           # 移动端权限（新增）
+│   ├── gen/android/              # Android 工程（自动生成）
+│   └── ...
+└── ...
+
+# 构建命令
+npm run tauri dev              # 桌面开发
+npm run tauri build            # 桌面打包
+npm run tauri android dev      # Android 开发
+npm run tauri android build    # Android 打包
+```
+
+**一套代码、两个平台**——Tauri 2 的核心优势。

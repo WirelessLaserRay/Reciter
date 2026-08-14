@@ -21,6 +21,30 @@
 
 ---
 
+## [0.7.0] - 2026-08-14
+
+### Added
+
+- **PWA 网页版（平板/手机/任何浏览器运行，零安卓工具链）**：
+  - 存储层抽象为 `SQLBackend` 双实现：Tauri 环境用 `tauri-plugin-sql`（Windows 行为不变）；Web 环境用 `sql.js`（WASM SQLite）+ IndexedDB 持久化，**完全相同的 SQL 与迁移脚本**
+  - 迁移 SQL 镜像为 `src/lib/migrations.ts`（web 端初始化时执行 001/002/003）
+  - 环境检测 `isTauri()`：备份/导出改浏览器下载、导入改文件选择器、AI 请求回退 `window.fetch`
+  - PWA 清单 + Service Worker（`vite-plugin-pwa`，离线可用），图标 192/512 已生成，`sql-wasm.wasm` 静态化
+  - `build:web`（base=/Reciter/）+ GitHub Pages 自动部署工作流
+- **使用方式**：GitHub Pages 部署后，平板浏览器打开网址 → 添加到主屏幕 → 全屏离线运行
+
+### Notes
+
+- Web 端 AI 功能受浏览器 CORS 限制，直连 DeepSeek/OpenAI 可能被拒（可加 Cloudflare Worker 代理或暂不用 AI）；Windows/Tauri 端 AI 不受影响
+- Windows 端功能与行为完全不变（后端运行时自动选择）
+
+### Verified
+
+- ✅ sql.js 后端单测（node）：迁移/建库/upsert+RETURNING/标签 LIKE/时间函数全部通过
+- ✅ `npm run build` + `build:web` 通过；dist 含 sw.js/manifest/图标/wasm
+
+---
+
 ## [0.6.1] - 2026-08-14
 
 ### Added
