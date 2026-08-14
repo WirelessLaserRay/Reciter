@@ -17,9 +17,45 @@
 ## [Unreleased]
 
 ### Planned
-- **Phase 3 · FSRS-5 记忆算法**（ts-fsrs 集成、学习队列、四档评分、due 调度）
 - **Phase 4 · AI 智能复习**（DeepSeek/Ollama 双通道、完形/语境测试、判分申诉）
 - **Phase 5 · 统计与打磨**（图表/热力图、JSON 导出 + WebDAV、翻转动画、主题打磨）
+
+---
+
+## [0.3.0] - 2026-08-14
+
+> **里程碑**：Phase 3 完成 —— FSRS-5 记忆算法集成，学习流程（due 队列 + 新卡配额 + 四档评分）可用。
+
+### Added
+
+- **FSRS-5 调度封装 `src/lib/fsrs.ts`**（ts-fsrs v5.4.1）：调度器缓存（按目标记忆率重建）、DB↔FSRS 状态转换（含 v5 新增 `learning_steps`）、`reviewCard` / `previewIntervals`（评分按钮间隔预览）/ `getRetrievability`（记忆可检索度实时展示）
+- **学习队列核心 `src/stores/useStudyStore.ts`**：
+  - 队列 = 今日到期卡片（Learning/Review/Relearning，due 升序）+ 配额内新卡（`deck.new_cards_per_day - 今日已学新卡`）
+  - `rate()`：FSRS 调度 → 持久化 card_states → 写 review_logs（含 response_time_ms）→ 累加 daily_stats → 会话统计
+  - Learning 状态与 Again 评分卡片自动重插队列尾部（同 session 内按步骤重复）
+- **学习界面重写 `src/pages/Study.tsx`**：词库选择页 → 3D 翻转卡片（正面单词/背面释义+标签+可检索度）→ 四档评分按钮（显示预计间隔）→ 进度条 → 完成摘要；键盘快捷键 1-4
+- **Dashboard 真实统计**：今日待复习（due < 日界）、新卡待学（state=New）
+- **设置页 FSRS 控制**：目标记忆率滑块（0.80~0.95，改后调度器重建）、今日起始时间（默认 04:00，时区陷阱对策）
+- **迁移 002**：card_states 增加 `learning_steps`（Learning 步骤进度持久化，重启不丢）
+
+### Fixed
+
+- **迁移 checksum 校验失败**：修改已应用的 001_init.sql 导致 sqlx checksum 不匹配、后续迁移无法执行；还原 001 后恢复（教训：已应用迁移不可修改）
+- **时间格式不一致（严重）**：SQLite `datetime('now')` 生成 `'YYYY-MM-DD HH:MM:SS'`，ts-fsrs 写入 ISO `'YYYY-MM-DDTHH:MM:SS.sssZ'`；字符串比较中 `' '`(0x20) < `'T'`(0x54) 导致 due 判断与新卡配额统计错乱（`countNewLearnedToday` 恒为 0 → 新卡配额失效）。迁移 003 规范化历史数据 + 应用层所有时间写入统一为 ISO UTC
+- **daily_stats 增量丢失**：`ON CONFLICT DO UPDATE` 仅在行已存在时累加，当日首次复习插入默认值 0；改为 `excluded` 累加模式（新行直接写增量）
+
+### Infrastructure
+
+- 依赖：`ts-fsrs` v5.4.1；迁移 002/003
+- 冒烟测试（tsx）：FSRS 调度流转验证（New→Learning→Review、Learning 步骤内 Again 重置、Review+Again→Relearning、间隔预览、可检索度、DB 往返）
+- 学习流程 SQL 链路验证（Python sqlite3，回滚模式）：评分后 due 推移、`countNewLearnedToday`、日报跨天累加
+
+### Verified
+
+- ✅ `npm run build`：tsc + vite 构建通过
+- ✅ `npm run tauri dev`：416 crates 编译，窗口正常
+- ✅ 迁移 [1,2,3] 全部应用；card_states 时间统一 ISO 格式
+- ✅ FSRS 单测：新卡预览（Again 1min/Hard 6min/Good 10min/Easy 7d）、Learning 毕业 2d、Relearning 1h10m
 
 ---
 

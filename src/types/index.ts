@@ -37,6 +37,7 @@ export interface CardState {
   scheduled_days: number;
   reps: number;
   lapses: number;
+  learning_steps: number; // ts-fsrs v5 学习步骤进度
   desired_retention: number;
   algorithm_version: string; // 'FSRS-5'
 }

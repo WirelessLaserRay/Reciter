@@ -17,7 +17,7 @@
 | 功能 | 说明 | 状态 |
 |---|---|---|
 | 🗂️ 灵活数据导入 | Markdown（`## 标题` 分词库、`- word: meaning` 成卡、`> 引用块` 例句、`==高亮==` 挖空素材）/ CSV / JSON 批量导入，导入前预览、冲突检测 | Phase 2 |
-| 🧠 科学记忆系统 | FSRS-5 间隔重复算法，目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转 | Phase 3 |
+| 🧠 科学记忆系统 | FSRS-5 间隔重复算法（ts-fsrs v5），目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转，评分按钮实时显示下一间隔 | ✅ Phase 3 |
 | 🤖 AI 语境测试 | 完形填空 / 情景对话 / AI 判分（流式输出），判分可申诉；DeepSeek 与 Ollama 一键切换 | Phase 4 |
 | 📊 学习统计 | 复习量柱状图、记忆保留率折线图、365 天热力图（自定义 CSS Grid 实现） | Phase 5 |
 | 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；JSON 导出 + WebDAV 备份 | ✅ Phase 2 / Phase 5 |
@@ -123,8 +123,8 @@ F:\AI\Reciter
 │   │   ├── ui/                       # shadcn/ui 组件（button/card/tabs/... 15 个）
 │   │   └── layout/                   # Sidebar / Header / MainLayout
 │   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
-│   ├── stores/                       # Zustand store（theme/deck/db 状态）
-│   ├── lib/                          # db.ts / markdown-parser.ts / importer.ts / utils.ts
+│   ├── stores/                       # Zustand store（theme/deck/db/study）
+│   ├── lib/                          # db / fsrs / day / markdown-parser / importer / utils
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
 ├── src-tauri/                        # Tauri 2 Rust 壳
 │   ├── src/main.rs / lib.rs          # 入口 + Builder
@@ -157,8 +157,8 @@ F:\AI\Reciter
 |---|---|---|
 | **1** | 脚手架（Tauri 2 + Vite + React 18 + Tailwind v4 + shadcn），路由骨架 6 页，暗色主题 | ✅ 已完成 |
 | **2** | SQLite 接入 + 迁移，Deck/Card CRUD + upsert，Markdown/CSV/JSON 导入解析 + 预览 | ✅ 已完成 |
-| **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ⏳ 进行中 |
-| **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ⏳ 待开始 |
+| **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ✅ 已完成 |
+| **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ⏳ 进行中 |
 | **5** | 统计图表 + 自定义热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨 | ⏳ 待开始 |
 
 ---

@@ -6,6 +6,27 @@ export interface UpsertResult {
   created: boolean;
 }
 
+/** 学习队列行（cards JOIN card_states 扁平化） */
+export interface StudyCardRow {
+  card_id: number;
+  deck_id: number;
+  front: string;
+  back: string;
+  tags: string;
+  state: number;
+  stability: number;
+  difficulty: number;
+  due: string;
+  last_review: string | null;
+  elapsed_days: number;
+  scheduled_days: number;
+  learning_steps: number;
+  reps: number;
+  lapses: number;
+  desired_retention: number;
+  algorithm_version: string;
+}
+
 export interface ReviewLogInsert {
   card_id: number;
   grade: 1 | 2 | 3 | 4;
@@ -20,6 +41,11 @@ export interface ReviewLogInsert {
  * - 迁移由 Rust 侧插件自动执行（src-tauri/migrations/001_init.sql）
  * - 表结构见 PLAN.md：decks / cards / card_states / review_logs / settings / daily_stats
  */
+/** 当前时间 ISO-8601 UTC（所有时间写入统一格式） */
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 class ReciterDB {
   private db: Database | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -59,8 +85,8 @@ class ReciterDB {
   async createDeck(name: string, description = ""): Promise<number> {
     const db = this.requireDb();
     await db.execute(
-      "INSERT OR IGNORE INTO decks (name, description, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
-      [name, description]
+      "INSERT OR IGNORE INTO decks (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      [name, description, nowIso(), nowIso()]
     );
     const rows = await db.select<{ id: number }[]>("SELECT id FROM decks WHERE name = ?", [name]);
     return rows[0].id;
@@ -76,7 +102,8 @@ class ReciterDB {
     if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
     if (data.new_cards_per_day !== undefined) { sets.push("new_cards_per_day = ?"); params.push(data.new_cards_per_day); }
     if (sets.length === 0) return;
-    sets.push("updated_at = datetime('now')");
+    params.push(nowIso());
+    sets.push("updated_at = ?");
     params.push(id);
     await this.requireDb().execute(`UPDATE decks SET ${sets.join(", ")} WHERE id = ?`, params);
   }
@@ -143,15 +170,15 @@ class ReciterDB {
     const tags = JSON.stringify(opts.tags ?? []);
     const rows = await db.select<{ id: number }[]>(
       `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(deck_id, front) DO UPDATE SET
          back = excluded.back,
          markdown_content = excluded.markdown_content,
          source_type = excluded.source_type,
          tags = excluded.tags,
-         updated_at = datetime('now')
+         updated_at = excluded.updated_at
        RETURNING id`,
-      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags]
+      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, nowIso(), nowIso()]
     );
     const cardId = rows[0].id;
     if (knownExisting && !wasKnown) knownExisting.add(opts.front);
@@ -217,10 +244,11 @@ class ReciterDB {
   async addReviewLog(log: ReviewLogInsert): Promise<void> {
     await this.requireDb().execute(
       `INSERT INTO review_logs (card_id, grade, reviewed_at, response_time_ms, source, ai_question, ai_answer)
-       VALUES (?, ?, datetime('now'), ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         log.card_id,
         log.grade,
+        nowIso(),
         log.response_time_ms ?? null,
         log.source ?? "review",
         log.ai_question ?? null,
@@ -256,28 +284,103 @@ class ReciterDB {
     );
   }
 
+
+  // ==================== 学习队列查询（Phase 3） ====================
+
+  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序 */
+  async getDueCards(deckId: number, before: string): Promise<StudyCardRow[]> {
+    return this.requireDb().select<StudyCardRow[]>(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ?
+       ORDER BY cs.due ASC, c.id ASC`,
+      [deckId, before]
+    );
+  }
+
+  /** 新卡片（state = 0），按 id 升序取 limit 张 */
+  async getNewCards(deckId: number, limit: number): Promise<StudyCardRow[]> {
+    return this.requireDb().select<StudyCardRow[]>(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.deck_id = ? AND cs.state = 0
+       ORDER BY c.id ASC
+       LIMIT ?`,
+      [deckId, limit]
+    );
+  }
+
+  /** 今日已学习的新卡数（卡片首次复习发生在 dayStart 之后） */
+  async countNewLearnedToday(deckId: number, dayStart: string): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(*) AS cnt FROM cards c
+       WHERE c.deck_id = ?
+         AND EXISTS (SELECT 1 FROM review_logs r WHERE r.card_id = c.id AND r.reviewed_at >= ?)
+         AND NOT EXISTS (SELECT 1 FROM review_logs r2 WHERE r2.card_id = c.id AND r2.reviewed_at < ?)`,
+      [deckId, dayStart, dayStart]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 全局今日待复习数（due < dayEnd 且已学过） */
+  async getGlobalDueCount(before: string): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      "SELECT COUNT(*) AS cnt FROM card_states WHERE reps > 0 AND due < ?",
+      [before]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 全局新卡片数（state = 0） */
+  async getGlobalNewCount(): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      "SELECT COUNT(*) AS cnt FROM card_states WHERE state = 0"
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 各词库今日待复习数 */
+  async getDeckDueCounts(before: string): Promise<Record<number, number>> {
+    const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(
+      `SELECT c.deck_id, COUNT(*) AS cnt FROM cards c
+       JOIN card_states cs ON cs.card_id = c.id
+       WHERE cs.reps > 0 AND cs.due < ?
+       GROUP BY c.deck_id`,
+      [before]
+    );
+    const map: Record<number, number> = {};
+    for (const r of rows) map[r.deck_id] = r.cnt;
+    return map;
+  }
+
   // ==================== DailyStats ====================
 
-  /** 累加式更新日报（date: 'YYYY-MM-DD'） */
+  /** 累加式更新日报（date: 'YYYY-MM-DD'）；新行直接写入增量，已有行累加（excluded 模式） */
   async updateDailyStats(
     date: string,
     delta: Partial<Pick<DailyStats, "new_count" | "review_count" | "again_count" | "total_time_ms">>
   ): Promise<void> {
-    const cols: string[] = [];
-    const params: (string | number)[] = [];
-    (["new_count", "review_count", "again_count", "total_time_ms"] as const).forEach((col) => {
-      const v = delta[col];
-      if (v !== undefined && v !== 0) {
-        cols.push(`${col} = ${col} + ?`);
-        params.push(v);
-      }
-    });
-    if (cols.length === 0) return;
-    params.push(date);
+    const v = {
+      new_count: delta.new_count ?? 0,
+      review_count: delta.review_count ?? 0,
+      again_count: delta.again_count ?? 0,
+      total_time_ms: delta.total_time_ms ?? 0,
+    };
     await this.requireDb().execute(
-      `INSERT INTO daily_stats (date) VALUES (?)
-       ON CONFLICT(date) DO UPDATE SET ${cols.join(", ")}`,
-      params
+      `INSERT INTO daily_stats (date, new_count, review_count, again_count, total_time_ms)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(date) DO UPDATE SET
+         new_count = daily_stats.new_count + excluded.new_count,
+         review_count = daily_stats.review_count + excluded.review_count,
+         again_count = daily_stats.again_count + excluded.again_count,
+         total_time_ms = daily_stats.total_time_ms + excluded.total_time_ms`,
+      [date, v.new_count, v.review_count, v.again_count, v.total_time_ms]
     );
   }
 

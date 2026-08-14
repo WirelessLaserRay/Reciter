@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import {
   Card,
@@ -9,19 +10,65 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { useDbStore } from "@/stores/useDbStore";
+import { db } from "@/lib/db";
+import { invalidateFSRS } from "@/lib/fsrs";
 
 export default function Settings() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
+  const dbReady = useDbStore((s) => s.ready);
+
+  const [retention, setRetention] = useState(0.9);
+  const [dayStart, setDayStart] = useState("04:00");
+  const [saved, setSaved] = useState(false);
+
+  // 加载设置
+  useEffect(() => {
+    if (!dbReady) return;
+    (async () => {
+      const [r, d] = await Promise.all([
+        db.getSetting("desired_retention"),
+        db.getSetting("day_start"),
+      ]);
+      const rv = r ? parseFloat(r) : 0.9;
+      if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
+      setDayStart(d ?? "04:00");
+    })().catch(() => {});
+  }, [dbReady]);
+
+  const flashSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const saveRetention = async (v: number) => {
+    setRetention(v);
+    if (!dbReady) return;
+    await db.setSetting("desired_retention", String(v));
+    invalidateFSRS(); // 调度器按新目标记忆率重建
+    flashSaved();
+  };
+
+  const saveDayStart = async (v: string) => {
+    setDayStart(v);
+    if (!dbReady) return;
+    await db.setSetting("day_start", v || "04:00");
+    flashSaved();
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">设置</h2>
-        <p className="text-sm text-muted-foreground">外观、学习偏好与 AI 配置</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">设置</h2>
+          <p className="text-sm text-muted-foreground">外观、学习偏好与 AI 配置</p>
+        </div>
+        {saved && <span className="text-xs text-green-600">已保存 ✓</span>}
       </div>
 
       <Tabs defaultValue="appearance">
@@ -71,31 +118,55 @@ export default function Settings() {
         <TabsContent value="learning" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>学习偏好</CardTitle>
-              <CardDescription>
-                Phase 3 接入 FSRS 后生效
-              </CardDescription>
+              <CardTitle>FSRS 学习偏好</CardTitle>
+              <CardDescription>修改后立即生效（下次加载队列时应用）</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>目标记忆率</Label>
-                  <p className="text-xs text-muted-foreground">FSRS desired retention (默认 0.90)</p>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>目标记忆率（desired retention）</Label>
+                  <span className="font-mono text-sm">{retention.toFixed(2)}</span>
                 </div>
-                <span className="text-sm font-mono">0.90</span>
+                <Slider
+                  min={0.8}
+                  max={0.95}
+                  step={0.01}
+                  value={[retention]}
+                  onValueChange={(v) => saveRetention(v[0])}
+                />
+                <p className="text-xs text-muted-foreground">
+                  越高复习越频繁、记忆越牢；越低复习间隔越长。默认 0.90（FSRS 推荐区间 0.8~0.95）
+                </p>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="day-start">今日起始时间（新的一天起点）</Label>
+                <Input
+                  id="day-start"
+                  type="time"
+                  value={dayStart}
+                  onChange={(e) => saveDayStart(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  默认 04:00（Anki 惯例）。日界之前的复习计入前一天（时区陷阱对策）
+                </p>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>每日新卡上限</Label>
-                  <p className="text-xs text-muted-foreground">每个词库每日新卡配额</p>
+                  <p className="text-xs text-muted-foreground">
+                    在「词库」页逐词库配置（默认 20 张/天）
+                  </p>
                 </div>
-                <span className="text-sm font-mono">20</span>
+                <span className="text-sm font-mono text-muted-foreground">按词库</span>
               </div>
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Easy Days 负载均衡</Label>
                   <p className="text-xs text-muted-foreground">
-                    避免周末复习堆积（Anki 2025 新特性对标）
+                    避免周末/特定日期复习堆积（规划中）
                   </p>
                 </div>
                 <Switch disabled />

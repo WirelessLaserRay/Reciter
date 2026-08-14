@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, CalendarClock, FileUp, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,15 +9,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { db } from "@/lib/db";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
+import { getDayEndDate, parseDayStartHour } from "@/lib/day";
 
 export default function Dashboard() {
   const dbReady = useDbStore((s) => s.ready);
   const { decks, cardCounts, refresh } = useDeckStore();
+  const [dueCount, setDueCount] = useState(0);
+  const [newCount, setNewCount] = useState(0);
+
   useEffect(() => {
     if (dbReady) {
       refresh();
+      (async () => {
+        const hour = parseDayStartHour(await db.getSetting("day_start"));
+        const dayEnd = getDayEndDate(hour);
+        const [due, fresh] = await Promise.all([
+          db.getGlobalDueCount(dayEnd.toISOString()),
+          db.getGlobalNewCount(),
+        ]);
+        setDueCount(due);
+        setNewCount(fresh);
+      })().catch(() => {});
     }
   }, [dbReady, refresh]);
 
@@ -29,13 +44,13 @@ export default function Dashboard() {
   });
 
   const deckCount = decks.length;
-  const learnedCount = Object.values(cardCounts).reduce((a, b) => a + b, 0);
+  const cardTotal = Object.values(cardCounts).reduce((a, b) => a + b, 0);
 
   const STATS = [
-    { label: "今日待复习", value: "0", icon: CalendarClock, hint: "Phase 3 接入 FSRS" },
-    { label: "今日新卡", value: "0", icon: GraduationCap, hint: "Phase 3 接入 FSRS" },
+    { label: "今日待复习", value: String(dueCount), icon: CalendarClock, hint: "due 今日 04:00 前" },
+    { label: "新卡待学", value: String(newCount), icon: GraduationCap, hint: "FSRS state = New" },
     { label: "词库总数", value: String(deckCount), icon: BookOpen, hint: "本地 SQLite" },
-    { label: "卡片总数", value: String(learnedCount), icon: GraduationCap, hint: "本地 SQLite" },
+    { label: "卡片总数", value: String(cardTotal), icon: GraduationCap, hint: "本地 SQLite" },
   ];
 
   return (
@@ -67,7 +82,7 @@ export default function Dashboard() {
       <Card>
         <CardHeader>
           <CardTitle>快捷操作</CardTitle>
-          <CardDescription>今日学习队列将在 Phase 3 接入 FSRS 后启用</CardDescription>
+          <CardDescription>FSRS-5 调度：今日到期卡片 + 配额内新卡</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button asChild>
@@ -93,9 +108,10 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           <p>
-            当前共 <span className="font-medium text-foreground">{deckCount}</span> 个词库、{" "}
-            <span className="font-medium text-foreground">{learnedCount}</span> 张卡片。
-            完成导入后即可开始学习。
+            今日待复习 <span className="font-medium text-foreground">{dueCount}</span> 张，
+            新卡可学 <span className="font-medium text-foreground">{newCount}</span> 张
+            （受各词库每日配额限制）。
+            进入「学习」页选择词库即可开始。
           </p>
         </CardContent>
       </Card>
