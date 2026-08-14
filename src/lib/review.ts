@@ -8,6 +8,9 @@ export type ReviewSource = "review" | "quiz" | "ai_test";
 export interface ApplyReviewOptions {
   source?: ReviewSource;
   responseTimeMs?: number;
+  /** AI 测试：题目内容与用户回答（写入 review_logs） */
+  aiQuestion?: string | null;
+  aiAnswer?: string | null;
 }
 
 /**
@@ -34,6 +37,8 @@ export async function applyReview(
     grade: grade as 1 | 2 | 3 | 4,
     response_time_ms: opts.responseTimeMs ?? null,
     source: opts.source ?? "review",
+    ai_question: opts.aiQuestion ?? null,
+    ai_answer: opts.aiAnswer ?? null,
   });
 
   const hour = parseDayStartHour(await db.getSetting("day_start"));

@@ -181,17 +181,17 @@ export default function QuizSession({
     const n = configCount === "all" ? pool.length : parseInt(configCount, 10);
     const built = buildItems(pool, configType, Math.max(1, Math.min(n, pool.length)));
 
-    // 预留 AI 出题：AI 可用时尝试为每题生成语境/干扰题（Phase 4 生效）
+    // AI 出题：为填空生成语境完形题；为选择题生成语境提示
     if (useAI && aiClientRef.current?.isReady) {
       for (const it of built) {
         const q = await aiClientRef.current.generateQuestion({
           front: it.card.front,
           back: it.card.back,
-          type: it.type === "fill-cn2en" ? "cloze" : "choice",
+          type: it.type === "fill-cn2en" ? "cloze" : "context",
         });
-        if (q) {
-          it.aiQuestion = q;
-          it.aiType = it.type === "fill-cn2en" ? "cloze" : "choice";
+        if (q?.question) {
+          it.aiQuestion = q.question;
+          it.aiType = it.type === "fill-cn2en" ? "cloze" : "context";
         }
       }
     }

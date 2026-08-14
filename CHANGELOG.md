@@ -17,9 +17,41 @@
 ## [Unreleased]
 
 ### Planned
-- **Phase 4 · AI 智能复习**（DeepSeek/Ollama 双通道、完形/语境测试、判分申诉）
-- **Phase 5 · 统计与打磨**（图表/热力图、JSON 导出 + WebDAV、翻转动画、主题打磨）
+- **Phase 5 · 统计与打磨**（图表/热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨）
 
+---
+
+## [0.4.0] - 2026-08-14
+
+> **里程碑**：Phase 4 完成 —— AI 接口配置（DeepSeek/Ollama/OpenAI）、AI 深度复习（流式出题 + 判分 + 申诉）、测试模式 AI 出题全部接通。
+
+### Added
+
+- **AI 配置页**（设置 → AI 配置）：
+  - 快速切换预设（DeepSeek / Ollama 本地 / OpenAI），云端/本地徽标自动识别
+  - API 地址 / API Key / 模型 / 温度（0~1 滑块）配置，保存到 settings KV
+  - **测试连接**按钮：发送极简请求验证配置并回显
+  - **Prompt 模板编辑**：完形填空 / 语境造句 / AI 判分三套模板（支持 {word} {meaning} {level} {question} {answer} {userAnswer} 占位符），可保存、恢复默认
+- **AI 客户端 `src/lib/ai-client.ts`**（tauri-plugin-http 直连，无 CORS）：
+  - `chat`（非流式）、`streamChat`（SSE 流式逐 token 回调，兼容服务端忽略 stream 的 JSON 响应）
+  - `generateQuestion`（完形/语境出题，渲染用户模板）、`gradeAnswer`（判分并解析 1-4 分与评语）、`testConnection`
+- **AI 深度复习**（学习页新增按钮，`src/components/ai/AIDeepReviewDialog.tsx`）：
+  - 流式生成完形填空/语境对话 → 用户作答（Ctrl+Enter 提交）→ AI 判分 → **申诉机制**（手动改评分 1-4）→ 评分回填 FSRS
+  - review_logs 记录 source='ai_test' + ai_question/ai_answer（经共享 `applyReview` 链路）
+- **测试模式 AI 出题**：AI 配置可用时启用「AI 出题」开关，填空生成语境完形题、选择题生成语境提示（题目带 ✨AI 徽标）
+- **解析工具 `src/lib/ai-parse.ts`**：判分结果解析（**评分**: N / 评分：N / 行内数字，兜底 3）+ SSE 行解析（token/[DONE]/error/异常容错）
+- Rust：`tauri-plugin-http` v2（capabilities 增加 http:default）
+
+### Verified
+
+- ✅ `npm run build`：tsc + vite 通过
+- ✅ `npm run tauri dev`：tauri-plugin-http 编译（477 crates），窗口正常
+- ✅ AI 解析单测（tsx）：判分 6 例 + SSE 6 例全部通过
+- ✅ 数据库迁移 [1,2,3] 完好；词库数据增长中
+
+---
+
+## [0.3.3] - 2026-08-14
 ---
 
 ## [0.3.3] - 2026-08-14

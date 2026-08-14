@@ -22,8 +22,12 @@ interface StudyState {
   finished: boolean;
 
   loadQueue: (deckId: number) => Promise<void>;
-  /** 评分当前卡片，返回是否还有下一张 */
-  rate: (grade: 1 | 2 | 3 | 4, responseTimeMs?: number) => Promise<boolean>;
+  /** 评分当前卡片，返回是否还有下一张；opts 支持 AI 测试来源与题目/答案记录 */
+  rate: (
+    grade: 1 | 2 | 3 | 4,
+    responseTimeMs?: number,
+    opts?: { source?: "review" | "quiz" | "ai_test"; aiQuestion?: string | null; aiAnswer?: string | null }
+  ) => Promise<boolean>;
   markShown: () => void;
   reset: () => void;
 }
@@ -84,15 +88,21 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   /** 评分当前卡片：FSRS 更新 + 记录 + 日报；Learning/Again 重插队列尾部 */
-  rate: async (grade: 1 | 2 | 3 | 4, responseTimeMs?: number) => {
+  rate: async (
+    grade: 1 | 2 | 3 | 4,
+    responseTimeMs?: number,
+    opts?: { source?: "review" | "quiz" | "ai_test"; aiQuestion?: string | null; aiAnswer?: string | null }
+  ) => {
     const { queue, index, deckId } = get();
     if (deckId === null || index >= queue.length) return false;
 
     const item = queue[index];
     const wasNew = item.row.state === State.New;
     const newFsrs = await applyReview(item.row.card_id, grade as Grade, {
-      source: "review",
+      source: opts?.source ?? "review",
       responseTimeMs: responseTimeMs ?? (Date.now() - item.shownAt),
+      aiQuestion: opts?.aiQuestion ?? null,
+      aiAnswer: opts?.aiAnswer ?? null,
     });
 
     // 会话统计

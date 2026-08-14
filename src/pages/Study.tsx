@@ -8,6 +8,7 @@ import {
   Keyboard,
   Loader2,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +31,7 @@ import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
 import QuizSession from "@/components/quiz/QuizSession";
+import AIDeepReviewDialog from "@/components/ai/AIDeepReviewDialog";
 
 const RATINGS = [
   {
@@ -92,6 +94,7 @@ function StudySession() {
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [aiReviewOpen, setAiReviewOpen] = useState(false);
 
   const item = queue[index];
   const total = queue.length;
@@ -131,6 +134,24 @@ function StudySession() {
       }
     },
     [flipped, busy, rate]
+  );
+
+  /** AI 深度复习完成：以 ai_test 来源评分并推进队列 */
+  const handleAIComplete = useCallback(
+    async (grade: 1 | 2 | 3 | 4, aiQuestion: string, aiAnswer: string) => {
+      if (!item || busy) return;
+      setBusy(true);
+      try {
+        await rate(grade, Date.now() - item.shownAt, {
+          source: "ai_test",
+          aiQuestion,
+          aiAnswer,
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [item, busy, rate]
   );
 
   // 键盘快捷键 1-4
@@ -290,10 +311,29 @@ function StudySession() {
         ))}
       </div>
 
+      <Button
+        variant="secondary"
+        className="w-full"
+        disabled={busy}
+        onClick={() => setAiReviewOpen(true)}
+      >
+        <Sparkles className="size-4" />
+        AI 深度复习（生成完形/语境题并判分）
+      </Button>
+
       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
         <Keyboard className="size-3.5" />
         快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单 · 悬停按钮查看说明
       </div>
+
+      {/* AI 深度复习对话框 */}
+      <AIDeepReviewDialog
+        open={aiReviewOpen}
+        onOpenChange={setAiReviewOpen}
+        front={item.row.front}
+        back={item.row.back}
+        onComplete={handleAIComplete}
+      />
     </div>
   );
 }
