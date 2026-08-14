@@ -21,6 +21,15 @@
 
 ---
 
+## [0.8.1] - 2026-08-14
+
+### Fixed
+
+- **拖入导入在 Windows/Tauri 下失效**：WebView2 出于安全不向网页暴露 `dataTransfer.files`（HTML5 拖放拿不到文件）。修复：Tauri 环境改用原生拖放事件 `getCurrentWebview().onDragDropEvent` 获取文件路径 → `read_text_file` 命令读取 → 进入预览；Web/PWA 环境保留 HTML5 拖放
+- **删除词库警告弹窗**：`window.confirm` 改为应用内警告对话框（显示词库名 + 卡片数 + FSRS/复习记录影响 + 备份建议），确认按钮红色 destructive
+
+---
+
 ## [0.8.0] - 2026-08-14
 
 ### Added

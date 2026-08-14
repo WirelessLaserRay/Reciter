@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,6 +36,8 @@ export default function DeckList() {
   const [renameDesc, setRenameDesc] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; cards: number } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     if (dbReady) refresh();
@@ -77,10 +79,16 @@ export default function DeckList() {
     }
   };
 
-  const deleteDeck = async (id: number, deckName: string) => {
-    if (!window.confirm("删除词库「" + deckName + "」？其中的卡片与学习进度将一并删除。")) return;
-    await db.deleteDeck(id);
-    refresh();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await db.deleteDeck(deleteTarget.id);
+      refresh();
+    } finally {
+      setDeleteBusy(false);
+      setDeleteTarget(null);
+    }
   };
 
   return (
@@ -188,7 +196,7 @@ export default function DeckList() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteDeck(d.id, d.name)}
+                      onClick={() => setDeleteTarget({ id: d.id, name: d.name, cards: cardCounts[d.id] ?? 0 })}
                       title="删除词库"
                     >
                       <Trash2 className="size-3.5" />
@@ -216,6 +224,38 @@ export default function DeckList() {
           ))}
         </div>
       )}
+
+      {/* 删除词库警告对话框 */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && !deleteBusy && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              删除词库
+            </DialogTitle>
+            <DialogDescription>此操作不可撤销</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <p>
+              确定要删除词库「<span className="font-semibold">{deleteTarget?.name}</span>」吗？
+            </p>
+            <p className="text-muted-foreground">
+              将永久删除其中的{" "}
+              <span className="font-semibold text-destructive">{deleteTarget?.cards}</span>{" "}
+              张卡片、全部 FSRS 记忆状态与复习记录。建议先到「设置 → 数据」导出备份。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleteBusy}>
+              {deleteBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 重命名词库对话框 */}
       <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>

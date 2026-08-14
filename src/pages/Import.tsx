@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { db } from "@/lib/db";
+import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile } from "@/lib/importer";
 import { cn } from "@/lib/utils";
@@ -57,14 +60,12 @@ export default function Import() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const refreshDecks = useDeckStore((s) => s.refresh);
 
-  /** 读取文件 → 解析 → 冲突检测（DB 匹配）→ 预览 */
-  const handleFile = async (file: File) => {
-    if (!file) return;
+  /** 解析文本 → 冲突检测（DB 匹配）→ 预览 */
+  const handleText = async (name: string, text: string) => {
     setStage("preview");
-    setFileName(file.name);
+    setFileName(name);
     setWarnings([]);
-    const text = await file.text();
-    const parsed = parseImportFile(file.name, text);
+    const parsed = parseImportFile(name, text);
 
     // 按词库分组做冲突检测（每词库一次查询）
     const deckGroups = new Map<string, typeof parsed.cards>();
@@ -95,6 +96,50 @@ export default function Import() {
     setRows(rowsOut);
     setWarnings(parsed.warnings);
   };
+
+  /** Web/选择器：读取 File → 解析预览 */
+  const handleFile = async (file: File) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      await handleText(file.name, text);
+    } catch (e) {
+      setStage("idle");
+      setWarnings([String(e)]);
+    }
+  };
+
+  // Tauri：监听原生拖放事件（WebView2 不向网页暴露 dataTransfer.files）
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === "over") {
+          setDragOver(true);
+        } else if (payload.type === "leave") {
+          setDragOver(false);
+        } else if (payload.type === "drop") {
+          setDragOver(false);
+          const path = payload.paths?.[0];
+          if (path) {
+            const name = path.split(/[\\/]/).pop() ?? path;
+            invoke<string>("read_text_file", { path })
+              .then((text) => handleText(name, text))
+              .catch((e) => {
+                setStage("idle");
+                setWarnings([String(e)]);
+              });
+          }
+        }
+      });
+    })();
+    return () => {
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleRow = (key: string) => {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, checked: !r.checked } : r)));
