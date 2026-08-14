@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  Star,
   Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -92,7 +93,7 @@ function tagsOf(raw: string): string[] {
 
 /** 学习主界面 */
 function StudySession() {
-  const { deckName, tagName, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
+  const { deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
   const [flipped, setFlipped] = useState(false);
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
@@ -239,6 +240,12 @@ function StudySession() {
               {tagName}
             </Badge>
           )}
+          {keyOnly && (
+            <Badge className="ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+              <Star className="size-2.5" />
+              重点
+            </Badge>
+          )}
           <span className="ml-3 text-muted-foreground">
             已完成 {done} · 剩余 {total - index}
           </span>
@@ -263,15 +270,19 @@ function StudySession() {
         >
           {/* 正面 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
-            {tags.length > 0 && (
-              <div className="flex gap-1.5">
-                {tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-[10px]">
-                    {t}
-                  </Badge>
-                ))}
-              </div>
-            )}
+            <div className="flex gap-1.5">
+              {item.row.is_key === 1 && (
+                <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+                  <Star className="size-2.5" />
+                  重点
+                </Badge>
+              )}
+              {tags.map((t) => (
+                <Badge key={t} variant="secondary" className="text-[10px]">
+                  {t}
+                </Badge>
+              ))}
+            </div>
             <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
             {!flipped && (
               <Button onClick={showAnswer} size="lg">
@@ -424,11 +435,12 @@ function TagPicker({
 }: {
   deckId: number;
   deckName: string;
-  onPick: (tag?: string) => void;
+  onPick: (tag?: string, keyOnly?: boolean) => void;
   onBack: () => void;
 }) {
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [total, setTotal] = useState(0);
+  const [keyCount, setKeyCount] = useState(0);
 
   useEffect(() => {
     db.getDeckTagsWithCount(deckId)
@@ -437,6 +449,7 @@ function TagPicker({
         setTotal(t.reduce((a, x) => a + x.count, 0));
       })
       .catch(() => {});
+    db.getDeckKeyCount(deckId).then(setKeyCount).catch(() => {});
   }, [deckId]);
 
   return (
@@ -464,6 +477,19 @@ function TagPicker({
             </span>
             <span className="text-xs text-muted-foreground">{total} 张</span>
           </Button>
+          {keyCount > 0 && (
+            <Button
+              variant="outline"
+              className="w-full justify-between border-amber-500/40"
+              onClick={() => onPick(undefined, true)}
+            >
+              <span className="flex items-center gap-2">
+                <Star className="size-4 text-amber-500" />
+                重点词 / 词组
+              </span>
+              <span className="text-xs text-muted-foreground">{keyCount} 张</span>
+            </Button>
+          )}
           {tags.map((t) => (
             <Button key={t.tag} variant="outline" className="w-full justify-between" onClick={() => onPick(t.tag)}>
               <span className="flex items-center gap-2">
@@ -513,8 +539,8 @@ export default function Study() {
       <TagPicker
         deckId={pendingDeck.id}
         deckName={pendingDeck.name}
-        onPick={(tag) => {
-          loadQueue(pendingDeck.id, tag);
+        onPick={(tag, keyOnly) => {
+          loadQueue(pendingDeck.id, tag, keyOnly);
           setPendingDeck(null);
         }}
         onBack={() => setPendingDeck(null)}

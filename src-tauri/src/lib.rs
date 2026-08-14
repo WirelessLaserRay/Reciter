@@ -33,6 +33,12 @@ pub fn run() {
             sql: include_str!("../migrations/003_iso_timestamps.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add is_key to cards (bold key items)",
+            sql: include_str!("../migrations/004_is_key.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

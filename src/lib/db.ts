@@ -17,6 +17,7 @@ export interface StudyCardRow {
   front: string;
   back: string;
   tags: string;
+  is_key: number;
   state: number;
   stability: number;
   difficulty: number;
@@ -230,6 +231,15 @@ class ReciterDB {
       .sort((a, b) => a.tag.localeCompare(b.tag, "zh-CN"));
   }
 
+  /** 词库内重点词数量 */
+  async getDeckKeyCount(deckId: number): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      "SELECT COUNT(*) AS cnt FROM cards WHERE deck_id = ? AND is_key = 1",
+      [deckId]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
   /** 词库内已存在的 front 集合（冲突检测用，一次查询） */
   async getExistingFronts(deckId: number): Promise<Set<string>> {
     const rows = await this.requireDb().select<{ front: string }[]>(
@@ -251,6 +261,7 @@ class ReciterDB {
       markdown?: string;
       sourceType?: "markdown" | "csv" | "manual";
       tags?: string[];
+      isKey?: number;
     },
     knownExisting?: Set<string>
   ): Promise<UpsertResult> {
@@ -258,16 +269,17 @@ class ReciterDB {
     const wasKnown = knownExisting ? knownExisting.has(opts.front) : false;
     const tags = JSON.stringify(opts.tags ?? []);
     const rows = await db.select<{ id: number }[]>(
-      `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, is_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(deck_id, front) DO UPDATE SET
          back = excluded.back,
          markdown_content = excluded.markdown_content,
          source_type = excluded.source_type,
          tags = excluded.tags,
+         is_key = excluded.is_key,
          updated_at = excluded.updated_at
        RETURNING id`,
-      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, nowIso(), nowIso()]
+      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, nowIso(), nowIso()]
     );
     const cardId = rows[0].id;
     if (knownExisting && !wasKnown) knownExisting.add(opts.front);
@@ -281,7 +293,7 @@ class ReciterDB {
   /** 编辑卡片（front/back/tags） */
   async updateCard(
     id: number,
-    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content">>
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
@@ -289,6 +301,7 @@ class ReciterDB {
     if (data.back !== undefined) { sets.push("back = ?"); params.push(data.back); }
     if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); }
     if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
+    if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
     if (sets.length === 0) return;
     params.push(nowIso());
     sets.push("updated_at = ?");
@@ -395,30 +408,30 @@ class ReciterDB {
   // ==================== 学习队列查询（Phase 3） ====================
 
   /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤 */
-  async getDueCards(deckId: number, before: string, tag?: string): Promise<StudyCardRow[]> {
-    const params: (string | number)[] = [deckId, before, ...tagParam(tag)];
+  async getDueCards(deckId: number, before: string, tag?: string, keyOnly = false): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [deckId, before, ...tagParam(tag), keyOnly ? 1 : 0, keyOnly ? 1 : 0];
     return this.requireDb().select<StudyCardRow[]>(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ?${tagWhere(tag)}
+       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
        ORDER BY cs.due ASC, c.id ASC`,
       params
     );
   }
 
   /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤 */
-  async getNewCards(deckId: number, limit: number, tag?: string): Promise<StudyCardRow[]> {
-    const params: (string | number)[] = [deckId, ...tagParam(tag), limit];
+  async getNewCards(deckId: number, limit: number, tag?: string, keyOnly = false): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [deckId, ...tagParam(tag), keyOnly ? 1 : 0, keyOnly ? 1 : 0, limit];
     return this.requireDb().select<StudyCardRow[]>(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state = 0${tagWhere(tag)}
+       WHERE c.deck_id = ? AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
        ORDER BY c.id ASC
        LIMIT ?`,
       params
@@ -483,7 +496,7 @@ class ReciterDB {
   /** 导出：全部卡片（含 FSRS 状态） */
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
               c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
@@ -527,9 +540,9 @@ class ReciterDB {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
-      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.created_at, c.updated_at]
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,

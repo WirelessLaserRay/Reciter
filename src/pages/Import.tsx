@@ -6,6 +6,7 @@ import {
   FileUp,
   Loader2,
   RefreshCw,
+  Star,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ interface PreviewRow {
   front: string;
   back: string;
   tags: string[];
+  isKey: boolean;
   status: "new" | "exists" | "duplicate";
   checked: boolean;
 }
@@ -84,6 +86,7 @@ export default function Import() {
           front: c.front,
           back: c.back,
           tags: c.tags,
+          isKey: c.isKey,
           status: dup ? "duplicate" : existing.has(c.front) ? "exists" : "new",
           checked: !dup,
         });
@@ -132,6 +135,7 @@ export default function Import() {
           markdown: "",
           sourceType: "markdown",
           tags: r.tags,
+          isKey: r.isKey ? 1 : 0,
         },
         existing
       );
@@ -316,6 +320,7 @@ export default function Import() {
                           {r.deckName}
                         </td>
                         <td className="max-w-36 truncate px-2 py-1.5" title={r.front}>
+                          {r.isKey && <Star className="mr-1 inline size-3 text-amber-500" />}
                           {r.front}
                         </td>
                         <td className="max-w-56 truncate px-2 py-1.5 text-muted-foreground" title={r.back}>

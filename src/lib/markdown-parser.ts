@@ -12,6 +12,8 @@ export interface ParsedCard {
   deckName: string;
   tags: string[];
   highlights: string[]; // ==xx== 挖空素材
+  /** 重点标记：列表项以 **黑体** 开头（如 - **word n. 释义**），识别为重点词/词组 */
+  isKey: boolean;
 }
 
 export interface ParseResult {
@@ -98,6 +100,13 @@ function headingText(node: Heading): string {
   return extractText(node).trim();
 }
 
+/** 检测列表项是否以黑体（strong）开头（重点词标记） */
+function isBoldListItem(node: ListItem): boolean {
+  const para = node.children?.[0] as { type?: string; children?: unknown[] } | undefined;
+  const first = para?.children?.[0] as { type?: string } | undefined;
+  return first?.type === "strong";
+}
+
 /** 提取列表项文本（含多段续行，如模板中的换行对齐补充） */
 function listItemText(node: ListItem): string {
   const parts: string[] = [];
@@ -132,7 +141,7 @@ export function parseMarkdown(content: string): ParseResult {
   const seen = new Map<string, string>(); // deck + front -> raw
   const duplicates: string[] = [];
 
-  const addCard = (raw: string) => {
+  const addCard = (raw: string, isKey = false) => {
     const { front, back } = splitCardText(raw);
     if (!front || !back) {
       warnings.push(`无法解析列表项: "${raw.slice(0, 60)}"`);
@@ -153,6 +162,7 @@ export function parseMarkdown(content: string): ParseResult {
       deckName,
       tags: currentSection ? [currentSection] : [],
       highlights,
+      isKey,
     });
   };
 
@@ -167,8 +177,9 @@ export function parseMarkdown(content: string): ParseResult {
         break;
       }
       case "listItem": {
-        const raw = listItemText(node as ListItem);
-        if (raw) addCard(raw);
+        const li = node as ListItem;
+        const raw = listItemText(li);
+        if (raw) addCard(raw, isBoldListItem(li));
         break;
       }
       case "blockquote": {

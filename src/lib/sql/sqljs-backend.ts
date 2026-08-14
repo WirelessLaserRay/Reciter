@@ -30,7 +30,7 @@ export class SqlJsBackend implements SQLBackend {
     const SQL = await this.factory();
     let saved: Uint8Array | null = null;
     try {
-      saved = await get<Uint8Array>(DB_KEY).catch(() => null);
+      saved = (await get<Uint8Array>(DB_KEY).catch(() => undefined)) ?? null;
     } catch {
       saved = null; // 非浏览器环境（node 测试）无 IndexedDB
     }

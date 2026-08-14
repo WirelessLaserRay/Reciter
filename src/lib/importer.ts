@@ -51,6 +51,7 @@ const COLUMN_ALIASES: Record<string, keyof ParsedCard | "deck"> = {
   back: "back", meaning: "back", 释义: "back", 意思: "back", 含义: "back",
   deck: "deck", deckname: "deck", 词库: "deck", 分组: "deck",
   tags: "tags", tag: "tags", 标签: "tags",
+  key: "isKey", iskey: "isKey", 重点: "isKey",
 };
 
 /** 解析 CSV：首行若为表头则识别列，否则按 word,meaning 顺序 */
@@ -79,6 +80,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
     let back = "";
     let deckName = defaultDeck;
     let tags: string[] = [];
+    let isKey = false;
     if (header) {
       front = (colMap[0] === "front" ? r[0] : "") ?? "";
       for (let i = 0; i < r.length; i++) {
@@ -89,6 +91,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
         else if (col === "back" && v) back = v;
         else if (col === "deck" && v) deckName = v;
         else if (col === "tags" && v) tags = v.split(/[;；|]/).map((t) => t.trim()).filter(Boolean);
+        else if (col === "isKey" && v) isKey = /^(1|true|yes|是|true)$/i.test(v.trim());
       }
     } else {
       front = (r[0] ?? "").trim();
@@ -102,7 +105,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, tags, highlights: [] });
+    cards.push({ front, back, markdown: "", deckName, tags, highlights: [], isKey });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
@@ -142,7 +145,7 @@ export function parseJSON(content: string): ParseResult {
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, tags, highlights: [] });
+    cards.push({ front, back, markdown: "", deckName, tags, highlights: [], isKey: false });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }

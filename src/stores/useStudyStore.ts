@@ -15,6 +15,8 @@ interface StudyState {
   deckName: string;
   /** 当前学习标签（空 = 全部） */
   tagName: string;
+  /** 是否仅重点词 */
+  keyOnly: boolean;
   queue: QueueItem[];
   index: number;
   loading: boolean;
@@ -23,7 +25,7 @@ interface StudyState {
   stats: { reviewed: number; newDone: number; again: number };
   finished: boolean;
 
-  loadQueue: (deckId: number, tag?: string) => Promise<void>;
+  loadQueue: (deckId: number, tag?: string, keyOnly?: boolean) => Promise<void>;
   /** 评分当前卡片，返回是否还有下一张；opts 支持 AI 测试来源与题目/答案记录 */
   rate: (
     grade: 1 | 2 | 3 | 4,
@@ -38,6 +40,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   deckId: null,
   deckName: "",
   tagName: "",
+  keyOnly: false,
   queue: [],
   index: 0,
   loading: false,
@@ -46,7 +49,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   finished: false,
 
   /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤） */
-  loadQueue: async (deckId: number, tag?: string) => {
+  loadQueue: async (deckId: number, tag?: string, keyOnly = false) => {
     set({ loading: true, error: null, finished: false });
     try {
       const deck = await db.getDeck(deckId);
@@ -59,18 +62,19 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dayStart = getDayStartDate(dayStartHour, now);
 
       // 1. 到期卡片（Learning/Review/Relearning，可按标签过滤）
-      const due = await db.getDueCards(deckId, now.toISOString(), tag);
+      const due = await db.getDueCards(deckId, now.toISOString(), tag, keyOnly);
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
       const newLimit = Math.max(0, deck.new_cards_per_day - learnedToday);
-      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag) : [];
+      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly) : [];
 
       const queue: QueueItem[] = [...due, ...fresh].map((row) => ({ row, shownAt: Date.now() }));
       set({
         deckId,
         deckName: deck.name,
         tagName: tag ?? "",
+        keyOnly,
         queue,
         index: 0,
         stats: { reviewed: 0, newDone: 0, again: 0 },
@@ -135,6 +139,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   reset: () => {
-    set({ deckId: null, deckName: "", tagName: "", queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0 } });
+    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0 } });
   },
 }));

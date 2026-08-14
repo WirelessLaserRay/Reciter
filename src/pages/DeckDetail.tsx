@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -40,6 +40,8 @@ export default function DeckDetail() {
   const [editBack, setEditBack] = useState("");
   const [editTags, setEditTags] = useState("");
   const [editBusy, setEditBusy] = useState(false);
+  const [editKey, setEditKey] = useState(false);
+  const [keyFilter, setKeyFilter] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,6 +87,7 @@ export default function DeckDetail() {
     setEditFront(c.front);
     setEditBack(c.back);
     setEditTags(tagsOf(c).join("、"));
+    setEditKey(c.is_key === 1);
   };
 
   const saveEdit = async () => {
@@ -99,6 +102,7 @@ export default function DeckDetail() {
         front: editFront.trim(),
         back: editBack.trim(),
         tags: JSON.stringify(tagArr),
+        is_key: editKey ? 1 : 0,
       });
       setEditTarget(null);
       load();
@@ -114,7 +118,9 @@ export default function DeckDetail() {
   };
 
   const filtered = cards.filter(
-    (c) => !search || c.front.toLowerCase().includes(search.toLowerCase()) || c.back.includes(search)
+    (c) =>
+      (!search || c.front.toLowerCase().includes(search.toLowerCase()) || c.back.includes(search)) &&
+      (!keyFilter || c.is_key === 1)
   );
 
   const tagsOf = (c: CardType): string[] => {
@@ -213,14 +219,25 @@ export default function DeckDetail() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle>卡片列表</CardTitle>
-            <div className="relative w-56">
-              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-8"
-                placeholder="搜索单词或释义"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={keyFilter ? "default" : "outline"}
+                className="text-xs"
+                onClick={() => setKeyFilter((v) => !v)}
+              >
+                <Star className={keyFilter ? "size-3.5" : "size-3.5 text-amber-500"} />
+                重点
+              </Button>
+              <div className="relative w-56">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="搜索单词或释义"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
             </div>
           </div>
           <CardDescription>按 (deck_id, front) 去重，重复导入自动更新</CardDescription>
@@ -247,6 +264,7 @@ export default function DeckDetail() {
                     return (
                       <tr key={c.id} className="border-t">
                         <td className="max-w-44 truncate px-3 py-2 font-medium" title={c.front}>
+                          {c.is_key === 1 && <Star className="mr-1 inline size-3 text-amber-500" />}
                           {c.front}
                         </td>
                         <td className="max-w-md truncate px-3 py-2 text-muted-foreground" title={c.back}>
@@ -313,6 +331,21 @@ export default function DeckDetail() {
                 onChange={(e) => setEditTags(e.target.value)}
               />
             </div>
+            <label className="flex cursor-pointer items-center justify-between rounded-md border p-3">
+              <div>
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Star className="size-3.5 text-amber-500" />
+                  重点词 / 词组
+                </div>
+                <p className="text-xs text-muted-foreground">导入时由黑体释义自动识别，可手动调整</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={editKey}
+                onChange={(e) => setEditKey(e.target.checked)}
+                className="size-4 accent-primary"
+              />
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>

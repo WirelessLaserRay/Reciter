@@ -167,11 +167,13 @@ export default function QuizSession({
     return [...set].sort();
   }, [cards]);
 
-  /** 按标签过滤后的卡片池 */
-  const pool = useMemo(
-    () => (tagFilter === "all" ? cards : cards.filter((c) => tagsOf(c.tags).includes(tagFilter))),
-    [cards, tagFilter]
-  );
+  /** 按标签/重点过滤后的卡片池 */
+  const pool = useMemo(() => {
+    if (tagFilter === "__key__") return cards.filter((c) => c.is_key === 1);
+    return tagFilter === "all" ? cards : cards.filter((c) => tagsOf(c.tags).includes(tagFilter));
+  }, [cards, tagFilter]);
+
+  const keyCount = useMemo(() => cards.filter((c) => c.is_key === 1).length, [cards]);
 
   // 加载词库卡片 + AI 配置状态
   useEffect(() => {
@@ -321,6 +323,7 @@ export default function QuizSession({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">全部卡片（{cards.length} 张）</SelectItem>
+                  {keyCount > 0 && <SelectItem value="__key__">重点词 / 词组（{keyCount} 张）</SelectItem>}
                   {allTags.map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}（{cards.filter((c) => tagsOf(c.tags).includes(t)).length} 张）
@@ -424,6 +427,9 @@ export default function QuizSession({
           退出
         </Button>
         <div className="flex items-center gap-2 text-sm">
+          {item.card.is_key === 1 && (
+            <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">★ 重点</Badge>
+          )}
           <Badge variant="secondary">{QUIZ_TYPE_LABEL[item.type]}</Badge>
           {item.aiQuestion && (
             <Badge className="bg-purple-500/15 text-purple-500">
