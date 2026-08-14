@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, CalendarClock, FileUp, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,21 +9,34 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-const STATS = [
-  { label: "今日待复习", value: "0", icon: CalendarClock },
-  { label: "今日新卡", value: "0", icon: GraduationCap },
-  { label: "词库总数", value: "0", icon: BookOpen },
-  { label: "记忆保持率", value: "—", icon: GraduationCap },
-];
+import { useDbStore } from "@/stores/useDbStore";
+import { useDeckStore } from "@/stores/useDeckStore";
 
 export default function Dashboard() {
+  const dbReady = useDbStore((s) => s.ready);
+  const { decks, cardCounts, refresh } = useDeckStore();
+  useEffect(() => {
+    if (dbReady) {
+      refresh();
+    }
+  }, [dbReady, refresh]);
+
   const today = new Date().toLocaleDateString("zh-CN", {
     year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "long",
   });
+
+  const deckCount = decks.length;
+  const learnedCount = Object.values(cardCounts).reduce((a, b) => a + b, 0);
+
+  const STATS = [
+    { label: "今日待复习", value: "0", icon: CalendarClock, hint: "Phase 3 接入 FSRS" },
+    { label: "今日新卡", value: "0", icon: GraduationCap, hint: "Phase 3 接入 FSRS" },
+    { label: "词库总数", value: String(deckCount), icon: BookOpen, hint: "本地 SQLite" },
+    { label: "卡片总数", value: String(learnedCount), icon: GraduationCap, hint: "本地 SQLite" },
+  ];
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -39,9 +53,10 @@ export default function Dashboard() {
               <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
                 <s.icon className="size-4" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-2xl font-bold">{s.value}</div>
-                <div className="text-xs text-muted-foreground">{s.label}</div>
+                <div className="truncate text-xs text-muted-foreground">{s.label}</div>
+                <div className="truncate text-[10px] text-muted-foreground/70">{s.hint}</div>
               </div>
             </CardContent>
           </Card>
@@ -52,9 +67,7 @@ export default function Dashboard() {
       <Card>
         <CardHeader>
           <CardTitle>快捷操作</CardTitle>
-          <CardDescription>
-            数据将在 Phase 2/3 接入数据库与 FSRS 后显示
-          </CardDescription>
+          <CardDescription>今日学习队列将在 Phase 3 接入 FSRS 后启用</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button asChild>
@@ -79,7 +92,11 @@ export default function Dashboard() {
           <CardDescription>学习配额与复习安排</CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          <p>Phase 3 接入 FSRS 后，这里将展示今日学习队列与进度。</p>
+          <p>
+            当前共 <span className="font-medium text-foreground">{deckCount}</span> 个词库、{" "}
+            <span className="font-medium text-foreground">{learnedCount}</span> 张卡片。
+            完成导入后即可开始学习。
+          </p>
         </CardContent>
       </Card>
     </div>

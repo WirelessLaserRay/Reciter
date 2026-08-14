@@ -17,14 +17,49 @@
 ## [Unreleased]
 
 ### Planned
-- **Phase 2 · 本地数据库与数据导入**
-  - 集成 `tauri-plugin-sql`（SQLite，WAL 模式），建立 6 表 Schema（decks/cards/card_states/review_logs/settings/daily_stats）
-  - Deck/Card CRUD + `(deck_id, front)` UNIQUE upsert（重导入保留复习进度）
-  - Markdown 导入解析（remark AST + 正则后处理 `==高亮==`），导入预览/冲突检测 UI
-  - CSV / JSON 导入支持
-- **Phase 3 · FSRS-5 记忆算法**（ts-fsrs 集成、学习队列、四档评分）
+- **Phase 3 · FSRS-5 记忆算法**（ts-fsrs 集成、学习队列、四档评分、due 调度）
 - **Phase 4 · AI 智能复习**（DeepSeek/Ollama 双通道、完形/语境测试、判分申诉）
 - **Phase 5 · 统计与打磨**（图表/热力图、JSON 导出 + WebDAV、翻转动画、主题打磨）
+
+---
+
+## [0.2.0] - 2026-08-14
+
+> **里程碑**：Phase 2 完成 —— 本地 SQLite 数据库接入，Markdown/CSV/JSON 导入全流程可用。
+
+### Added
+
+- **SQLite 数据库**：集成 `tauri-plugin-sql`（v2.4.0，SQLite，WAL），Rust 侧迁移脚本 `src-tauri/migrations/001_init.sql` 建 6 表（decks/cards/card_states/review_logs/settings/daily_stats）+ 4 索引（deck_id/due/card_id/reviewed_at）
+- **数据库封装 `src/lib/db.ts`**：ReciterDB 单例，Deck/Card CRUD、`(deck_id, front)` UNIQUE upsert（重导入保留复习进度）、card_states 自动初始化（FSRS-5 默认值）、ReviewLog/DailyStats/Settings KV
+- **Markdown 解析器 `src/lib/markdown-parser.ts`**（unified + remark-parse + remark-gfm + unist-util-visit）：
+  - 兼容 **templates 样式**（`templates/markdown/*.md`）：`#` 书名 → `##` 词库 → `###` 分组(tag) → `- **word n. 释义**` / `- plain n. 释义` 成卡，词性标签（n./vt./vi./adj./adv. 等组合）切分 front/back，缩进续行合并进释义，`> 引用块` 追加例句
+  - 兼容 **PLAN 格式**：`- word: meaning` / `- word — meaning` / `- word：meaning`
+  - 词组格式（无词性标签）按首个汉字切分；`==高亮==` 正则提取挖空素材；文件内重复 front 检测
+- **CSV/JSON 解析器 `src/lib/importer.ts`**：CSV 表头识别（front/word/back/meaning/deck/tags 别名）、JSON 数组或 `{cards:[]}`，统一 `parseImportFile()` 入口按扩展名分发
+- **导入页面**：拖拽/点击选择文件 → 解析预览表格（词库/单词/释义/标签/状态）、勾选跳过、全选、文件内重复与数据库冲突检测（新建/更新/重复徽标）、导入结果摘要（新建 X / 更新 Y / 跳过 Z / 涉及词库数）
+- **词库列表页**：接入真实数据库（词库卡片、卡片数、每日新卡配额、创建/删除）
+- **词库详情页**：卡片列表（搜索、标签、删除）、手动添加卡片、已学习/待复习计数
+- **Dashboard**：显示真实词库数/卡片数
+- **状态管理**：`useDeckStore`（词库+计数+刷新）、`useDbStore`（启动时初始化数据库 + 错误横幅）
+
+### Fixed
+
+- **词性切分正则失配**：POS 正则尾部 `\b` 在 "n." 后跟空格时无法形成词边界，导致全部词条按汉字切分（front 混入词性）；改为去除尾部边界，正确解析 `word n. 释义` / `vt./vi.` / `n./vt.` 等格式
+- **TS 严格检查**：Card.tags 类型修正为 JSON 字符串（DB 原始值）、未使用导入/变量清理
+
+### Infrastructure
+
+- 依赖新增：`@tauri-apps/plugin-sql`、`unified`、`remark-parse`、`remark-gfm`、`unist-util-visit`、`@types/unist`
+- Rust 新增：`tauri-plugin-sql`（features: sqlite），capabilities 增加 sql 权限
+- 解析器冒烟测试（tsx）：templates 两个文件解析 24 张卡片，词库/标签/续行/重复检测全部正确
+- 数据库验证（Python sqlite3）：6 表 + 4 索引创建成功；upsert 语义验证（新建/更新/状态初始化）；双模板文件导入 2 词库 13 卡
+
+### Verified
+
+- ✅ `npm run build`：tsc 严格检查 + vite 构建通过（1903 模块）
+- ✅ `npm run tauri dev`：416 crates 编译 37.6s，窗口正常启动
+- ✅ 数据库文件 `%APPDATA%\\com.reciter.app\\reciter.db` 迁移建表成功
+- ✅ 端到端：解析 → 入库 → 跨文件冲突更新，重启后数据保留
 
 ---
 

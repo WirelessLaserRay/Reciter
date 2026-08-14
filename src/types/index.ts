@@ -20,7 +20,7 @@ export interface Card {
   back: string; // 释义/例句
   markdown_content: string;
   source_type: "markdown" | "csv" | "manual";
-  tags: string[]; // JSON 数组
+  tags: string; // JSON 数组字符串（如 '["熟词生义"]'），使用前需 JSON.parse
   created_at: string;
   updated_at: string;
 }

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { useDbStore } from "@/stores/useDbStore";
 import Dashboard from "@/pages/Dashboard";
 import DeckList from "@/pages/DeckList";
 import DeckDetail from "@/pages/DeckDetail";
@@ -19,6 +20,11 @@ function App() {
     root.classList.toggle("dark", theme === "dark");
     root.style.colorScheme = theme;
   }, [theme]);
+
+  // 应用启动时初始化本地数据库（tauri-plugin-sql）
+  useEffect(() => {
+    useDbStore.getState().init();
+  }, []);
 
   return (
     <HashRouter>

@@ -20,7 +20,7 @@
 | 🧠 科学记忆系统 | FSRS-5 间隔重复算法，目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转 | Phase 3 |
 | 🤖 AI 语境测试 | 完形填空 / 情景对话 / AI 判分（流式输出），判分可申诉；DeepSeek 与 Ollama 一键切换 | Phase 4 |
 | 📊 学习统计 | 复习量柱状图、记忆保留率折线图、365 天热力图（自定义 CSS Grid 实现） | Phase 5 |
-| 💾 本地优先 | 所有数据存本地 SQLite；JSON 导出 + WebDAV 备份，隐私安全 | Phase 2/5 |
+| 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；JSON 导出 + WebDAV 备份 | ✅ Phase 2 / Phase 5 |
 | ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Phase 3 |
 
 **差异化亮点**（主流竞品未实现）：Markdown 原生导入、AI 语境测试、记忆可检索度实时可视化（ts-fsrs `get_retrievability`）。
@@ -123,15 +123,17 @@ F:\AI\Reciter
 │   │   ├── ui/                       # shadcn/ui 组件（button/card/tabs/... 15 个）
 │   │   └── layout/                   # Sidebar / Header / MainLayout
 │   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
-│   ├── stores/                       # Zustand store（useThemeStore 等）
-│   ├── lib/                          # utils.ts（cn）；db/fsrs/markdown/ai 后续加入
+│   ├── stores/                       # Zustand store（theme/deck/db 状态）
+│   ├── lib/                          # db.ts / markdown-parser.ts / importer.ts / utils.ts
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
 ├── src-tauri/                        # Tauri 2 Rust 壳
 │   ├── src/main.rs / lib.rs          # 入口 + Builder
 │   ├── tauri.conf.json               # 窗口/构建/打包配置（devUrl 14210）
-│   ├── Cargo.toml                    # tauri 2 依赖
+│   ├── Cargo.toml                    # tauri 2 + tauri-plugin-sql 依赖
+│   ├── migrations/001_init.sql       # 数据库迁移（6 表）
 │   ├── capabilities/default.json     # 权限声明
 │   └── icons/                        # 应用图标（多尺寸）
+├── templates/markdown/               # 导入格式模板示例（基础词/必考词）
 └── .install/                         # 安装脚本与日志（gitignore）
 ```
 
@@ -154,8 +156,8 @@ F:\AI\Reciter
 | Phase | 内容 | 状态 |
 |---|---|---|
 | **1** | 脚手架（Tauri 2 + Vite + React 18 + Tailwind v4 + shadcn），路由骨架 6 页，暗色主题 | ✅ 已完成 |
-| **2** | SQLite 接入 + 迁移，Deck/Card CRUD + upsert，Markdown 导入解析 + 预览 | ⏳ 进行中 |
-| **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ⏳ 待开始 |
+| **2** | SQLite 接入 + 迁移，Deck/Card CRUD + upsert，Markdown/CSV/JSON 导入解析 + 预览 | ✅ 已完成 |
+| **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ⏳ 进行中 |
 | **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ⏳ 待开始 |
 | **5** | 统计图表 + 自定义热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨 | ⏳ 待开始 |
 
