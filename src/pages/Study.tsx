@@ -267,17 +267,20 @@ function StudySession() {
         {RATINGS.map((r) => (
           <Tooltip key={r.grade}>
             <TooltipTrigger asChild>
-              <Button
-                variant={r.grade === 1 ? "destructive" : "outline"}
-                className="flex-col gap-0.5 py-3 disabled:opacity-60"
-                disabled={!flipped || busy}
-                onClick={() => handleRate(r.grade)}
-              >
-                <span>{r.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {preview?.[r.grade]?.label ?? r.hint}
-                </span>
-              </Button>
+              {/* span 包裹：disabled 按钮不触发指针事件，span 保证悬停提示始终可用 */}
+              <span tabIndex={0} className="inline-flex">
+                <Button
+                  variant={r.grade === 1 ? "destructive" : "outline"}
+                  className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                  disabled={!flipped || busy}
+                  onClick={() => handleRate(r.grade)}
+                >
+                  <span>{r.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {preview?.[r.grade]?.label ?? r.hint}
+                  </span>
+                </Button>
+              </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-52 text-center">
               <p className="font-medium">{r.label}（{r.hint}）</p>

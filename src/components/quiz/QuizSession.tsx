@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -69,6 +69,16 @@ const MASTERY_META: Record<Mastery, { label: string; desc: string }> = {
   mastered: { label: "掌握", desc: "准确无误" },
 };
 
+/** 解析卡片标签（tags 为 JSON 字符串） */
+function tagsOf(raw: string): string[] {
+  try {
+    const t = JSON.parse(raw);
+    return Array.isArray(t) ? t : [];
+  } catch {
+    return [];
+  }
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -120,6 +130,7 @@ function buildItems(cards: CardType[], type: QuizType, count: number): QuizItem[
 export default function QuizSession({ deckId, deckName }: { deckId: number; deckName: string }) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
   const [configCount, setConfigCount] = useState("10");
+  const [tagFilter, setTagFilter] = useState("all");
   const [useAI, setUseAI] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const [cards, setCards] = useState<CardType[]>([]);
@@ -131,6 +142,19 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<QuizResult | null>(null);
   const aiClientRef = useRef<AIClient | null>(null);
+
+  /** 词库内全部标签（分组），用于"考察范围"筛选 */
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of cards) for (const t of tagsOf(c.tags)) set.add(t);
+    return [...set].sort();
+  }, [cards]);
+
+  /** 按标签过滤后的卡片池 */
+  const pool = useMemo(
+    () => (tagFilter === "all" ? cards : cards.filter((c) => tagsOf(c.tags).includes(tagFilter))),
+    [cards, tagFilter]
+  );
 
   // 加载词库卡片 + AI 配置状态
   useEffect(() => {
@@ -147,8 +171,8 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
 
   const startQuiz = async () => {
     setPhase("running");
-    const n = configCount === "all" ? cards.length : parseInt(configCount, 10);
-    const built = buildItems(cards, configType, Math.max(1, Math.min(n, cards.length)));
+    const n = configCount === "all" ? pool.length : parseInt(configCount, 10);
+    const built = buildItems(pool, configType, Math.max(1, Math.min(n, pool.length)));
 
     // 预留 AI 出题：AI 可用时尝试为每题生成语境/干扰题（Phase 4 生效）
     if (useAI && aiClientRef.current?.isReady) {
@@ -251,6 +275,26 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
             </div>
 
             <div className="space-y-1.5">
+              <Label>考察范围</Label>
+              <Select value={tagFilter} onValueChange={setTagFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部卡片（{cards.length} 张）</SelectItem>
+                  {allTags.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}（{cards.filter((c) => tagsOf(c.tags).includes(t)).length} 张）
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                按标签分组考察（如「单词」「词组」分开测试）；仅显示有卡片的标签
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
               <Label>题目数量</Label>
               <Select value={configCount} onValueChange={setConfigCount}>
                 <SelectTrigger className="w-full">
@@ -259,7 +303,7 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
                 <SelectContent>
                   <SelectItem value="10">10 题</SelectItem>
                   <SelectItem value="20">20 题</SelectItem>
-                  <SelectItem value="all">全部（{cards.length} 张）</SelectItem>
+                  <SelectItem value="all">全部（{pool.length} 张）</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -279,11 +323,11 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
               <Switch checked={useAI} onCheckedChange={setUseAI} disabled={!aiReady} />
             </div>
 
-            <Button className="w-full" onClick={startQuiz} disabled={cards.length === 0}>
-              开始测试（{cards.length} 张卡片可选）
+            <Button className="w-full" onClick={startQuiz} disabled={pool.length === 0}>
+              开始测试（{pool.length} 张卡片可选）
             </Button>
-            {cards.length === 0 && (
-              <p className="text-xs text-amber-600">该词库暂无卡片，请先导入或添加</p>
+            {pool.length === 0 && (
+              <p className="text-xs text-amber-600">该范围暂无卡片，请先导入或添加</p>
             )}
           </CardContent>
         </Card>
