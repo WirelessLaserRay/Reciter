@@ -21,6 +21,14 @@
 
 ---
 
+## [0.6.1] - 2026-08-14
+
+### Added
+
+- **MIT 许可证**：新增 `LICENSE` 文件（© 2026 WirelessLaserRay），`package.json` 标注 license 字段，README 增加许可徽标与说明
+
+---
+
 ## [0.6.0] - 2026-08-14
 
 ### Added

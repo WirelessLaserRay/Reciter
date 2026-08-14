@@ -1,6 +1,8 @@
 # Reciter
 
 > 本地客制化英语学习与记忆客户端 · Local-first English Learning & Spaced Repetition Client
+>
+> [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 对标 Anki / MaiMemo 的开源英语学习工具，主打 **Markdown 自由导入** 与 **AI 智能复习**，数据全部保存在本地。
 
@@ -212,3 +214,7 @@ npm run tauri dev            # 热更新开发（需要 Rust 工具链）
   2. 存储：`write_text_file`/对话框需改用移动端沙箱目录（tauri-plugin-fs 作用域）与系统分享面板
   3. UI：桌面布局 → 移动端响应式适配（触控交互）
 - 初始化命令：`npm run tauri android init` / `npm run tauri ios init`
+
+## 📄 许可证
+
+[MIT License](LICENSE) © 2026 [WirelessLaserRay](https://github.com/WirelessLaserRay)
