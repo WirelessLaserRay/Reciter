@@ -21,6 +21,14 @@
 
 ---
 
+## [0.4.1] - 2026-08-14
+
+### Fixed
+
+- **AI 请求被 HTTP 作用域拦截**（"url not allowed on the configured scope"）：tauri-plugin-http 的 `http:default` 默认不放行任何来源，需在 capability 显式配置 URL Pattern 作用域。已在 `capabilities/default.json` 为 `http:default` 添加 allow：`https://*:*`（任意云端 AI 服务，如 DeepSeek/OpenAI 及用户自定义地址）、`http://localhost:*` 与 `http://127.0.0.1:*`（Ollama 本地）
+
+---
+
 ## [0.4.0] - 2026-08-14
 
 > **里程碑**：Phase 4 完成 —— AI 接口配置（DeepSeek/Ollama/OpenAI）、AI 深度复习（流式出题 + 判分 + 申诉）、测试模式 AI 出题全部接通。
