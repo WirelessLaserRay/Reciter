@@ -77,6 +77,38 @@ export class SqlJsBackend implements SQLBackend {
     }, 300);
   }
 
+
+  /** 当前数据库二进制快照（原子导入回滚用） */
+  exportSnapshot(): Uint8Array | null {
+    if (!this.db) return null;
+    return this.db.export();
+  }
+
+  /** 从快照恢复（丢弃当前内存状态并覆盖 IndexedDB） */
+  async restoreSnapshot(bytes: Uint8Array): Promise<void> {
+    if (!this.db) throw new Error("backend not initialized");
+    this.db.close();
+    const SQL = await this.factory();
+    this.db = new SQL.Database(bytes);
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    try {
+      await set(DB_KEY, bytes).catch(() => {});
+    } catch {
+      // 非浏览器环境
+    }
+  }
+
+  /** 取消待保存（供快照回滚前调用） */
+  cancelPendingSave(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+  }
+
   /** 立即保存（供测试/退出前调用） */
   async flush(): Promise<void> {
     if (!this.db) return;

@@ -105,18 +105,35 @@ export async function importFromJSON(): Promise<BackupResult> {
     if (!data || typeof data.version !== "number" || !Array.isArray(data.decks) || !Array.isArray(data.cards)) {
       return { ok: false, message: "无效的备份文件（缺少 decks/cards 字段）" };
     }
-    await db.clearAllData();
-    for (const d of data.decks) await db.restoreDeck(d);
-    for (const c of data.cards) await db.restoreCard(c);
-    for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
-    for (const s of data.settings ?? []) await db.restoreSetting(s.key, s.value);
-    for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
-    return {
-      ok: true,
-      message: "恢复成功（已替换现有数据）",
-      decks: data.decks.length,
-      cards: data.cards.length,
-    };
+    // 原子导入：先快照，失败回滚，成功立即持久化，避免残留半状态
+    const snap = db.snapshot();
+    try {
+      await db.clearAllData();
+      for (const d of data.decks) await db.restoreDeck(d);
+      for (const c of data.cards) await db.restoreCard(c as never);
+      for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
+      for (const s of data.settings ?? []) await db.restoreSetting(s.key, s.value);
+      for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
+      // 自校验：恢复数量与备份一致
+      const deckCount = (await db.getDecks()).length;
+      const cardCount = await db.getTotalCardCount();
+      if (deckCount !== data.decks.length || cardCount !== data.cards.length) {
+        throw new Error(
+          "恢复校验失败：词库 " + deckCount + "/" + data.decks.length +
+          "，卡片 " + cardCount + "/" + data.cards.length
+        );
+      }
+      await db.flush(); // 立即持久化，防止刷新丢数据
+      return {
+        ok: true,
+        message: "恢复成功（" + deckCount + " 词库 / " + cardCount + " 卡片）",
+        decks: deckCount,
+        cards: cardCount,
+      };
+    } catch (e) {
+      if (snap) await db.restoreSnapshot(snap).catch(() => {});
+      return { ok: false, message: String(e) };
+    }
   } catch (e) {
     return { ok: false, message: String(e) };
   }

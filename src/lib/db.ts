@@ -81,11 +81,34 @@ class ReciterDB {
     return this.readyPromise;
   }
 
+
   /** 强制重新初始化（测试用） */
   async reinit(): Promise<void> {
     this.readyPromise = null;
     this.backend = null;
     await this.init();
+  }
+
+  /** 数据库二进制快照（原子导入回滚用；Tauri 端返回 null 表示无需回滚） */
+  snapshot(): Uint8Array | null {
+    if (this.backend?.kind === "sqljs") {
+      return (this.backend as import("@/lib/sql/sqljs-backend").SqlJsBackend).exportSnapshot();
+    }
+    return null;
+  }
+
+  /** 从快照恢复 */
+  async restoreSnapshot(bytes: Uint8Array): Promise<void> {
+    if (this.backend?.kind === "sqljs") {
+      await (this.backend as import("@/lib/sql/sqljs-backend").SqlJsBackend).restoreSnapshot(bytes);
+    }
+  }
+
+  /** 立即持久化（sql.js 防抖保存的强刷；Tauri 端无操作） */
+  async flush(): Promise<void> {
+    if (this.backend?.kind === "sqljs") {
+      await (this.backend as import("@/lib/sql/sqljs-backend").SqlJsBackend).flush();
+    }
   }
 
   private requireDb(): SQLBackend {
