@@ -180,3 +180,34 @@ F:\AI\Reciter
 
 1. 使用 Conventional Commits 提交（`feat:` / `fix:` / `docs:` / `chore:`）
 2. 每次合并后更新 `CHANGELOG.md`（Keep a Changelog 规范）
+
+## 🚀 使用与分发
+
+### 日常使用（正式版）
+
+```bash
+npm run tauri build          # 构建正式版（输出 src-tauri/target/release/）
+# 产物：
+#   reciter.exe              独立可执行文件（约 18MB，含前端资源）
+#   bundle/msi/*.msi         Windows 安装包（自动创建开始菜单/桌面快捷方式）
+#   bundle/nsis/*-setup.exe  NSIS 安装包
+```
+
+- **一键启动**：双击桌面「Reciter」快捷方式，或从开始菜单启动（已自动创建）
+- **安装分发**：运行 `Reciter_0.1.0_x64-setup.exe` 安装到系统，获得开始菜单/桌面图标与卸载程序
+- 数据目录：`%APPDATA%\\com.reciter.app\\reciter.db`（SQLite，可整目录备份）
+
+### 开发模式
+
+```bash
+npm run tauri dev            # 热更新开发（需要 Rust 工具链）
+```
+
+### 移动端移植（Tauri 2 官方支持）
+
+- **可行性**：Tauri 2 官方支持 Android（SDK/NDK）与 iOS（Xcode）。Rust 核心 + React 前端完全复用，SQLite/HTTP 插件移动端可用
+- **需要适配**：
+  1. 环境：Android Studio + SDK/NDK（约 5GB）或 macOS + Xcode
+  2. 存储：`write_text_file`/对话框需改用移动端沙箱目录（tauri-plugin-fs 作用域）与系统分享面板
+  3. UI：桌面布局 → 移动端响应式适配（触控交互）
+- 初始化命令：`npm run tauri android init` / `npm run tauri ios init`
