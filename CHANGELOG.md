@@ -21,6 +21,14 @@
 
 ---
 
+## [0.7.1] - 2026-08-14
+
+### Fixed
+
+- **Web 版初始化报 "duplicate column name: learning_steps"**：`runMigrations` 每次初始化无条件重跑全部迁移，IndexedDB 已有 `learning_steps` 列时 002 的 ALTER 报重复列错误（页面刷新即触发）。修复：新增 `_reciter_migrations` 迁移记录表 + 002 提供 `alreadyApplied` 列存在性检测，迁移幂等执行（全新/二次/历史库三场景验证通过）
+
+---
+
 ## [0.7.0] - 2026-08-14
 
 ### Added

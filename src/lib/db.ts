@@ -72,8 +72,8 @@ class ReciterDB {
         const b: SQLBackend = isTauri() ? new TauriBackend() : new SqlJsBackend();
         await b.init();
         if (b.kind === "sqljs") {
-          // Web 端无 Rust 迁移，手动执行镜像迁移
-          await runMigrations((sql) => b.execute(sql));
+          // Web 端无 Rust 迁移，手动执行镜像迁移（幂等）
+          await runMigrations(b);
         }
         this.backend = b;
       })();
