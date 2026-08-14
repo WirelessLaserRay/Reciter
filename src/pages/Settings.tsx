@@ -23,12 +23,11 @@ import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client
 import {
   DEFAULT_PROMPTS,
   getPromptTemplate,
+  PROMPT_TYPES,
   resetPromptTemplate,
   savePromptTemplate,
   type PromptType,
 } from "@/lib/ai-prompts";
-
-const PROMPT_TYPES: PromptType[] = ["cloze", "context", "grading"];
 
 export default function Settings() {
   const theme = useThemeStore((s) => s.theme);
@@ -54,6 +53,8 @@ export default function Settings() {
   const [prompts, setPrompts] = useState<Record<PromptType, string>>({
     cloze: DEFAULT_PROMPTS.cloze.default,
     context: DEFAULT_PROMPTS.context.default,
+    example: DEFAULT_PROMPTS.example.default,
+    choice: DEFAULT_PROMPTS.choice.default,
     grading: DEFAULT_PROMPTS.grading.default,
   });
   const [promptSaved, setPromptSaved] = useState(false);

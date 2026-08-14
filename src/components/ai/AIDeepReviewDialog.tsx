@@ -33,7 +33,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
   const [stage, setStage] = useState<Stage>("idle");
   const [client, setClient] = useState<AIClient | null>(null);
   const [ready, setReady] = useState(false);
-  const [mode, setMode] = useState<"cloze" | "context">("cloze");
+  const [mode, setMode] = useState<"example" | "context">("example");
   const [question, setQuestion] = useState(""); // 流式累积（生成中展示）
   const [cleanQuestion, setCleanQuestion] = useState(""); // 适配层清洗后的题目（作答/判分展示）
   const [answer, setAnswer] = useState("");
@@ -63,13 +63,14 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
       .catch((e) => setError(String(e)));
   }, [open]);
 
-  /** 生成题目（流式） */
-  const generate = async (m: "cloze" | "context") => {
+  /** 生成题目：流式接收但不实时展示，输出完成后经适配层清洗再一次性显示 */
+  const generate = async (m: "example" | "context") => {
     if (!client || busy) return;
     setBusy(true);
     setMode(m);
     setStage("generating");
     setQuestion("");
+    setCleanQuestion("");
     setError(null);
     try {
       const template = await getPromptTemplate(m);
@@ -81,12 +82,12 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
           { role: "user", content: prompt },
         ],
         (token) => {
-          acc += token;
-          setQuestion(acc);
+          acc += token; // 仅累积，不实时渲染
         }
       );
       if (!acc.trim()) throw new Error("AI 未返回内容");
-      setCleanQuestion(cleanQuestionDisplay(acc));
+      setQuestion(acc); // 原始回复（存档）
+      setCleanQuestion(cleanQuestionDisplay(acc)); // 适配清洗后展示
       setStage("answering");
     } catch (e) {
       setError(String(e));
@@ -147,25 +148,20 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         {/* 步骤 1：选择题型并生成 */}
         {stage === "idle" && (
           <div className="flex gap-2">
-            <Button className="flex-1" disabled={!ready || busy} onClick={() => generate("cloze")}>
-              生成完形填空
+            <Button className="flex-1" disabled={!ready || busy} onClick={() => generate("example")}>
+              生成例句
             </Button>
             <Button className="flex-1" variant="outline" disabled={!ready || busy} onClick={() => generate("context")}>
-              生成语境对话
+              生成语境题
             </Button>
           </div>
         )}
 
         {/* 流式生成中 */}
         {stage === "generating" && (
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              AI 正在生成{mode === "cloze" ? "完形填空" : "语境对话"}…
-            </p>
-            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-sm">
-              {question || "…"}
-            </div>
+          <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" />
+            AI 正在生成并适配{mode === "example" ? "例句" : "语境题"}，请稍候…
           </div>
         )}
 
@@ -189,7 +185,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
             <div className="flex items-center justify-between">
               <Button variant="ghost" size="sm" onClick={() => generate(mode)} disabled={busy}>
                 <RefreshCw className="size-3.5" />
-                换一题
+                换一题（{mode === "example" ? "例句" : "语境题"}）
               </Button>
               <Button onClick={grade} disabled={!answer.trim() || busy}>
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}

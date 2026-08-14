@@ -191,14 +191,26 @@ export default function QuizSession({
     const n = configCount === "all" ? pool.length : parseInt(configCount, 10);
     const built = buildItems(pool, configType, Math.max(1, Math.min(n, pool.length)));
 
-    // AI 出题（经适配层解析并嵌入测验；解析失败时保留本地题目）
+    // AI 出题（按题型方向单独适配；失败时保留本地题目，不阻断测验）
     if (useAI && aiClientRef.current?.isReady) {
       for (const it of built) {
         try {
+          let genType: "cloze" | "context" | "choice" | "example";
+          let direction: string | undefined;
+          if (it.type === "fill-cn2en") {
+            genType = "cloze"; // 填空：生成语境完形（挖空）
+          } else if (it.type === "choice-cn2en") {
+            genType = "choice"; // 中译英：选项为英文单词
+            direction = "看释义选单词";
+          } else {
+            genType = "choice"; // 英译中：选项为中文释义
+            direction = "看单词选释义";
+          }
           const q = await aiClientRef.current.generateQuestion({
             front: it.card.front,
             back: it.card.back,
-            type: it.type === "fill-cn2en" ? "cloze" : "context",
+            type: genType,
+            direction,
           });
           if (q?.question) {
             const adapted = adaptAIQuestion(q.question, it.type, it.card.front, it.card.back);
@@ -206,10 +218,10 @@ export default function QuizSession({
             it.aiOptions = adapted.options;
             it.explanation = adapted.explanation;
             it.aiRaw = adapted.aiRaw;
-            it.aiType = it.type === "fill-cn2en" ? "cloze" : "context";
+            it.aiType = genType;
           }
         } catch {
-          // AI 出题失败：保留本地题目，不阻断测验
+          // AI 出题失败：保留本地题目
         }
       }
     }

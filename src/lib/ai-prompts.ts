@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 
-export type PromptType = "cloze" | "context" | "grading";
+export type PromptType = "cloze" | "context" | "grading" | "example" | "choice";
 
 export interface PromptTemplate {
   id: string;
@@ -9,31 +9,28 @@ export interface PromptTemplate {
   default: string;
 }
 
-/** 默认三套 Prompt 模板（可编辑，存 settings：prompt_cloze / prompt_context / prompt_grading） */
+/** 默认 Prompt 模板（可编辑，存 settings：prompt_*） */
 export const DEFAULT_PROMPTS: Record<PromptType, PromptTemplate> = {
   cloze: {
     id: "prompt_cloze",
     label: "完形填空",
-    description: "根据单词生成语境完形题（用于测试模式与 AI 深度复习）",
+    description: "生成语境完形题（填空·中译英 的 AI 出题）",
     default: [
       '你是一位专业的英语教师。请根据给定的英语单词 "{word}"（释义：{meaning}），生成一道适合 {level} 水平学习者的完形填空题。',
       "",
       "要求：",
-      '1. 编写一个 3-5 句话的英语短段落，其中 "{word}" 出现的位置用 _____ 代替',
-      '2. 提供 4 个选项（A/B/C/D），其中一个是正确答案 "{word}"',
-      "3. 用中文简要解释为什么正确答案合适",
+      '1. 编写一个 2-3 句话的英语短段落，其中 "{word}" 出现的位置用 _____ 代替',
+      "2. 用中文简要解释为什么该词合适",
       "",
       "输出格式：",
       "**题目**: [段落]",
-      "**选项**: A. xxx  B. xxx  C. xxx  D. xxx",
-      "**答案**: [字母]",
       "**解析**: [中文解析]",
     ].join("\n"),
   },
   context: {
     id: "prompt_context",
-    label: "语境造句",
-    description: "用单词编情景对话（用于 AI 深度复习的语境模式）",
+    label: "语境对话",
+    description: "用单词编情景对话（AI 深度复习 · 语境题）",
     default: [
       '你是一位专业的英语教师。请用英语单词 "{word}"（释义：{meaning}）造一个情景对话。',
       "",
@@ -48,6 +45,45 @@ export const DEFAULT_PROMPTS: Record<PromptType, PromptTemplate> = {
       "B: ...",
       "**问题**: [基于对话的中文问题]",
       "**答案**: [中文答案]",
+    ].join("\n"),
+  },
+  example: {
+    id: "prompt_example",
+    label: "例句",
+    description: "生成带翻译的例句（AI 深度复习 · 生成例句）",
+    default: [
+      '请用英语单词 "{word}"（释义：{meaning}）生成 2-3 个例句，难度适合 {level} 水平。',
+      "",
+      "要求：",
+      "1. 每个例句后附中文翻译",
+      "2. 最后一个例句改为挖空（用 _____ 代替该词）",
+      "3. 提出一个理解性问题考察该词的含义",
+      "",
+      "输出格式：",
+      "**例句**: [例句1]",
+      "翻译: [中文]",
+      "**例句**: [例句2（含 _____）]",
+      "翻译: [中文]",
+      "**问题**: [理解性问题]",
+      "**答案**: [中文答案]",
+    ].join("\n"),
+  },
+  choice: {
+    id: "prompt_choice",
+    label: "选择题出题",
+    description: "生成语境句 + 方向自适应的 4 个选项（选择·中译英 / 选择·英译中 的 AI 出题）",
+    default: [
+      '请用英语单词 "{word}"（释义：{meaning}）编写一句包含该词的英语语境句，难度适合 {level} 水平。',
+      "",
+      "随后根据题目方向 {direction} 提供 4 个选项（A/B/C/D）：",
+      '- 若方向为 "看释义选单词"：选项必须是 4 个英语单词，其中一个是 {word}',
+      '- 若方向为 "看单词选释义"：选项必须是 4 个中文释义，其中一个是 {meaning}',
+      "",
+      "输出格式：",
+      "**题目**: [语境句]",
+      "**选项**: A. xxx  B. xxx  C. xxx  D. xxx",
+      "**答案**: [字母]",
+      "**解析**: [简短中文解析]",
     ].join("\n"),
   },
   grading: {
@@ -73,7 +109,7 @@ export const DEFAULT_PROMPTS: Record<PromptType, PromptTemplate> = {
   },
 };
 
-export const PROMPT_TYPES: PromptType[] = ["cloze", "context", "grading"];
+export const PROMPT_TYPES: PromptType[] = ["cloze", "context", "example", "choice", "grading"];
 
 /** 读取模板（settings 覆盖时用用户版本） */
 export async function getPromptTemplate(type: PromptType): Promise<string> {

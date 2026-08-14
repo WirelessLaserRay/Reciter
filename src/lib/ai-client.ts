@@ -26,6 +26,14 @@ export interface AIGradeResult {
   comment: string;
 }
 
+export interface AIQuestionParams {
+  front: string;
+  back: string;
+  type: "cloze" | "context" | "example" | "choice";
+  /** 选择题方向（choice 模板的 {direction} 占位符） */
+  direction?: string;
+}
+
 /** 从 settings KV 读取 AI 配置 */
 export async function getAIConfig(): Promise<AIConfig> {
   const [baseURL, apiKey, model, temp] = await Promise.all([
@@ -180,17 +188,14 @@ export class AIClient {
   }
 
   /** 生成 AI 题目（完形/语境/选择题），返回题目文本与（可选）答案 */
-  async generateQuestion(params: {
-    front: string;
-    back: string;
-    type: "cloze" | "context";
-  }): Promise<AIQuestionResult | null> {
+  async generateQuestion(params: AIQuestionParams): Promise<AIQuestionResult | null> {
     if (!this.isReady) return null;
     const template = await getPromptTemplate(params.type);
     const prompt = fillTemplate(template, {
       word: params.front,
       meaning: params.back,
       level: "B2",
+      direction: params.direction ?? "看释义选单词",
     });
     const content = await this.chat([
       { role: "system", content: "你是 Reciter 英语学习应用的题目生成器，严格按模板输出。" },

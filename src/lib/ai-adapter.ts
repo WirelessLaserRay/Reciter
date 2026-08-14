@@ -35,7 +35,7 @@ export interface AdaptedQuizQuestion {
 }
 
 const SECTION_RE =
-  /\*\*(题目|选项|答案|解析|对话|问题)\*\*\s*[:：]\s*([\s\S]*?)(?=\*\*(?:题目|选项|答案|解析|对话|问题)\*\*\s*[:：]|$)/g;
+  /\*\*(题目|选项|答案|解析|对话|问题|例句)\*\*\s*[:：]\s*([\s\S]*?)(?=\*\*(?:题目|选项|答案|解析|对话|问题|例句)\*\*\s*[:：]|$)/g;
 
 /** 按 **标签**: 提取各段 */
 export function parseSections(content: string): Record<string, string> {
@@ -88,12 +88,13 @@ export function parseAIQuestion(raw: string): AIParsedQuestion {
     const idx = answerLetter.charCodeAt(0) - 65;
     answerText = options[idx] ?? null;
   }
-  // 题目：完形取「题目」，语境取「对话」+「问题」
+  // 题目：完形取「题目」；例句取「例句」+「问题」；语境取「对话」+「问题」
   let question = sections["题目"] ?? "";
   if (!question) {
-    const dialog = sections["对话"] ?? "";
+    const ex = sections["例句"] ?? "";
     const q = sections["问题"] ?? "";
-    question = [dialog, q].filter(Boolean).join("\n");
+    const dialog = sections["对话"] ?? "";
+    question = [ex, dialog, q].filter(Boolean).join("\n");
   }
   // 剔除可能残留的标签行，防止答案泄漏
   question = question
@@ -132,11 +133,16 @@ export function adaptAIQuestion(
     };
   }
 
-  // 选择：AI 选项有效则使用（并确保含正确答案）；否则回退本地
+  // 选择：方向校验（英译中须含中文选项、中译英须为英文选项），
+  // 有效则使用（并确保含正确答案），方向不符则回退本地干扰项
   let options = parsed.options;
   if (options) {
-    if (!options.includes(correctAnswer)) {
-      options = [correctAnswer, ...options];
+    const hasCJK = options.some((o) => /[\u4e00-\u9fff]/.test(o));
+    const directionOk = itemType === "choice-en2cn" ? hasCJK : !hasCJK;
+    if (directionOk) {
+      if (!options.includes(correctAnswer)) options = [correctAnswer, ...options];
+    } else {
+      options = null; // 方向不符（如英译中却给了英文选项），回退本地
     }
   }
   return {
