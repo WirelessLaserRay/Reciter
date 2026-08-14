@@ -43,8 +43,12 @@ export default function DeckDetail() {
   const [editKey, setEditKey] = useState(false);
   const [keyFilter, setKeyFilter] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /**
+   * 加载词库数据。
+   * silent=true（编辑/删除/添加后刷新）：不切换 loading 占位，避免 ScrollArea 重挂导致滚动位置丢失。
+   */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [d, cs, pg] = await Promise.all([
         db.getDeck(deckId),
@@ -55,7 +59,7 @@ export default function DeckDetail() {
       setCards(cs);
       setProgress(pg);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [deckId]);
 
@@ -76,7 +80,7 @@ export default function DeckDetail() {
       if (!res.created) window.alert("该单词已存在于词库中，已更新其释义。");
       setFront("");
       setBack("");
-      load();
+      load(true);
     } finally {
       setAdding(false);
     }
@@ -105,7 +109,7 @@ export default function DeckDetail() {
         is_key: editKey ? 1 : 0,
       });
       setEditTarget(null);
-      load();
+      load(true);
     } finally {
       setEditBusy(false);
     }
@@ -114,7 +118,7 @@ export default function DeckDetail() {
   const deleteCard = async (cardId: number) => {
     if (!window.confirm("删除这张卡片？")) return;
     await db.deleteCard(cardId);
-    load();
+    load(true);
   };
 
   const filtered = cards.filter(
