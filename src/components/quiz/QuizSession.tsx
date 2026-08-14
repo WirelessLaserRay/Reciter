@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -127,7 +126,15 @@ function buildItems(cards: CardType[], type: QuizType, count: number): QuizItem[
   });
 }
 
-export default function QuizSession({ deckId, deckName }: { deckId: number; deckName: string }) {
+export default function QuizSession({
+  deckId,
+  deckName,
+  onExit,
+}: {
+  deckId: number;
+  deckName: string;
+  onExit: () => void;
+}) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
   const [configCount, setConfigCount] = useState("10");
   const [tagFilter, setTagFilter] = useState("all");
@@ -242,11 +249,9 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="flex items-center justify-between">
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/study">
-              <ArrowLeft className="size-4" />
-              返回
-            </Link>
+          <Button variant="ghost" size="sm" onClick={onExit}>
+            <ArrowLeft className="size-4" />
+            返回
           </Button>
           <span className="text-sm text-muted-foreground">词库：{deckName}</span>
         </div>
@@ -354,9 +359,7 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
               <Button onClick={() => { setPhase("setup"); setResult(null); }}>
                 再测一次
               </Button>
-              <Button asChild variant="outline">
-                <Link to="/study">返回学习</Link>
-              </Button>
+              <Button variant="outline" onClick={onExit}>返回学习</Button>
             </div>
           </CardContent>
         </Card>
@@ -382,11 +385,9 @@ export default function QuizSession({ deckId, deckName }: { deckId: number; deck
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/study">
-            <ArrowLeft className="size-4" />
-            退出
-          </Link>
+        <Button variant="ghost" size="sm" onClick={onExit}>
+          <ArrowLeft className="size-4" />
+          退出
         </Button>
         <div className="flex items-center gap-2 text-sm">
           <Badge variant="secondary">{QUIZ_TYPE_LABEL[item.type]}</Badge>

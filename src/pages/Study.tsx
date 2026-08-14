@@ -379,7 +379,7 @@ export default function Study() {
   }
 
   if (quizDeck) {
-    return <QuizSession deckId={quizDeck.id} deckName={quizDeck.name} />;
+    return <QuizSession deckId={quizDeck.id} deckName={quizDeck.name} onExit={() => setQuizDeck(null)} />;
   }
 
   if (deckId === null) {
