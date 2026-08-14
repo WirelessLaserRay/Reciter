@@ -1,0 +1,176 @@
+# Reciter
+
+> 本地客制化英语学习与记忆客户端 · Local-first English Learning & Spaced Repetition Client
+
+对标 Anki / MaiMemo 的开源英语学习工具，主打 **Markdown 自由导入** 与 **AI 智能复习**，数据全部保存在本地。
+
+- 技术栈：**Tauri 2**（Rust 壳）+ **React 18** + **TypeScript** + **Vite 7**
+- UI：**Tailwind CSS v4** + **shadcn/ui**（暗色/亮色双主题）
+- 状态/路由：**Zustand 5** + **React Router 7**
+- 记忆算法：**FSRS-5**（ts-fsrs）· 本地存储：**SQLite**（tauri-plugin-sql，WAL）
+- AI 接入：**OpenAI 兼容双通道**（DeepSeek 云端 / Ollama 本地）
+
+---
+
+## ✨ 核心功能
+
+| 功能 | 说明 | 状态 |
+|---|---|---|
+| 🗂️ 灵活数据导入 | Markdown（`## 标题` 分词库、`- word: meaning` 成卡、`> 引用块` 例句、`==高亮==` 挖空素材）/ CSV / JSON 批量导入，导入前预览、冲突检测 | Phase 2 |
+| 🧠 科学记忆系统 | FSRS-5 间隔重复算法，目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转 | Phase 3 |
+| 🤖 AI 语境测试 | 完形填空 / 情景对话 / AI 判分（流式输出），判分可申诉；DeepSeek 与 Ollama 一键切换 | Phase 4 |
+| 📊 学习统计 | 复习量柱状图、记忆保留率折线图、365 天热力图（自定义 CSS Grid 实现） | Phase 5 |
+| 💾 本地优先 | 所有数据存本地 SQLite；JSON 导出 + WebDAV 备份，隐私安全 | Phase 2/5 |
+| ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Phase 3 |
+
+**差异化亮点**（主流竞品未实现）：Markdown 原生导入、AI 语境测试、记忆可检索度实时可视化（ts-fsrs `get_retrievability`）。
+
+---
+
+## 🏗️ 架构
+
+```
+┌────────────────────────────────────────────────────┐
+│ Tauri 2 Shell (Rust, 薄壳)                          │
+│  ├─ tauri-plugin-sql     → SQLite (本地词库+进度)   │
+│  ├─ tauri-plugin-dialog  → 文件选择(Markdown/CSV)  │
+│  └─ tauri-plugin-http    → AI API 请求 / WebDAV    │
+├────────────────────────────────────────────────────┤
+│ React 18 + TypeScript + Vite (前端)                 │
+│  ├─ UI: Tailwind v4 + shadcn/ui (暗色主题)          │
+│  ├─ 状态: Zustand；路由: React Router               │
+│  ├─ 解析: remark AST + 正则后处理 → Card            │
+│  ├─ SRS: ts-fsrs (FSRS-5 scheduler)                 │
+│  └─ 图表: Recharts + 自定义 HeatmapGrid             │
+└────────────────────────────────────────────────────┘
+                    │
+                    ▼
+          SQLite 单文件 (reciter.db, WAL)
+          ├─ decks / cards / card_states / review_logs / settings / daily_stats
+          └─ 导出 → JSON → WebDAV (TgNAS) 备份
+```
+
+### 数据库 Schema 摘要（6 张表）
+
+| 表 | 说明 | 关键字段 |
+|---|---|---|
+| `decks` | 词库 | name(UNIQUE), new_cards_per_day |
+| `cards` | 卡片 | (deck_id, front) UNIQUE → 重导入 upsert 保留进度 |
+| `card_states` | FSRS 记忆状态（与卡片 1:1） | state/stability/difficulty/due/desired_retention/algorithm_version |
+| `review_logs` | 复习记录 | grade(1-4), source(review|ai_test), ai_question/ai_answer |
+| `settings` | KV 设置 | key/value |
+| `daily_stats` | 学习日报（统计 O(1) 查询） | new_count/review_count/again_count/retention_rate |
+
+---
+
+## 🛠️ 开发环境
+
+### 前置依赖
+
+| 依赖 | 版本要求 | 说明 |
+|---|---|---|
+| Node.js | >= 18（开发环境 22.17.1） | 前端构建 |
+| npm | >= 10 | 包管理 |
+| Rust | stable（开发环境 1.97.1） | Tauri 壳；rustup 安装，约 1.5GB 一次性成本 |
+| MSVC Build Tools | VS2022 VCTools（14.44） | Windows 链接必需（`link.exe`） |
+| WebView2 Runtime | Win11 自带 | Tauri WebView 运行时 |
+
+### 首次安装（Windows）
+
+```powershell
+# 1. Rust 工具链（非管理员）
+curl.exe -L -o %TEMP%\rustup-init.exe https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
+%TEMP%\rustup-init.exe -y --profile minimal --default-toolchain stable
+
+# 2. MSVC C++ Build Tools（需管理员 / UAC 授权）
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact ^
+  --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+# 3. 项目依赖
+cd F:\AI\Reciter
+npm install
+```
+
+> ⚠️ **端口说明**：Vite 开发端口使用 **14210**（非模板默认 1420）。1420 落在 Windows Hyper-V/WSL 保留端口区间（`netsh int ipv4 show excludedportrange` 可查），绑定会报 `EACCES`。
+
+### 常用命令
+
+| 命令 | 说明 |
+|---|---|
+| `npm install` | 安装前端依赖 |
+| `npm run dev` | 仅前端开发（http://127.0.0.1:14210） |
+| `npm run build` | 前端类型检查 + 生产构建（输出 `dist/`） |
+| `npm run tauri dev` | 启动桌面应用（开发模式，热更新） |
+| `npm run tauri build` | 打包桌面安装包 |
+| `npx tauri icon <png>` | 重新生成应用图标 |
+
+---
+
+## 📁 项目结构
+
+```
+F:\AI\Reciter
+├── IDEA.md / PLAN.md / ANALYSIS.md   # 需求 / 方案 / 实施方案
+├── CHANGELOG.md                      # 项目改动跟踪（Keep a Changelog）
+├── README.md                         # 本文档
+├── index.html                        # Vite 入口
+├── vite.config.ts                    # Vite + Tailwind v4 + @/ 别名 + 端口 14210
+├── components.json                   # shadcn/ui 配置
+├── src/
+│   ├── main.tsx / App.tsx            # React 入口 + 路由（HashRouter）
+│   ├── index.css                     # Tailwind v4 + 双主题 CSS 变量
+│   ├── components/
+│   │   ├── ui/                       # shadcn/ui 组件（button/card/tabs/... 15 个）
+│   │   └── layout/                   # Sidebar / Header / MainLayout
+│   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
+│   ├── stores/                       # Zustand store（useThemeStore 等）
+│   ├── lib/                          # utils.ts（cn）；db/fsrs/markdown/ai 后续加入
+│   └── types/                        # 全局类型（与数据库 Schema 对齐）
+├── src-tauri/                        # Tauri 2 Rust 壳
+│   ├── src/main.rs / lib.rs          # 入口 + Builder
+│   ├── tauri.conf.json               # 窗口/构建/打包配置（devUrl 14210）
+│   ├── Cargo.toml                    # tauri 2 依赖
+│   ├── capabilities/default.json     # 权限声明
+│   └── icons/                        # 应用图标（多尺寸）
+└── .install/                         # 安装脚本与日志（gitignore）
+```
+
+### 路由一览
+
+| 路径 | 页面 | 说明 |
+|---|---|---|
+| `/` | Dashboard | 今日任务概览 + 快捷操作 |
+| `/decks` | 词库列表 | 新建/管理词库 |
+| `/decks/:id` | 词库详情 | 卡片列表与进度 |
+| `/study` | 学习 | 卡片翻转 + 四档评分（Phase 3 接入 FSRS） |
+| `/import` | 导入 | Markdown/CSV 拖拽导入（Phase 2） |
+| `/stats` | 统计 | 图表与热力图（Phase 5） |
+| `/settings` | 设置 | 外观 / 学习偏好 / AI 配置 |
+
+---
+
+## 🗺️ 路线图
+
+| Phase | 内容 | 状态 |
+|---|---|---|
+| **1** | 脚手架（Tauri 2 + Vite + React 18 + Tailwind v4 + shadcn），路由骨架 6 页，暗色主题 | ✅ 已完成 |
+| **2** | SQLite 接入 + 迁移，Deck/Card CRUD + upsert，Markdown 导入解析 + 预览 | ⏳ 进行中 |
+| **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ⏳ 待开始 |
+| **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ⏳ 待开始 |
+| **5** | 统计图表 + 自定义热力图、JSON 导出 + WebDAV 备份、翻转动画、主题打磨 | ⏳ 待开始 |
+
+---
+
+## 📝 设计约定
+
+- **Markdown 导入规则**：`## 标题` → 词库；`- word: meaning` / `- word — meaning` / `- word：meaning` → 卡片；`> 例句` → 追加到上一卡片 back；`==高亮==` → 正则后处理提取挖空素材（remark 无稳定 mark 插件，采用 AST + 正则两阶段）
+- **FSRS 时区陷阱**：ts-fsrs 使用原生 `Date`，应用层需实现 `getDayStart(hour)`（默认 04:00 为新一天起点，可配置）
+- **主题持久化**：`useThemeStore`（Zustand persist → localStorage `reciter-theme`），在 `<html>` 上切换 `.dark` class
+- **算法升级预留**：`card_states.algorithm_version` 字段（默认 `FSRS-5`），未来升级 FSRS-6 无需改表
+
+## 🤝 贡献
+
+项目处于早期阶段，欢迎按 PLAN.md 的阶段划分参与开发。改动请遵循：
+
+1. 使用 Conventional Commits 提交（`feat:` / `fix:` / `docs:` / `chore:`）
+2. 每次合并后更新 `CHANGELOG.md`（Keep a Changelog 规范）
