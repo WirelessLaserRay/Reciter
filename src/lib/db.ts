@@ -66,10 +66,10 @@ class ReciterDB {
    * 加载数据库（幂等）：Tauri 环境用 tauri-plugin-sql；Web/PWA 用 sql.js（WASM SQLite + IndexedDB）。
    * 两种后端跑完全相同的 SQL，Windows 端行为与之前完全一致。
    */
-  init(): Promise<void> {
+  init(backend?: SQLBackend): Promise<void> {
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
-        const b: SQLBackend = isTauri() ? new TauriBackend() : new SqlJsBackend();
+        const b: SQLBackend = backend ?? (isTauri() ? new TauriBackend() : new SqlJsBackend());
         await b.init();
         if (b.kind === "sqljs") {
           // Web 端无 Rust 迁移，手动执行镜像迁移（幂等）
@@ -496,18 +496,24 @@ class ReciterDB {
     );
   }
 
+  /**
+   * 恢复卡片（含 FSRS 状态）。
+   * 注意：导出行主键字段为 card_id（SELECT c.id AS card_id），读取时须用 card_id。
+   */
   async restoreCard(c: Card & CardState): Promise<void> {
+    const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
+    if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
       `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [c.id, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.created_at, c.updated_at]
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,
               scheduled_days, learning_steps, reps, lapses, desired_retention, algorithm_version)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        c.id, c.state, c.stability, c.difficulty, c.due, c.last_review, c.elapsed_days,
+        cardId, c.state, c.stability, c.difficulty, c.due, c.last_review, c.elapsed_days,
         c.scheduled_days, c.learning_steps, c.reps, c.lapses, c.desired_retention, c.algorithm_version,
       ]
     );

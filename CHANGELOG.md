@@ -21,6 +21,19 @@
 
 ---
 
+## [0.7.2] - 2026-08-14
+
+### Fixed
+
+- **导入桌面备份报 "tried to bind a value of an unknown type (undefined)"**：`getAllCardsWithState` 导出时主键别名为 `card_id`（`SELECT c.id AS card_id`），而 `restoreCard` 读取 `c.id` 得到 undefined → sql.js 绑定报错（Windows plugin-sql 静默容忍，Web 直接抛错）。修复：恢复逻辑改用 `card_id`（兼容 `id` 兜底），并给 sql.js 后端增加参数归一化（undefined → null，SQLite NULL 语义兜底）
+- `db.init` 支持注入后端（测试/未来用途）
+
+### Verified
+
+- ✅ 端到端恢复测试：真实桌面备份（1 词库 / 100 卡 / 复习记录 / 设置 / 日报）完整恢复到 sql.js 后端，标签与 FSRS 状态正确
+
+---
+
 ## [0.7.1] - 2026-08-14
 
 ### Fixed

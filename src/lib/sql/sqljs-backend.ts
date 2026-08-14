@@ -10,6 +10,11 @@ type Factory = () => Promise<SqlJsStatic>;
 const defaultFactory: Factory = () =>
   initSqlJs({ locateFile: () => "sql-wasm.wasm" });
 
+/** sql.js 不接受 undefined 绑定值，统一归一化为 null（≈ SQLite NULL 语义） */
+function normalizeParams(params: unknown[]): unknown[] {
+  return params.map((p) => (p === undefined ? null : p));
+}
+
 /**
  * Web 后端：sql.js（WASM SQLite）跑完全相同的 SQL，
  * 每次写入后 debounce 导出数据库二进制保存到 IndexedDB（离线持久化）。
@@ -36,7 +41,7 @@ export class SqlJsBackend implements SQLBackend {
     if (!this.db) throw new Error("backend not initialized");
     if (params.length > 0) {
       // 单条带参语句
-      this.db.run(sql, params as never[]);
+      this.db.run(sql, normalizeParams(params) as never[]);
     } else {
       // 无参 SQL（含迁移等多语句）用 exec 全部执行
       this.db.exec(sql);
@@ -48,7 +53,7 @@ export class SqlJsBackend implements SQLBackend {
     if (!this.db) throw new Error("backend not initialized");
     const stmt = this.db.prepare(sql);
     try {
-      if (params.length > 0) stmt.bind(params as never[]);
+      if (params.length > 0) stmt.bind(normalizeParams(params) as never[]);
       const rows: unknown[] = [];
       while (stmt.step()) rows.push(stmt.getAsObject());
       return rows as T;
