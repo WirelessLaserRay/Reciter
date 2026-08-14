@@ -13,6 +13,8 @@ export interface QueueItem {
 interface StudyState {
   deckId: number | null;
   deckName: string;
+  /** 当前学习标签（空 = 全部） */
+  tagName: string;
   queue: QueueItem[];
   index: number;
   loading: boolean;
@@ -21,7 +23,7 @@ interface StudyState {
   stats: { reviewed: number; newDone: number; again: number };
   finished: boolean;
 
-  loadQueue: (deckId: number) => Promise<void>;
+  loadQueue: (deckId: number, tag?: string) => Promise<void>;
   /** 评分当前卡片，返回是否还有下一张；opts 支持 AI 测试来源与题目/答案记录 */
   rate: (
     grade: 1 | 2 | 3 | 4,
@@ -35,6 +37,7 @@ interface StudyState {
 export const useStudyStore = create<StudyState>((set, get) => ({
   deckId: null,
   deckName: "",
+  tagName: "",
   queue: [],
   index: 0,
   loading: false,
@@ -42,8 +45,8 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   stats: { reviewed: 0, newDone: 0, again: 0 },
   finished: false,
 
-  /** 加载今日队列：due 卡片 + 新卡配额内卡片 */
-  loadQueue: async (deckId: number) => {
+  /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤） */
+  loadQueue: async (deckId: number, tag?: string) => {
     set({ loading: true, error: null, finished: false });
     try {
       const deck = await db.getDeck(deckId);
@@ -55,18 +58,19 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
       const dayStart = getDayStartDate(dayStartHour, now);
 
-      // 1. 到期卡片（Learning/Review/Relearning）
-      const due = await db.getDueCards(deckId, now.toISOString());
+      // 1. 到期卡片（Learning/Review/Relearning，可按标签过滤）
+      const due = await db.getDueCards(deckId, now.toISOString(), tag);
 
-      // 2. 新卡配额
+      // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
       const newLimit = Math.max(0, deck.new_cards_per_day - learnedToday);
-      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit) : [];
+      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag) : [];
 
       const queue: QueueItem[] = [...due, ...fresh].map((row) => ({ row, shownAt: Date.now() }));
       set({
         deckId,
         deckName: deck.name,
+        tagName: tag ?? "",
         queue,
         index: 0,
         stats: { reviewed: 0, newDone: 0, again: 0 },
@@ -131,6 +135,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   reset: () => {
-    set({ deckId: null, deckName: "", queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0 } });
+    set({ deckId: null, deckName: "", tagName: "", queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0 } });
   },
 }));

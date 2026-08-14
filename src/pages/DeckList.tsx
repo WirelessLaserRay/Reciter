@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, Loader2, Plus, Trash2 } from "lucide-react";
+import { BookOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,6 +12,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { db } from "@/lib/db";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
@@ -23,6 +31,11 @@ export default function DeckList() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ id: number; name: string; description: string } | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renameDesc, setRenameDesc] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   useEffect(() => {
     if (dbReady) refresh();
@@ -39,6 +52,28 @@ export default function DeckList() {
       refresh();
     } finally {
       setCreating(false);
+    }
+  };
+
+  const openRename = (id: number, name: string, description: string) => {
+    setRenameTarget({ id, name, description });
+    setRenameName(name);
+    setRenameDesc(description);
+    setRenameError(null);
+  };
+
+  const saveRename = async () => {
+    if (!renameTarget || !renameName.trim()) return;
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      await db.updateDeck(renameTarget.id, { name: renameName.trim(), description: renameDesc.trim() });
+      setRenameTarget(null);
+      refresh();
+    } catch (e) {
+      setRenameError(String(e));
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -139,15 +174,26 @@ export default function DeckList() {
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="truncate">{d.name}</CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                    onClick={() => deleteDeck(d.id, d.name)}
-                    title="删除词库"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                  <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground"
+                      onClick={() => openRename(d.id, d.name, d.description)}
+                      title="重命名词库"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => deleteDeck(d.id, d.name)}
+                      title="删除词库"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <CardDescription className="line-clamp-2 min-h-8">
                   {d.description || "暂无描述"}
@@ -170,6 +216,46 @@ export default function DeckList() {
           ))}
         </div>
       )}
+
+      {/* 重命名词库对话框 */}
+      <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>重命名词库</DialogTitle>
+            <DialogDescription>修改名称与描述（名称在词库内唯一）</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-name">词库名称</Label>
+              <Input
+                id="rename-name"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveRename()}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-desc">描述（可选）</Label>
+              <Input
+                id="rename-desc"
+                value={renameDesc}
+                onChange={(e) => setRenameDesc(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveRename()}
+              />
+            </div>
+            {renameError && <p className="text-xs text-red-600">{renameError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              取消
+            </Button>
+            <Button onClick={saveRename} disabled={!renameName.trim() || renameBusy}>
+              {renameBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

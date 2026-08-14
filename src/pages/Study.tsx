@@ -6,15 +6,18 @@ import {
   CheckCircle2,
   ClipboardList,
   Keyboard,
+  Layers,
   Loader2,
   RefreshCw,
   Sparkles,
+  Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
+  CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +27,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { StudyCardRow } from "@/lib/db";
+import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -89,7 +92,7 @@ function tagsOf(raw: string): string[] {
 
 /** 学习主界面 */
 function StudySession() {
-  const { deckName, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
+  const { deckName, tagName, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
   const [flipped, setFlipped] = useState(false);
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
@@ -175,7 +178,10 @@ function StudySession() {
               返回首页
             </Link>
           </Button>
-          <span className="text-sm text-muted-foreground">词库：{deckName}</span>
+          <span className="text-sm text-muted-foreground">
+            词库：{deckName}
+            {tagName && " · 标签：" + tagName}
+          </span>
         </div>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
@@ -191,7 +197,7 @@ function StudySession() {
                   复习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张
                 </>
               ) : (
-                "词库「" + deckName + "」当前没有到期的卡片或可用新卡配额。"
+                "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
               )}
             </CardDescription>
             <div className="flex gap-3">
@@ -227,6 +233,12 @@ function StudySession() {
         </Button>
         <div className="text-sm">
           <span className="font-medium">{deckName}</span>
+          {tagName && (
+            <Badge variant="secondary" className="ml-2 text-[10px]">
+              <Tag className="size-2.5" />
+              {tagName}
+            </Badge>
+          )}
           <span className="ml-3 text-muted-foreground">
             已完成 {done} · 剩余 {total - index}
           </span>
@@ -339,7 +351,13 @@ function StudySession() {
 }
 
 /** 词库选择页（学习 / 测试两个入口） */
-function DeckPicker({ onStudy, onQuiz }: { onStudy: (id: number) => void; onQuiz: (id: number) => void }) {
+function DeckPicker({
+  onStudy,
+  onQuiz,
+}: {
+  onStudy: (id: number, name: string) => void;
+  onQuiz: (id: number) => void;
+}) {
   const { decks, cardCounts, refresh } = useDeckStore();
 
   useEffect(() => {
@@ -380,7 +398,7 @@ function DeckPicker({ onStudy, onQuiz }: { onStudy: (id: number) => void; onQuiz
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
-                <Button onClick={() => onStudy(d.id)}>
+                <Button onClick={() => onStudy(d.id, d.name)}>
                   <RefreshCw className="size-3.5" />
                   学习
                 </Button>
@@ -397,9 +415,77 @@ function DeckPicker({ onStudy, onQuiz }: { onStudy: (id: number) => void; onQuiz
   );
 }
 
+/** 标签选择（学习前选择考察范围） */
+function TagPicker({
+  deckId,
+  deckName,
+  onPick,
+  onBack,
+}: {
+  deckId: number;
+  deckName: string;
+  onPick: (tag?: string) => void;
+  onBack: () => void;
+}) {
+  const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    db.getDeckTagsWithCount(deckId)
+      .then((t) => {
+        setTags(t);
+        setTotal(t.reduce((a, x) => a + x.count, 0));
+      })
+      .catch(() => {});
+  }, [deckId]);
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-4">
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="size-4" />
+          返回词库
+        </Button>
+        <span className="text-sm text-muted-foreground">词库：{deckName}</span>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Layers className="size-4" />
+            选择学习范围
+          </CardTitle>
+          <CardDescription>按标签分类学习（如「单词」「词组」分开考察）</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button className="w-full justify-between" onClick={() => onPick(undefined)}>
+            <span className="flex items-center gap-2">
+              <Layers className="size-4" />
+              全部卡片
+            </span>
+            <span className="text-xs text-muted-foreground">{total} 张</span>
+          </Button>
+          {tags.map((t) => (
+            <Button key={t.tag} variant="outline" className="w-full justify-between" onClick={() => onPick(t.tag)}>
+              <span className="flex items-center gap-2">
+                <Tag className="size-4" />
+                {t.tag}
+              </span>
+              <span className="text-xs text-muted-foreground">{t.count} 张</span>
+            </Button>
+          ))}
+          {tags.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted-foreground">该词库暂无标签，将学习全部卡片</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
   const [quizDeck, setQuizDeck] = useState<{ id: number; name: string } | null>(null);
+  const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
 
   if (loading) {
     return (
@@ -422,10 +508,24 @@ export default function Study() {
     return <QuizSession deckId={quizDeck.id} deckName={quizDeck.name} onExit={() => setQuizDeck(null)} />;
   }
 
+  if (pendingDeck) {
+    return (
+      <TagPicker
+        deckId={pendingDeck.id}
+        deckName={pendingDeck.name}
+        onPick={(tag) => {
+          loadQueue(pendingDeck.id, tag);
+          setPendingDeck(null);
+        }}
+        onBack={() => setPendingDeck(null)}
+      />
+    );
+  }
+
   if (deckId === null) {
     return (
       <DeckPicker
-        onStudy={(id) => loadQueue(id)}
+        onStudy={(id, name) => setPendingDeck({ id, name })}
         onQuiz={(id) => {
           const d = useDeckStore.getState().decks.find((x) => x.id === id);
           setQuizDeck({ id, name: d?.name ?? "词库" });

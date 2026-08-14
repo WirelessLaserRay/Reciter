@@ -46,6 +46,14 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** 标签过滤 SQL 片段（tags 为 JSON 数组字符串，精确匹配引号包裹的标签） */
+function tagWhere(tag?: string): string {
+  return tag ? " AND c.tags LIKE ?" : "";
+}
+function tagParam(tag?: string): string[] {
+  return tag ? ['%"' + tag + '"%'] : [];
+}
+
 class ReciterDB {
   private db: Database | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -141,6 +149,44 @@ class ReciterDB {
     return rows[0] ?? null;
   }
 
+  /** 词库内全部标签（去重，用于按标签筛选学习） */
+  async getDeckTags(deckId: number): Promise<string[]> {
+    const rows = await this.requireDb().select<{ tags: string }[]>(
+      "SELECT tags FROM cards WHERE deck_id = ? AND tags != '[]'",
+      [deckId]
+    );
+    const set = new Set<string>();
+    for (const r of rows) {
+      try {
+        const arr = JSON.parse(r.tags);
+        if (Array.isArray(arr)) arr.forEach((t) => set.add(String(t)));
+      } catch {
+        // 忽略损坏标签
+      }
+    }
+    return [...set].sort();
+  }
+
+  /** 词库内各标签卡片数（按标签学习入口用） */
+  async getDeckTagsWithCount(deckId: number): Promise<{ tag: string; count: number }[]> {
+    const rows = await this.requireDb().select<{ tags: string }[]>(
+      "SELECT tags FROM cards WHERE deck_id = ? AND tags != '[]'",
+      [deckId]
+    );
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      try {
+        const arr = JSON.parse(r.tags);
+        if (Array.isArray(arr)) for (const t of arr) map.set(String(t), (map.get(String(t)) ?? 0) + 1);
+      } catch {
+        // 忽略损坏标签
+      }
+    }
+    return [...map.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, "zh-CN"));
+  }
+
   /** 词库内已存在的 front 集合（冲突检测用，一次查询） */
   async getExistingFronts(deckId: number): Promise<Set<string>> {
     const rows = await this.requireDb().select<{ front: string }[]>(
@@ -187,6 +233,24 @@ class ReciterDB {
       await db.execute("INSERT OR IGNORE INTO card_states (card_id) VALUES (?)", [cardId]);
     }
     return { cardId, created: !wasKnown };
+  }
+
+  /** 编辑卡片（front/back/tags） */
+  async updateCard(
+    id: number,
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content">>
+  ): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | number)[] = [];
+    if (data.front !== undefined) { sets.push("front = ?"); params.push(data.front); }
+    if (data.back !== undefined) { sets.push("back = ?"); params.push(data.back); }
+    if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); }
+    if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
+    if (sets.length === 0) return;
+    params.push(nowIso());
+    sets.push("updated_at = ?");
+    params.push(id);
+    await this.requireDb().execute(`UPDATE cards SET ${sets.join(", ")} WHERE id = ?`, params);
   }
 
   async deleteCard(id: number): Promise<void> {
@@ -287,32 +351,34 @@ class ReciterDB {
 
   // ==================== 学习队列查询（Phase 3） ====================
 
-  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序 */
-  async getDueCards(deckId: number, before: string): Promise<StudyCardRow[]> {
+  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤 */
+  async getDueCards(deckId: number, before: string, tag?: string): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [deckId, before, ...tagParam(tag)];
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ?
+       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ?${tagWhere(tag)}
        ORDER BY cs.due ASC, c.id ASC`,
-      [deckId, before]
+      params
     );
   }
 
-  /** 新卡片（state = 0），按 id 升序取 limit 张 */
-  async getNewCards(deckId: number, limit: number): Promise<StudyCardRow[]> {
+  /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤 */
+  async getNewCards(deckId: number, limit: number, tag?: string): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [deckId, ...tagParam(tag), limit];
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state = 0
+       WHERE c.deck_id = ? AND cs.state = 0${tagWhere(tag)}
        ORDER BY c.id ASC
        LIMIT ?`,
-      [deckId, limit]
+      params
     );
   }
 

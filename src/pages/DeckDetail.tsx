@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,6 +13,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { db } from "@/lib/db";
 import type { Card as CardType, Deck } from "@/types";
 
@@ -27,6 +35,11 @@ export default function DeckDetail() {
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editTarget, setEditTarget] = useState<CardType | null>(null);
+  const [editFront, setEditFront] = useState("");
+  const [editBack, setEditBack] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,6 +77,33 @@ export default function DeckDetail() {
       load();
     } finally {
       setAdding(false);
+    }
+  };
+
+  const openEdit = (c: CardType) => {
+    setEditTarget(c);
+    setEditFront(c.front);
+    setEditBack(c.back);
+    setEditTags(tagsOf(c).join("、"));
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget || !editFront.trim() || !editBack.trim()) return;
+    setEditBusy(true);
+    try {
+      const tagArr = editTags
+        .split(/[、,，;；]/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      await db.updateCard(editTarget.id, {
+        front: editFront.trim(),
+        back: editBack.trim(),
+        tags: JSON.stringify(tagArr),
+      });
+      setEditTarget(null);
+      load();
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -223,6 +263,15 @@ export default function DeckDetail() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="size-7 text-muted-foreground"
+                            onClick={() => openEdit(c)}
+                            title="编辑卡片"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
                             onClick={() => deleteCard(c.id)}
                             title="删除卡片"
@@ -239,6 +288,43 @@ export default function DeckDetail() {
           )}
         </CardContent>
       </Card>
+      {/* 编辑卡片对话框 */}
+      <Dialog open={editTarget !== null} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>编辑卡片</DialogTitle>
+            <DialogDescription>修改单词、释义与标签</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-front">单词 / 短语</Label>
+              <Input id="edit-front" value={editFront} onChange={(e) => setEditFront(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-back">释义</Label>
+              <Input id="edit-back" value={editBack} onChange={(e) => setEditBack(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-tags">标签（用 、 或逗号分隔）</Label>
+              <Input
+                id="edit-tags"
+                placeholder="如：单词、词组"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              取消
+            </Button>
+            <Button onClick={saveEdit} disabled={!editFront.trim() || !editBack.trim() || editBusy}>
+              {editBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
