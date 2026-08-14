@@ -38,6 +38,8 @@ export default function Settings() {
   // 学习设置
   const [retention, setRetention] = useState(0.9);
   const [dayStart, setDayStart] = useState("04:00");
+  const [defaultNewPerDay, setDefaultNewPerDay] = useState(20);
+  const [dailyReviewLimit, setDailyReviewLimit] = useState(200);
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -68,14 +70,20 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, aiCfg] = await Promise.all([
+      const [r, d, npd, rl, aiCfg] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
+        db.getSetting("default_new_per_day"),
+        db.getSetting("daily_review_limit"),
         getAIConfig(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
       setDayStart(d ?? "04:00");
+      const np = npd ? parseInt(npd, 10) : 20;
+      if (Number.isFinite(np) && np > 0) setDefaultNewPerDay(np);
+      const rlN = rl ? parseInt(rl, 10) : 200;
+      if (Number.isFinite(rlN) && rlN > 0) setDailyReviewLimit(rlN);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -107,6 +115,20 @@ export default function Settings() {
     if (!dbReady) return;
     await db.setSetting("desired_retention", String(v));
     invalidateFSRS();
+    flashSaved();
+  };
+
+  const saveNewPerDay = async (v: number) => {
+    setDefaultNewPerDay(v);
+    if (!dbReady || v <= 0) return;
+    await db.setSetting("default_new_per_day", String(v));
+    flashSaved();
+  };
+
+  const saveReviewLimit = async (v: number) => {
+    setDailyReviewLimit(v);
+    if (!dbReady || v <= 0) return;
+    await db.setSetting("daily_review_limit", String(v));
     flashSaved();
   };
 
@@ -276,14 +298,40 @@ export default function Settings() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>每日新卡上限</Label>
-                  <p className="text-xs text-muted-foreground">
-                    在「词库」页逐词库配置（默认 20 张/天）
-                  </p>
+              <div className="space-y-2">
+                <Label htmlFor="new-per-day">每日新卡上限（默认）</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="new-per-day"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={defaultNewPerDay}
+                    onChange={(e) => saveNewPerDay(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">张/天</span>
                 </div>
-                <span className="text-sm font-mono text-muted-foreground">按词库</span>
+                <p className="text-xs text-muted-foreground">
+                  新词库的默认配额；可在「词库」页对单个词库单独调整（重命名对话框）
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="review-limit">每日复习上限</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="review-limit"
+                    type="number"
+                    min={1}
+                    max={2000}
+                    value={dailyReviewLimit}
+                    onChange={(e) => saveReviewLimit(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">次/天</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  全局复习预算（对标 Anki maximum reviews/day）；超出部分留到次日，避免过度复习
+                </p>
               </div>
 
               <div className="flex items-center justify-between">

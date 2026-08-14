@@ -61,8 +61,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
       const dayStart = getDayStartDate(dayStartHour, now);
 
-      // 1. 到期卡片（Learning/Review/Relearning，可按标签过滤）
-      const due = await db.getDueCards(deckId, now.toISOString(), tag, keyOnly);
+      // 1. 到期卡片（Learning/Review/Relearning，可按标签/重点过滤，受每日复习上限约束）
+      const reviewLimitRaw = await db.getSetting("daily_review_limit");
+      const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
+      const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
+      const dueLimit = Math.max(0, reviewLimit - todayReviewed);
+      const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit) : [];
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());

@@ -133,12 +133,18 @@ class ReciterDB {
     return rows[0]?.id ?? null;
   }
 
-  /** 创建词库；已存在同名则直接返回其 id */
-  async createDeck(name: string, description = ""): Promise<number> {
+  /** 创建词库；已存在同名则直接返回其 id；新建时应用全局默认每日新卡配额设置 */
+  async createDeck(name: string, description = "", newPerDay?: number): Promise<number> {
     const db = this.requireDb();
+    let quota = newPerDay;
+    if (quota === undefined) {
+      const raw = await this.getSetting("default_new_per_day");
+      const parsed = raw ? parseInt(raw, 10) : NaN;
+      quota = Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+    }
     await db.execute(
-      "INSERT OR IGNORE INTO decks (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)",
-      [name, description, nowIso(), nowIso()]
+      "INSERT OR IGNORE INTO decks (name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      [name, description, quota, nowIso(), nowIso()]
     );
     const rows = await db.select<{ id: number }[]>("SELECT id FROM decks WHERE name = ?", [name]);
     return rows[0].id;
@@ -408,8 +414,10 @@ class ReciterDB {
   // ==================== 学习队列查询（Phase 3） ====================
 
   /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤 */
-  async getDueCards(deckId: number, before: string, tag?: string, keyOnly = false): Promise<StudyCardRow[]> {
+  async getDueCards(deckId: number, before: string, tag?: string, keyOnly = false, limit?: number): Promise<StudyCardRow[]> {
     const params: (string | number)[] = [deckId, before, ...tagParam(tag), keyOnly ? 1 : 0, keyOnly ? 1 : 0];
+    const limitSql = limit !== undefined ? " LIMIT ?" : "";
+    if (limit !== undefined) params.push(limit);
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
@@ -417,7 +425,7 @@ class ReciterDB {
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
-       ORDER BY cs.due ASC, c.id ASC`,
+       ORDER BY cs.due ASC, c.id ASC${limitSql}`,
       params
     );
   }
@@ -446,6 +454,15 @@ class ReciterDB {
          AND EXISTS (SELECT 1 FROM review_logs r WHERE r.card_id = c.id AND r.reviewed_at >= ?)
          AND NOT EXISTS (SELECT 1 FROM review_logs r2 WHERE r2.card_id = c.id AND r2.reviewed_at < ?)`,
       [deckId, dayStart, dayStart]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 全局今日已复习数（日报复习预算） */
+  async countReviewsToday(dayStart: string): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      "SELECT COUNT(*) AS cnt FROM review_logs WHERE reviewed_at >= ?",
+      [dayStart]
     );
     return rows[0]?.cnt ?? 0;
   }

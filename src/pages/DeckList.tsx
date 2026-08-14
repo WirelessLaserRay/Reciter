@@ -34,6 +34,7 @@ export default function DeckList() {
   const [renameTarget, setRenameTarget] = useState<{ id: number; name: string; description: string } | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameDesc, setRenameDesc] = useState("");
+  const [renameQuota, setRenameQuota] = useState(20);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; cards: number } | null>(null);
@@ -57,10 +58,11 @@ export default function DeckList() {
     }
   };
 
-  const openRename = (id: number, name: string, description: string) => {
+  const openRename = (id: number, name: string, description: string, newPerDay?: number) => {
     setRenameTarget({ id, name, description });
     setRenameName(name);
     setRenameDesc(description);
+    setRenameQuota(newPerDay ?? 20);
     setRenameError(null);
   };
 
@@ -69,7 +71,11 @@ export default function DeckList() {
     setRenameBusy(true);
     setRenameError(null);
     try {
-      await db.updateDeck(renameTarget.id, { name: renameName.trim(), description: renameDesc.trim() });
+      await db.updateDeck(renameTarget.id, {
+        name: renameName.trim(),
+        description: renameDesc.trim(),
+        new_cards_per_day: renameQuota > 0 ? renameQuota : 20,
+      });
       setRenameTarget(null);
       refresh();
     } catch (e) {
@@ -187,7 +193,7 @@ export default function DeckList() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-muted-foreground"
-                      onClick={() => openRename(d.id, d.name, d.description)}
+                      onClick={() => openRename(d.id, d.name, d.description, d.new_cards_per_day)}
                       title="重命名词库"
                     >
                       <Pencil className="size-3.5" />
@@ -282,6 +288,19 @@ export default function DeckList() {
                 onChange={(e) => setRenameDesc(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && saveRename()}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-quota">每日新卡上限</Label>
+              <Input
+                id="rename-quota"
+                type="number"
+                min={1}
+                max={500}
+                value={renameQuota}
+                onChange={(e) => setRenameQuota(parseInt(e.target.value, 10) || 0)}
+                onKeyDown={(e) => e.key === "Enter" && saveRename()}
+              />
+              <p className="text-xs text-muted-foreground">该词库每天可学习的新卡数量</p>
             </div>
             {renameError && <p className="text-xs text-red-600">{renameError}</p>}
           </div>
