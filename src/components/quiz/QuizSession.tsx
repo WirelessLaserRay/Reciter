@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { db } from "@/lib/db";
 import { applyReview, masteryToGrade, type Mastery } from "@/lib/review";
 import { AIClient, getAIConfig } from "@/lib/ai-client";
+import { adaptAIQuestion } from "@/lib/ai-adapter";
 import { cn } from "@/lib/utils";
 import type { Card as CardType } from "@/types";
 
@@ -39,11 +40,17 @@ type ItemType = "fill-cn2en" | "choice-cn2en" | "choice-en2cn";
 interface QuizItem {
   card: CardType;
   type: ItemType;
-  options?: string[]; // 选择题选项（含正确答案）
+  options?: string[]; // 选择题选项（含正确答案；AI 出题时可为 AI 选项）
   correctAnswer: string;
   userAnswer: string | null;
-  /** AI 生成的题目（Phase 4 接入；当前为 null 用本地题目） */
+  /** AI 生成的题目（适配层处理后的展示文本，无答案泄漏） */
   aiQuestion: string | null;
+  /** AI 提供的选项（≥2 个有效时替换本地干扰项） */
+  aiOptions: string[] | null;
+  /** AI 解析（作答后展示） */
+  explanation: string | null;
+  /** 原始 AI 回复（存档） */
+  aiRaw: string | null;
   aiType: "cloze" | "context" | "choice" | null;
   mastery: Mastery | null;
 }
@@ -113,6 +120,9 @@ function buildItems(cards: CardType[], type: QuizType, count: number): QuizItem[
       correctAnswer: itemType === "choice-en2cn" ? card.back : card.front,
       userAnswer: null,
       aiQuestion: null,
+      aiOptions: null,
+      explanation: null,
+      aiRaw: null,
       aiType: null,
       mastery: null,
     };
@@ -181,17 +191,25 @@ export default function QuizSession({
     const n = configCount === "all" ? pool.length : parseInt(configCount, 10);
     const built = buildItems(pool, configType, Math.max(1, Math.min(n, pool.length)));
 
-    // AI 出题：为填空生成语境完形题；为选择题生成语境提示
+    // AI 出题（经适配层解析并嵌入测验；解析失败时保留本地题目）
     if (useAI && aiClientRef.current?.isReady) {
       for (const it of built) {
-        const q = await aiClientRef.current.generateQuestion({
-          front: it.card.front,
-          back: it.card.back,
-          type: it.type === "fill-cn2en" ? "cloze" : "context",
-        });
-        if (q?.question) {
-          it.aiQuestion = q.question;
-          it.aiType = it.type === "fill-cn2en" ? "cloze" : "context";
+        try {
+          const q = await aiClientRef.current.generateQuestion({
+            front: it.card.front,
+            back: it.card.back,
+            type: it.type === "fill-cn2en" ? "cloze" : "context",
+          });
+          if (q?.question) {
+            const adapted = adaptAIQuestion(q.question, it.type, it.card.front, it.card.back);
+            it.aiQuestion = adapted.prompt;
+            it.aiOptions = adapted.options;
+            it.explanation = adapted.explanation;
+            it.aiRaw = adapted.aiRaw;
+            it.aiType = it.type === "fill-cn2en" ? "cloze" : "context";
+          }
+        } catch {
+          // AI 出题失败：保留本地题目，不阻断测验
         }
       }
     }
@@ -217,7 +235,11 @@ export default function QuizSession({
     setBusy(true);
     try {
       const grade = masteryToGrade(mastery);
-      await applyReview(item.card.id, grade, { source: "quiz" });
+      await applyReview(item.card.id, grade, {
+        source: "quiz",
+        aiQuestion: item.aiQuestion ?? null,
+        aiAnswer: item.userAnswer ?? null,
+      });
       const next = [...items];
       next[index] = { ...next[index], mastery };
       setItems(next);
@@ -409,10 +431,17 @@ export default function QuizSession({
 
       <Card>
         <CardContent className="space-y-5 p-6">
-          {/* 题目 */}
+          {/* 题目：AI 出题时显示语境题（无答案泄漏）；否则按题型显示本地提示 */}
           {item.aiQuestion ? (
-            <div className="rounded-lg border bg-muted/40 p-4 text-sm whitespace-pre-wrap">
-              {item.aiQuestion}
+            <div className="space-y-2">
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm whitespace-pre-wrap">
+                {item.aiQuestion}
+              </div>
+              {isFill && (
+                <p className="text-center text-xs text-muted-foreground">
+                  提示：{item.card.back}（在语境中填出该词）
+                </p>
+              )}
             </div>
           ) : isFill ? (
             <div className="space-y-1.5 text-center">
@@ -457,10 +486,10 @@ export default function QuizSession({
             </div>
           )}
 
-          {/* 选择选项 */}
+          {/* 选择选项（AI 出题时优先用 AI 选项） */}
           {!isFill && !revealed && (
             <div className="grid gap-2">
-              {item.options?.map((opt, i) => (
+              {(item.aiOptions ?? item.options)?.map((opt, i) => (
                 <Button
                   key={i}
                   variant="outline"
@@ -497,6 +526,9 @@ export default function QuizSession({
               <p className="text-sm">
                 正确答案：<span className="font-semibold">{item.correctAnswer}</span>
               </p>
+              {item.explanation && (
+                <p className="text-xs text-muted-foreground">💡 {item.explanation}</p>
+              )}
 
               {/* 掌握度评价 */}
               {isFill ? (

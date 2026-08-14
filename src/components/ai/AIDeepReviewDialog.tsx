@@ -12,6 +12,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { AIClient, getAIConfig, type AIGradeResult } from "@/lib/ai-client";
 import { getPromptTemplate, renderTemplate } from "@/lib/ai-prompts";
+import { cleanQuestionDisplay } from "@/lib/ai-adapter";
 import { cn } from "@/lib/utils";
 
 type Stage = "idle" | "generating" | "answering" | "grading" | "graded";
@@ -33,7 +34,8 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
   const [client, setClient] = useState<AIClient | null>(null);
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<"cloze" | "context">("cloze");
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(""); // 流式累积（生成中展示）
+  const [cleanQuestion, setCleanQuestion] = useState(""); // 适配层清洗后的题目（作答/判分展示）
   const [answer, setAnswer] = useState("");
   const [gradeResult, setGradeResult] = useState<AIGradeResult | null>(null);
   const [finalGrade, setFinalGrade] = useState<1 | 2 | 3 | 4>(3);
@@ -45,6 +47,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
     if (!open) return;
     setStage("idle");
     setQuestion("");
+    setCleanQuestion("");
     setAnswer("");
     setGradeResult(null);
     setFinalGrade(3);
@@ -83,6 +86,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         }
       );
       if (!acc.trim()) throw new Error("AI 未返回内容");
+      setCleanQuestion(cleanQuestionDisplay(acc));
       setStage("answering");
     } catch (e) {
       setError(String(e));
@@ -99,7 +103,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
     setStage("grading");
     try {
       const res = await client.gradeAnswer({
-        question,
+        question: cleanQuestion || question,
         answer: front + "（" + back + "）",
         userAnswer: answer.trim(),
       });
@@ -115,7 +119,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
   };
 
   const confirm = () => {
-    onComplete(finalGrade, question, answer.trim());
+    onComplete(finalGrade, cleanQuestion || question, answer.trim());
     onOpenChange(false);
   };
 
@@ -169,7 +173,7 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         {stage === "answering" && (
           <div className="space-y-3">
             <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-sm">
-              {question}
+              {cleanQuestion || question}
             </div>
             <Textarea
               value={answer}
@@ -206,6 +210,9 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         {/* 判分结果 + 申诉 */}
         {stage === "graded" && gradeResult && (
           <div className="space-y-3">
+            <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+              {cleanQuestion || question}
+            </div>
             <div className="rounded-lg border bg-muted/40 p-3 text-sm">
               <p className="mb-1 flex items-center gap-1.5 font-medium">
                 <CheckCircle2 className="size-4 text-green-500" />
