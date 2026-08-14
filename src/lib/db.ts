@@ -31,7 +31,7 @@ export interface ReviewLogInsert {
   card_id: number;
   grade: 1 | 2 | 3 | 4;
   response_time_ms?: number | null;
-  source?: "review" | "ai_test";
+  source?: "review" | "quiz" | "ai_test";
   ai_question?: string | null;
   ai_answer?: string | null;
 }

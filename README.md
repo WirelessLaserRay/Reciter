@@ -17,7 +17,8 @@
 | 功能 | 说明 | 状态 |
 |---|---|---|
 | 🗂️ 灵活数据导入 | Markdown（`## 标题` 分词库、`- word: meaning` 成卡、`> 引用块` 例句、`==高亮==` 挖空素材）/ CSV / JSON 批量导入，导入前预览、冲突检测 | Phase 2 |
-| 🧠 科学记忆系统 | FSRS-5 间隔重复算法（ts-fsrs v5），目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转，评分按钮实时显示下一间隔 | ✅ Phase 3 |
+| 🧠 科学记忆系统 | FSRS-5 间隔重复算法（ts-fsrs v5），目标记忆率可调（0.80~0.95），Learning/Review/Relearning 三态流转，评分按钮实时显示下一间隔，悬停查看四档含义 | ✅ Phase 3 |
+| 📝 测试模式 | 填空（中译英）+ 选择（中译英/英译中）三种题型，掌握度评价回填 FSRS；预留 AI 出题接口（Phase 4 接入语境题） | ✅ Phase 3 / Phase 4 |
 | 🤖 AI 语境测试 | 完形填空 / 情景对话 / AI 判分（流式输出），判分可申诉；DeepSeek 与 Ollama 一键切换 | Phase 4 |
 | 📊 学习统计 | 复习量柱状图、记忆保留率折线图、365 天热力图（自定义 CSS Grid 实现） | Phase 5 |
 | 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；JSON 导出 + WebDAV 备份 | ✅ Phase 2 / Phase 5 |
@@ -124,7 +125,8 @@ F:\AI\Reciter
 │   │   └── layout/                   # Sidebar / Header / MainLayout
 │   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
 │   ├── stores/                       # Zustand store（theme/deck/db/study）
-│   ├── lib/                          # db / fsrs / day / markdown-parser / importer / utils
+│   ├── lib/                          # db / fsrs / day / review / ai-client / settings / markdown-parser / importer / utils
+│   ├── components/quiz/               # 测试模式（QuizSession）
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
 ├── src-tauri/                        # Tauri 2 Rust 壳
 │   ├── src/main.rs / lib.rs          # 入口 + Builder

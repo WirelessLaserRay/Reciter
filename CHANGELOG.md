@@ -22,6 +22,30 @@
 
 ---
 
+## [0.3.1] - 2026-08-14
+
+### Added
+
+- **测试模式**（学习页每个词库新增「测试」入口，`src/components/quiz/QuizSession.tsx`）：
+  - 三种题型：填空·中译英（输入拼写）、选择·中译英（看释义选单词）、选择·英译中（看单词选释义），支持混合题型
+  - 题目数量可选（10/20/全部），干扰项从词库内随机抽取去重
+  - 掌握度评价：填空自评（忘记/模糊/掌握），选择题自动判分可调整；掌握度按 FSRS 映射回填记忆状态（忘记=Again / 模糊=Hard / 掌握=Good），计入 review_logs（source='quiz'）与 daily_stats
+  - 测试结果摘要（掌握/模糊/忘记统计）
+- **AI 出题预留接口** `src/lib/ai-client.ts`：OpenAI 兼容 `AIClient` 骨架（DeepSeek/Ollama 双通道，Phase 4 填充真实调用）；测试模式已接入调用点（AI 配置可用时启用开关，生成题目将显示 AI 徽标），当前未配置时禁用并提示 Phase 4
+- **共享评分持久化** `src/lib/review.ts`：`applyReview()` 抽取学习/测试共用链路（FSRS 调度 → 状态持久化 → review_logs → daily_stats），`masteryToGrade()` 掌握度映射；设置读取移至 `src/lib/settings.ts` 避免循环依赖
+
+### Fixed
+
+- **卡片翻转闪烁**：评分后 `flipped` 状态在 await 之后才重置，新卡片会以"已翻转"状态渲染一帧露出释义。修复：评分前同步收起卡片 + 翻转容器按 `card_id` 加 `key` 强制重建
+- 评分按钮增加 Tooltip 说明四档含义（忘了/困难/良好/简单及各自调度效果）
+
+### Verified
+
+- ✅ `npm run build`：tsc + vite 通过（1915 模块）
+- ✅ 应用运行正常，测试模式组件可加载
+
+---
+
 ## [0.3.0] - 2026-08-14
 
 > **里程碑**：Phase 3 完成 —— FSRS-5 记忆算法集成，学习流程（due 队列 + 新卡配额 + 四档评分）可用。

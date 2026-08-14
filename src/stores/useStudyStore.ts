@@ -1,15 +1,8 @@
 import { create } from "zustand";
 import { db, type StudyCardRow } from "@/lib/db";
-import { fsrsCardToDBState, reviewCard, Rating, State, type Grade } from "@/lib/fsrs";
-import type { CardState } from "@/types";
-import { getDayStartDate, parseDayStartHour, todayKey } from "@/lib/day";
-
-/** 读取用户设置的目标记忆率（未设置返回 undefined → 用默认值） */
-export async function getEffectiveRetention(): Promise<number | undefined> {
-  const raw = await db.getSetting("desired_retention");
-  const v = raw ? parseFloat(raw) : NaN;
-  return Number.isFinite(v) ? v : undefined;
-}
+import { applyReview } from "@/lib/review";
+import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
+import { getDayStartDate, parseDayStartHour } from "@/lib/day";
 
 export interface QueueItem {
   row: StudyCardRow;
@@ -96,47 +89,13 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     if (deckId === null || index >= queue.length) return false;
 
     const item = queue[index];
-    const state: CardState = {
-      card_id: item.row.card_id,
-      state: item.row.state,
-      stability: item.row.stability,
-      difficulty: item.row.difficulty,
-      due: item.row.due,
-      last_review: item.row.last_review,
-      elapsed_days: item.row.elapsed_days,
-      scheduled_days: item.row.scheduled_days,
-      reps: item.row.reps,
-      lapses: item.row.lapses,
-      learning_steps: item.row.learning_steps,
-      desired_retention: item.row.desired_retention,
-      algorithm_version: item.row.algorithm_version,
-    };
-
-    const wasNew = state.state === State.New;
-    const now = new Date();
-    const retention = await getEffectiveRetention();
-    const { card: newFsrs } = await reviewCard(state, grade as Grade, now, retention);
-
-    // 1. 持久化新状态
-    await db.updateCardState(item.row.card_id, fsrsCardToDBState(newFsrs));
-
-    // 2. 复习记录
-    await db.addReviewLog({
-      card_id: item.row.card_id,
-      grade,
-      response_time_ms: responseTimeMs ?? (now.getTime() - item.shownAt),
+    const wasNew = item.row.state === State.New;
+    const newFsrs = await applyReview(item.row.card_id, grade as Grade, {
       source: "review",
+      responseTimeMs: responseTimeMs ?? (Date.now() - item.shownAt),
     });
 
-    // 3. 日报
-    const hour = parseDayStartHour(await db.getSetting("day_start"));
-    await db.updateDailyStats(todayKey(hour, now), {
-      new_count: wasNew ? 1 : 0,
-      review_count: 1,
-      again_count: grade === Rating.Again ? 1 : 0,
-    });
-
-    // 4. 会话统计
+    // 会话统计
     const stats = {
       reviewed: get().stats.reviewed + 1,
       newDone: get().stats.newDone + (wasNew ? 1 : 0),

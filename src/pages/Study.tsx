@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ClipboardList,
   Keyboard,
   Loader2,
   RefreshCw,
@@ -16,18 +17,45 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
-import { useStudyStore, getEffectiveRetention } from "@/stores/useStudyStore";
+import { getEffectiveRetention } from "@/lib/settings";
+import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
+import QuizSession from "@/components/quiz/QuizSession";
 
 const RATINGS = [
-  { grade: 1 as const, label: "忘了", hint: "Again" },
-  { grade: 2 as const, label: "困难", hint: "Hard" },
-  { grade: 3 as const, label: "良好", hint: "Good" },
-  { grade: 4 as const, label: "简单", hint: "Easy" },
+  {
+    grade: 1 as const,
+    label: "忘了",
+    hint: "Again",
+    desc: "完全没想起来或答错 → 立即重学，几分钟后再次出现",
+  },
+  {
+    grade: 2 as const,
+    label: "困难",
+    hint: "Hard",
+    desc: "想起来了但很吃力 → 较短间隔复习",
+  },
+  {
+    grade: 3 as const,
+    label: "良好",
+    hint: "Good",
+    desc: "基本掌握 → 按正常记忆曲线安排",
+  },
+  {
+    grade: 4 as const,
+    label: "简单",
+    hint: "Easy",
+    desc: "非常轻松 → 跳过学习步骤，大幅延长间隔",
+  },
 ];
 
 function rowToState(row: StudyCardRow): CardState {
@@ -69,7 +97,7 @@ function StudySession() {
   const total = queue.length;
   const done = stats.reviewed;
 
-  // 卡片切换时：重置翻转状态、记录展示时间、预取间隔预览
+  // 卡片切换时：重置翻转状态、记录展示时间
   useEffect(() => {
     setFlipped(false);
     setPreview(null);
@@ -77,10 +105,11 @@ function StudySession() {
     if (item) {
       markShown();
     }
-  }, [index, queue.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, queue.length]);
 
   const showAnswer = async () => {
-    if (!item) return;
+    if (!item || flipped) return;
     setFlipped(true);
     const state = rowToState(item.row);
     getEffectiveRetention().then((retention) => {
@@ -92,12 +121,13 @@ function StudySession() {
   const handleRate = useCallback(
     async (grade: 1 | 2 | 3 | 4) => {
       if (!flipped || busy) return;
+      // 先同步收起卡片，避免新卡片以"已翻转"状态渲染一帧（露出释义）
+      setFlipped(false);
       setBusy(true);
       try {
         await rate(grade);
       } finally {
         setBusy(false);
-        setFlipped(false);
       }
     },
     [flipped, busy, rate]
@@ -190,8 +220,8 @@ function StudySession() {
         />
       </div>
 
-      {/* 卡片翻转区 */}
-      <div className="[perspective:1000px]">
+      {/* 卡片翻转区（key 按卡片重建，杜绝切换瞬间残留翻转状态） */}
+      <div className="[perspective:1000px]" key={item.row.card_id}>
         <div
           className={cn(
             "relative min-h-80 w-full transition-transform duration-500 [transform-style:preserve-3d]",
@@ -232,34 +262,41 @@ function StudySession() {
         </div>
       </div>
 
-      {/* 评分按钮 */}
+      {/* 评分按钮（Tooltip 说明四档含义） */}
       <div className="grid grid-cols-4 gap-3">
         {RATINGS.map((r) => (
-          <Button
-            key={r.grade}
-            variant={r.grade === 1 ? "destructive" : "outline"}
-            className="flex-col gap-0.5 py-3 disabled:opacity-60"
-            disabled={!flipped || busy}
-            onClick={() => handleRate(r.grade)}
-          >
-            <span>{r.label}</span>
-            <span className="text-xs text-muted-foreground">
-              {preview?.[r.grade]?.label ?? r.hint}
-            </span>
-          </Button>
+          <Tooltip key={r.grade}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={r.grade === 1 ? "destructive" : "outline"}
+                className="flex-col gap-0.5 py-3 disabled:opacity-60"
+                disabled={!flipped || busy}
+                onClick={() => handleRate(r.grade)}
+              >
+                <span>{r.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {preview?.[r.grade]?.label ?? r.hint}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-52 text-center">
+              <p className="font-medium">{r.label}（{r.hint}）</p>
+              <p className="text-xs">{r.desc}</p>
+            </TooltipContent>
+          </Tooltip>
         ))}
       </div>
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
         <Keyboard className="size-3.5" />
-        快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单
+        快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单 · 悬停按钮查看说明
       </div>
     </div>
   );
 }
 
-/** 词库选择页 */
-function DeckPicker({ onPick }: { onPick: (id: number) => void }) {
+/** 词库选择页（学习 / 测试两个入口） */
+function DeckPicker({ onStudy, onQuiz }: { onStudy: (id: number) => void; onQuiz: (id: number) => void }) {
   const { decks, cardCounts, refresh } = useDeckStore();
 
   useEffect(() => {
@@ -284,8 +321,10 @@ function DeckPicker({ onPick }: { onPick: (id: number) => void }) {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <div>
-        <h2 className="text-2xl font-bold">选择词库开始学习</h2>
-        <p className="text-sm text-muted-foreground">学习队列 = 今日到期卡片 + 配额内新卡</p>
+        <h2 className="text-2xl font-bold">选择词库</h2>
+        <p className="text-sm text-muted-foreground">
+          学习 = 今日到期卡片 + 配额内新卡（FSRS 调度） · 测试 = 填空/选择题检验记忆（回填 FSRS）
+        </p>
       </div>
       <div className="space-y-3">
         {decks.map((d) => (
@@ -297,10 +336,16 @@ function DeckPicker({ onPick }: { onPick: (id: number) => void }) {
                   {cardCounts[d.id] ?? 0} 张卡片 · 每日新卡 {d.new_cards_per_day}
                 </div>
               </div>
-              <Button onClick={() => onPick(d.id)}>
-                <RefreshCw className="size-3.5" />
-                开始学习
-              </Button>
+              <div className="flex shrink-0 gap-2">
+                <Button onClick={() => onStudy(d.id)}>
+                  <RefreshCw className="size-3.5" />
+                  学习
+                </Button>
+                <Button variant="outline" onClick={() => onQuiz(d.id)}>
+                  <ClipboardList className="size-3.5" />
+                  测试
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -311,6 +356,7 @@ function DeckPicker({ onPick }: { onPick: (id: number) => void }) {
 
 export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
+  const [quizDeck, setQuizDeck] = useState<{ id: number; name: string } | null>(null);
 
   if (loading) {
     return (
@@ -329,8 +375,20 @@ export default function Study() {
     );
   }
 
+  if (quizDeck) {
+    return <QuizSession deckId={quizDeck.id} deckName={quizDeck.name} />;
+  }
+
   if (deckId === null) {
-    return <DeckPicker onPick={(id) => loadQueue(id)} />;
+    return (
+      <DeckPicker
+        onStudy={(id) => loadQueue(id)}
+        onQuiz={(id) => {
+          const d = useDeckStore.getState().decks.find((x) => x.id === id);
+          setQuizDeck({ id, name: d?.name ?? "词库" });
+        }}
+      />
+    );
   }
 
   return <StudySession />;

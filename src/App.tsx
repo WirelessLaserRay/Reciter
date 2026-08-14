@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import Dashboard from "@/pages/Dashboard";
@@ -27,6 +28,7 @@ function App() {
   }, []);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <HashRouter>
       <Routes>
         <Route element={<MainLayout />}>
@@ -41,6 +43,7 @@ function App() {
         </Route>
       </Routes>
     </HashRouter>
+    </TooltipProvider>
   );
 }
 

@@ -49,7 +49,7 @@ export interface ReviewLog {
   grade: 1 | 2 | 3 | 4; // 1:Again 2:Hard 3:Good 4:Easy
   reviewed_at: string;
   response_time_ms: number | null;
-  source: "review" | "ai_test";
+  source: "review" | "quiz" | "ai_test";
   ai_question: string | null;
   ai_answer: string | null;
 }
