@@ -115,27 +115,43 @@ export type AIStrategy = "teach" | "recognition" | "production" | "deep_drill";
 
 export const STRATEGY_TYPES: AIStrategy[] = ["teach", "recognition", "production", "deep_drill"];
 
-/** Phase 6B：按 FSRS 状态自适应的 AI 策略 Prompt（JSON 结构化输出） */
+/** Phase 6B：按 FSRS 状态自适应的 AI 策略 Prompt（JSON 结构化输出 · 教学优先） */
+const TEACHING_SCHEMA = [
+  '"explanation": "词义讲解（中文，含一词多义/熟词生义）"',
+  '"etymology": "词根/词缀分析（无则给空字符串）"',
+  '"examples": ["例句1（附中文翻译）", "例句2（附中文翻译）"]',
+  '"usage": "用法/搭配/固定短语（如 take up 的常见搭配）"',
+  '"derived": ["引申词/同根词/词族（如派生词、近义词）"]',
+  '"confusable": ["易混词及辨析（可选）"]',
+  '"mnemonic": "助记法/联想（可选）"',
+  '"practice": "一道针对性小练习（可选，用于检验理解，如填空或选择题）"',
+  '"follow_up": "引导深入学习的追问（可选，如 \"想看看这个词的用法辨析吗？\"）"',
+].join(", ");
+
 export const STRATEGY_PROMPTS: Record<AIStrategy, string> = {
   teach: [
     '你是一位耐心的英语教师。请针对单词 "{word}"（释义：{meaning}）进行首次教学。',
+    "教学重点是：先讲清楚含义与用法，给出 2-3 个地道例句（附中文翻译），列出引申词/词族；最后才给一道简单的小练习检验理解。",
     "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
-    'JSON 结构：{ "etymology": "词根/词缀分析", "examples": ["例句1", "例句2"], "simple_quiz": "一个简单的理解题", "explanation": "中文讲解" }',
+    "JSON 结构：{ " + TEACHING_SCHEMA + " }",
   ].join("\n"),
   recognition: [
-    '你是一位英语测验出题者。请根据单词 "{word}"（释义：{meaning}）出一道识别题。',
+    '你是一位英语教师。请针对单词 "{word}"（释义：{meaning}）先讲解再出识别题。',
+    "先给出词义讲解、1-2 个例句（附翻译）与用法要点；在此基础上再出一道识别题（选择题/完形）检验理解，并附解析。",
     "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
-    'JSON 结构：{ "question": "题目文本", "options": ["选项1", "选项2", "选项3", "选项4"], "answer": "正确答案", "explanation": "解析" }',
+    "JSON 结构：{ " + TEACHING_SCHEMA + " }（其中 practice 为识别题，follow_up 可引导下一步）",
   ].join("\n"),
   production: [
-    '你是一位英语写作教练。请针对单词 "{word}"（释义：{meaning}）设计一道产出型练习。',
+    '你是一位英语写作教练。请针对单词 "{word}"（释义：{meaning}）先讲解再设计产出练习。',
+    "先讲解含义、常见搭配与近义/引申词，给出例句；然后设计一道产出型练习（造句/翻译/语境运用），附参考答案与要点。",
     "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
-    'JSON 结构：{ "prompt": "练习要求", "sample_answer": "参考答案", "rubric": "评分要点", "explanation": "讲解" }',
+    "JSON 结构：{ " + TEACHING_SCHEMA + " }（其中 practice 为产出练习及参考答案）",
   ].join("\n"),
   deep_drill: [
-    '你是一位攻克顽固词的记忆教练。请针对单词 "{word}"（释义：{meaning}）设计多角度深度训练。',
+    '你是一位攻克顽固词的记忆教练。请针对单词 "{word}"（释义：{meaning}）先深度讲解再训练。',
+    "重点：助记法、易混词辨析、词根/引申词族、多角度例句；练习用递进式（由易到难 2-3 题）。",
     "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
-    'JSON 结构：{ "mnemonic": "助记法", "confusable_words": ["易混词1", "易混词2"], "quiz_chain": ["递进练习1", "递进练习2", "递进练习3"] }',
+    "JSON 结构：{ " + TEACHING_SCHEMA + " }（其中 practice 可包含 2-3 道递进练习，用换行分隔）",
   ].join("\n"),
 };
 

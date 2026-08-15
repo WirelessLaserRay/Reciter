@@ -16,6 +16,7 @@ import { getAIStrategy, buildLearnerContext, type AIStrategy } from "@/lib/ai-st
 import { getStrategyPrompt } from "@/lib/ai-prompts";
 import type { CardState } from "@/types";
 import AISetupWizard from "./AISetupWizard";
+import { MessageContent } from "./AIReply";
 
 interface ChatMessage {
   role: "system" | "assistant" | "user";
@@ -242,13 +243,23 @@ export default function AIChatPanel({
                 >
                   <div
                     className={
-                      "inline-block max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-1.5 text-left " +
+                      "inline-block max-w-[88%] rounded-lg px-3 py-2 text-left " +
                       (m.role === "user"
-                        ? "bg-primary text-primary-foreground"
+                        ? "whitespace-pre-wrap bg-primary text-primary-foreground"
                         : "bg-background border")
                     }
                   >
-                    {m.content || (busy && i === messages.length - 1 ? "思考中…" : "")}
+                    {m.role === "assistant" ? (
+                      m.content ? (
+                        <MessageContent content={m.content} />
+                      ) : busy && i === messages.length - 1 ? (
+                        <span className="text-sm text-muted-foreground">思考中…</span>
+                      ) : (
+                        ""
+                      )
+                    ) : (
+                      m.content
+                    )}
                   </div>
                 </div>
               ))}

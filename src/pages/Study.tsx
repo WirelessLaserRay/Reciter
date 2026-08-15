@@ -604,19 +604,22 @@ function StudySession() {
           {/* 评分按钮 */}
           {flipped && (
             limitedRatings ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 {RATINGS_3.slice(0, 2).map((r) => (
                   <Tooltip key={r.grade}>
                     <TooltipTrigger asChild>
                       <span tabIndex={0} className="inline-flex">
                         <Button
                           variant={r.grade === 1 ? "destructive" : "outline"}
-                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                          className="w-full flex-col gap-1.5 py-5 disabled:opacity-60"
                           disabled={busy}
                           onClick={() => handleRate(r.grade)}
-                        >
-                          <span>{r.emoji} {r.label}</span>
-                          <span className="text-xs text-muted-foreground">
+                          >
+                          <span className="text-lg font-semibold">
+                            <span className="mr-1 text-xl">{r.emoji}</span>
+                            {r.label}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
                             {preview?.[r.grade]?.label ?? r.hint}
                           </span>
                         </Button>
@@ -630,19 +633,22 @@ function StudySession() {
                 ))}
               </div>
             ) : ratingMode === "3" ? (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-4">
                 {RATINGS_3.map((r) => (
                   <Tooltip key={r.grade}>
                     <TooltipTrigger asChild>
                       <span tabIndex={0} className="inline-flex">
                         <Button
                           variant={r.grade === 1 ? "destructive" : "outline"}
-                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                          className="w-full flex-col gap-1.5 py-5 disabled:opacity-60"
                           disabled={busy}
                           onClick={() => handleRate(r.grade)}
-                        >
-                          <span>{r.emoji} {r.label}</span>
-                          <span className="text-xs text-muted-foreground">
+                          >
+                          <span className="text-lg font-semibold">
+                            <span className="mr-1 text-xl">{r.emoji}</span>
+                            {r.label}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
                             {preview?.[r.grade]?.label ?? r.hint}
                           </span>
                         </Button>
