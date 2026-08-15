@@ -20,6 +20,7 @@ import type { StudyCardRow } from "@/lib/db";
 import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
 import { findRelatedWords } from "@/lib/word-family";
+import { pickSimilarWords } from "@/lib/similar-words";
 import type { StudyModeConfig } from "@/lib/study-mode";
 import { STUDY_MODE_LABELS } from "@/lib/study-mode";
 import MarkdownContext from "./MarkdownContext";
@@ -530,16 +531,35 @@ function QuickTestView(props: ModeViewProps) {
   const [checked, setChecked] = useState<boolean | null>(null);
   const [autoGood, setAutoGood] = useState(false);
 
-  const options = useMemo(() => {
-    const pool: string[] = [];
+  // 形近词干扰项优先：看释义选单词（中译英），干扰项取编辑距离最近的全词库单词；
+  // 形近候选不足时退回「看单词选释义」，最后回退填空。
+  const choice = useMemo(() => {
+    const fronts = distractors
+      .map((d) => d.front.trim())
+      .filter((f) => f && f !== row.front.trim());
+    const similarFronts = pickSimilarWords(row.front, fronts, 3);
+    if (similarFronts.length >= 1) {
+      return {
+        useFront: true as const,
+        options: shuffle([row.front, ...similarFronts]),
+        prompt: row.back,
+        correct: row.front,
+      };
+    }
+    const backs: string[] = [];
     for (const d of distractors) {
       const b = d.back.trim();
-      if (b && b !== row.back && !pool.includes(b)) pool.push(b);
-      if (pool.length >= 3) break;
+      if (b && b !== row.back && !backs.includes(b)) backs.push(b);
+      if (backs.length >= 3) break;
     }
-    return shuffle([row.back, ...pool]);
-  }, [distractors, row.back]);
-  const useChoice = options.length >= 2;
+    return {
+      useFront: false as const,
+      options: shuffle([row.back, ...backs]),
+      prompt: row.front,
+      correct: row.back,
+    };
+  }, [distractors, row.front, row.back]);
+  const useChoice = choice.options.length >= 2;
 
   // 卸载时清理自动推进计时器
   useEffect(() => {
@@ -564,7 +584,7 @@ function QuickTestView(props: ModeViewProps) {
 
   const submitChoice = (opt: string) => {
     if (checked !== null || busy) return;
-    finish(opt.trim() === row.back.trim());
+    finish(opt.trim() === choice.correct.trim());
   };
 
   const submitFill = () => {
@@ -578,12 +598,13 @@ function QuickTestView(props: ModeViewProps) {
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
           熟练卡 · 快速测试（{Math.round(quickMs / 1000)} 秒内答对自动记为「记得」）
+          {choice.useFront ? " · 形近词干扰" : ""}
         </p>
-        <div className="text-center text-3xl font-bold break-words">{row.front}</div>
+        <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
 
         {checked === null && useChoice && (
           <div className="grid w-full max-w-lg gap-2">
-            {options.map((opt) => (
+            {choice.options.map((opt) => (
               <Button
                 key={opt}
                 variant="outline"
@@ -602,7 +623,7 @@ function QuickTestView(props: ModeViewProps) {
             <Input
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              placeholder="输入对应的释义…"
+              placeholder="输入对应的单词…"
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitFill();
               }}
@@ -633,7 +654,7 @@ function QuickTestView(props: ModeViewProps) {
             </div>
             {!checked && (
               <p className="mt-1">
-                正确答案：<span className="font-semibold">{row.back}</span>
+                正确答案：<span className="font-semibold">{choice.correct}</span>
               </p>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Database, Download, Loader2, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, Download, Loader2, Upload, XCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -7,6 +7,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -67,6 +75,10 @@ export default function Settings() {
   // 数据备份
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // 危险区
+  const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
+  const [dangerBusy, setDangerBusy] = useState(false);
 
   // 加载设置
   useEffect(() => {
@@ -243,6 +255,25 @@ export default function Settings() {
     const r = await importFromJSON();
     setBackupBusy(false);
     setBackupMsg({ ok: r.ok, text: r.message });
+  };
+
+  const confirmDangerReset = async () => {
+    if (!dangerTarget) return;
+    setDangerBusy(true);
+    try {
+      if (dangerTarget === "progress") {
+        await db.resetLearningProgress();
+        setBackupMsg({ ok: true, text: "已重置学习进度：卡片保留，FSRS 状态、复习记录与统计数据已清空。" });
+      } else {
+        await db.resetStatistics();
+        setBackupMsg({ ok: true, text: "已重置统计数据：复习记录与学习日报已清空，记忆进度保留。" });
+      }
+    } catch (e) {
+      setBackupMsg({ ok: false, text: String(e) });
+    } finally {
+      setDangerBusy(false);
+      setDangerTarget(null);
+    }
   };
 
   const isLocal = aiBaseURL.includes("localhost") || aiBaseURL.includes("127.0.0.1");
@@ -662,8 +693,69 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          {/* 危险区 */}
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="size-4" />
+                危险区
+              </CardTitle>
+              <CardDescription>以下操作不可撤销，建议先导出备份</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">重置学习进度</p>
+                  <p className="text-xs text-muted-foreground">
+                    保留全部词库与卡片，清空 FSRS 记忆状态、复习记录与学习统计（卡片全部回到「未学习」）
+                  </p>
+                </div>
+                <Button variant="destructive" size="sm" onClick={() => setDangerTarget("progress")}>
+                  重置进度
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">重置统计数据</p>
+                  <p className="text-xs text-muted-foreground">
+                    清空复习记录与学习日报，但保留当前 FSRS 记忆进度（图表归零，卡片不会被重学）
+                  </p>
+                </div>
+                <Button variant="destructive" size="sm" onClick={() => setDangerTarget("stats")}>
+                  重置统计
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
+
+      {/* 危险区确认对话框 */}
+      <Dialog open={dangerTarget !== null} onOpenChange={(open) => !open && !dangerBusy && setDangerTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              {dangerTarget === "progress" ? "重置学习进度" : "重置统计数据"}
+            </DialogTitle>
+            <DialogDescription>
+              {dangerTarget === "progress"
+                ? "将清空全部卡片的 FSRS 记忆状态、复习记录与学习统计，词库和卡片本身会保留。此操作不可撤销！"
+                : "将清空复习记录与学习统计，当前记忆进度保留。此操作不可撤销！"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDangerTarget(null)} disabled={dangerBusy}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={confirmDangerReset} disabled={dangerBusy}>
+              {dangerBusy ? <Loader2 className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
+              确认重置
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />
     </div>

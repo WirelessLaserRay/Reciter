@@ -30,6 +30,7 @@ import { db } from "@/lib/db";
 import { applyReview, masteryToGrade, type Mastery } from "@/lib/review";
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { adaptAIQuestion } from "@/lib/ai-adapter";
+import { pickSimilarWords } from "@/lib/similar-words";
 import { cn } from "@/lib/utils";
 import type { Card as CardType } from "@/types";
 
@@ -95,9 +96,14 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 function pickDistractors(all: CardType[], exclude: CardType, count: number, field: "front" | "back"): string[] {
-  const pool = shuffle(all.filter((c) => c.id !== exclude.id && c[field] !== exclude[field]));
-  const picked: string[] = [];
-  for (const c of pool) {
+  const candidates = all.filter((c) => c.id !== exclude.id && c[field] !== exclude[field]);
+  const values = candidates.map((c) => c[field]);
+
+  // 英文单词选项优先取形近词（编辑距离 + 前后缀加权），其余随机补足
+  const picked: string[] =
+    field === "front" ? pickSimilarWords(exclude.front, values, count) : [];
+
+  for (const c of shuffle(candidates)) {
     if (picked.length >= count) break;
     if (!picked.includes(c[field])) picked.push(c[field]);
   }

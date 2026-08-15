@@ -638,6 +638,27 @@ class ReciterDB {
     await db.execute("DELETE FROM settings");
   }
 
+  /** 危险区：重置学习进度（保留词库与卡片，清空 FSRS 状态 / 复习记录 / 日报） */
+  async resetLearningProgress(): Promise<void> {
+    const db = this.requireDb();
+    await db.execute(
+      `UPDATE card_states SET
+         state = 0, stability = 0, difficulty = 0, due = ?,
+         last_review = NULL, elapsed_days = 0, scheduled_days = 0,
+         learning_steps = 0, reps = 0, lapses = 0`,
+      [nowIso()]
+    );
+    await db.execute("DELETE FROM review_logs");
+    await db.execute("DELETE FROM daily_stats");
+  }
+
+  /** 危险区：仅重置统计数据（清空复习记录与日报，保留 FSRS 记忆进度） */
+  async resetStatistics(): Promise<void> {
+    const db = this.requireDb();
+    await db.execute("DELETE FROM review_logs");
+    await db.execute("DELETE FROM daily_stats");
+  }
+
   async restoreDeck(d: Deck): Promise<void> {
     await this.requireDb().execute(
       "INSERT INTO decks (id, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
