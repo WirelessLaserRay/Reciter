@@ -1,6 +1,6 @@
 [package]
 name = "reciter"
-version = "0.12.0"
+version = "0.13.0"
 description = "Reciter - local-first English vocabulary learning client"
 authors = ["Reciter"]
 edition = "2021"

@@ -15,7 +15,7 @@
 | 技术栈 | Tauri 2 · React 18 · TypeScript · Vite 7 · Tailwind v4 + shadcn/ui · Zustand · React Router 7 · SQLite · ts-fsrs v5 (FSRS-5) · Recharts |
 | 授权 | MIT（© 2026 WirelessLaserRay） |
 
-**当前进度**：Phase 1-5 + 6A/6B/6C 全部完成（0.12.0，含统一多色主题、AI 会话缓存、可折叠侧栏动画）。后续方向：Easy Days 负载均衡、更多题型、备份加密、多端迁移、FSRS-6 升级预留（参考 `AI_LEARNING_OPTIMIZATION.md`）。
+**当前进度**：Phase 1-5 + 6A/6B/6C 全部完成（0.13.0，学习逻辑已按 `research_doc/learning_logic_audit.md` 实施全部 13 项改进：队列交错/due 插入/Learning 优先/Leech 阈值 4 与自动标记/复习语境/识别首测/学习步骤可配等）。后续方向：Easy Days 负载均衡、更多题型、备份加密、多端迁移、FSRS-6 升级预留。
 
 ---
 

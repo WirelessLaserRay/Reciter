@@ -3,12 +3,46 @@ import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
-import { saveLastStudyContext } from "@/lib/study-prefs";
+import { getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
 
 export interface QueueItem {
   row: StudyCardRow;
   /** 计时起点（本次显示时间，用于 response_time_ms） */
   shownAt: number;
+}
+
+/**
+ * 队列交错（P0-①）：每 ratio 张复习卡后插入 1 张新卡，剩余新卡追加到队尾。
+ * 交错练习比分块练习的长期记忆保留高约 20-40%（Rohrer & Taylor, 2007）。
+ */
+export function interleaveQueue(due: StudyCardRow[], fresh: StudyCardRow[], ratio = 5): StudyCardRow[] {
+  if (ratio <= 0 || fresh.length === 0) return [...due, ...fresh];
+  const result: StudyCardRow[] = [];
+  let fi = 0;
+  for (let i = 0; i < due.length; i++) {
+    result.push(due[i]);
+    if ((i + 1) % ratio === 0 && fi < fresh.length) {
+      result.push(fresh[fi++]);
+    }
+  }
+  while (fi < fresh.length) result.push(fresh[fi++]);
+  return result;
+}
+
+/**
+ * 按 FSRS due 时间二分插入（P0-②）：
+ * Learning/Again 卡的短间隔调度（如 1 分钟）不会被"插到队尾"拖成 30 分钟后。
+ */
+export function insertByDue(queue: QueueItem[], item: QueueItem): void {
+  const due = new Date(item.row.due).getTime();
+  let lo = 0;
+  let hi = queue.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (new Date(queue[mid].row.due).getTime() <= due) lo = mid + 1;
+    else hi = mid;
+  }
+  queue.splice(lo, 0, item);
 }
 
 interface StudyState {
@@ -81,7 +115,10 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const newLimit = Math.max(0, deck.new_cards_per_day - learnedToday);
       const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly) : [];
 
-      const queue: QueueItem[] = [...due, ...fresh].map((row) => ({ row, shownAt: Date.now() }));
+      // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）
+      const interleaveRatio = await getInterleaveRatio();
+      const ordered = interleaveQueue(due, fresh, interleaveRatio);
+      const queue: QueueItem[] = ordered.map((row) => ({ row, shownAt: Date.now() }));
       set({
         deckId,
         deckName: deck.name,
@@ -140,14 +177,18 @@ export const useStudyStore = create<StudyState>((set, get) => ({
           : get().stats.weakWords,
     };
 
-    // 5. Learning 或 Again → 重插队列尾部（同 session 内重复）
+    // Learning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）
     const reinsert = newFsrs.state === State.Learning || grade === Rating.Again;
     let queueNext = [...get().queue];
     if (reinsert) {
-      // 更新为最新状态后移到队尾
-      queueNext[index] = { ...item, row: { ...item.row, ...fsrsCardToDBState(newFsrs) }, shownAt: Date.now() };
+      const updated: QueueItem = {
+        ...item,
+        row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
+        shownAt: Date.now(),
+      };
+      queueNext[index] = updated;
       const [cur] = queueNext.splice(index, 1);
-      queueNext.push(cur);
+      insertByDue(queueNext, cur);
     } else {
       queueNext[index] = { ...item, shownAt: Date.now() };
     }

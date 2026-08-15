@@ -24,11 +24,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
 import { getAIConfig } from "@/lib/ai-client";
-import { getActiveRecallEnabled, getRatingMode, getSummaryInterval } from "@/lib/study-prefs";
+import { getActiveRecallEnabled, getLearningSteps, getQuickTestMs, getRatingMode, getSummaryInterval } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -152,14 +153,29 @@ function StudySession({
   const [showMiniSummary, setShowMiniSummary] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [rateReady, setRateReady] = useState(false);
+  // P2-⑨：熟练卡秒答阈值（毫秒，可在设置中调整）
+  const [quickMs, setQuickMs] = useState(5000);
+  // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
+  const [deckDistractors, setDeckDistractors] = useState<{ front: string; back: string }[]>([]);
 
   // AI 助手右侧栏：折叠状态持久化；窄屏（<lg）退化为卡片下方面板
   const [aiPanelOpen, setAiPanelOpen] = useState(
     () => localStorage.getItem("reciter-ai-panel-open") !== "0"
   );
+  // 展开/收起动画：先动宽度，动画结束后再卸载面板内容
+  const [aiPanelMounted, setAiPanelMounted] = useState(aiPanelOpen);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
   );
+
+  useEffect(() => {
+    if (aiPanelOpen) {
+      setAiPanelMounted(true);
+      return;
+    }
+    const timer = setTimeout(() => setAiPanelMounted(false), 300);
+    return () => clearTimeout(timer);
+  }, [aiPanelOpen]);
 
   const toggleAiPanel = () => {
     setAiPanelOpen((v) => {
@@ -187,18 +203,35 @@ function StudySession({
   // 加载学习偏好与 AI 配置
   useEffect(() => {
     (async () => {
-      const [rm, ar, si, aiCfg] = await Promise.all([
+      const [rm, ar, si, aiCfg, qms] = await Promise.all([
         getRatingMode(),
         getActiveRecallEnabled(),
         getSummaryInterval(),
         getAIConfig(),
+        getQuickTestMs(),
       ]);
       setRatingMode(rm);
       setActiveRecallEnabled(ar);
       setSummaryInterval(si);
       setAiEnabled(aiCfg.enabled);
+      setQuickMs(qms);
     })().catch(() => {});
   }, []);
+
+  // P2-⑧：加载全词库干扰项池（只取 front/back，供选择题与同族词使用）
+  useEffect(() => {
+    if (deckId === null) return;
+    let cancelled = false;
+    db.getCardsByDeck(deckId)
+      .then((cards) => {
+        if (cancelled) return;
+        setDeckDistractors(cards.map((c) => ({ front: c.front, back: c.back })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [deckId]);
 
   // 卡片切换时：重置间隔预览/可检索度；迷你小结出现时先不开始计时
   useEffect(() => {
@@ -221,10 +254,13 @@ function StudySession({
     if (!item) return;
     const state = rowToState(item.row);
     try {
-      const retention = await getEffectiveRetention();
+      const [retention, learningSteps] = await Promise.all([
+        getEffectiveRetention(),
+        getLearningSteps(),
+      ]);
       const [p, r] = await Promise.all([
-        previewIntervals(state, undefined, retention),
-        getRetrievability(state, undefined, retention),
+        previewIntervals(state, undefined, retention, learningSteps),
+        getRetrievability(state, undefined, retention, learningSteps),
       ]);
       setPreview(p);
       setRetrievability(r);
@@ -462,7 +498,8 @@ function StudySession({
                   preview={preview}
                   retrievability={retrievability}
                   busy={busy}
-                  distractorRows={queue.map((q) => q.row)}
+                  distractors={deckDistractors}
+                  quickMs={quickMs}
                   onReveal={() => void handleReveal()}
                   onRate={(grade) => void handleRate(grade)}
                   onRateReadyChange={setRateReady}
@@ -477,38 +514,48 @@ function StudySession({
           </div>
         </div>
 
-        {/* 桌面端：右侧可折叠 AI 助手侧栏 */}
+        {/* 桌面端：右侧可折叠 AI 助手侧栏（300ms 宽度/透明度动画） */}
         {!showMiniSummary && isDesktop && (
-          aiPanelOpen ? (
-            <aside className="sticky top-4 w-80 shrink-0 overflow-hidden rounded-xl border bg-card xl:w-96">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="flex items-center gap-1.5 text-[15px] font-medium">
-                  <Sparkles className="size-4 text-purple-500" />
-                  AI 学习助手
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={toggleAiPanel}
-                  title="收起 AI 助手"
-                >
-                  <PanelRightClose className="size-4" />
-                </Button>
-              </div>
-              {renderAI(true)}
-            </aside>
-          ) : (
-            <button
-              type="button"
-              onClick={toggleAiPanel}
-              className="sticky top-4 flex shrink-0 flex-col items-center gap-1.5 rounded-xl border bg-card px-3 py-4 text-xs text-muted-foreground transition-colors hover:bg-accent"
-              title="展开 AI 助手"
+          <>
+            <div
+              className={cn(
+                "shrink-0 overflow-hidden transition-all duration-300 ease-in-out",
+                aiPanelOpen ? "w-80 opacity-100 xl:w-96" : "w-0 opacity-0"
+              )}
             >
-              <PanelRightOpen className="size-5 text-purple-500" />
-              <span>AI 助手</span>
-            </button>
-          )
+              {aiPanelMounted && (
+                <aside className="sticky top-4 w-80 overflow-hidden rounded-xl border bg-card xl:w-96">
+                  <div className="flex items-center justify-between border-b px-3 py-2">
+                    <span className="flex items-center gap-1.5 text-[15px] font-medium">
+                      <Sparkles className="size-4 text-purple-500" />
+                      AI 学习助手
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      onClick={toggleAiPanel}
+                      title="收起 AI 助手"
+                    >
+                      <PanelRightClose className="size-4" />
+                    </Button>
+                  </div>
+                  {renderAI(true)}
+                </aside>
+              )}
+            </div>
+            {!aiPanelOpen && (
+              <button
+                type="button"
+                onClick={toggleAiPanel}
+                className="sticky top-4 flex shrink-0 flex-col items-center gap-1.5 rounded-xl border bg-card px-3 py-4 text-xs text-muted-foreground transition-colors hover:bg-accent"
+                title="展开 AI 助手"
+              >
+                <PanelRightOpen className="size-5 text-purple-500" />
+                <span>AI 助手</span>
+              </button>
+            )}
+          </>
         )}
       </div>
 

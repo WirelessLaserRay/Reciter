@@ -33,7 +33,7 @@ export function resolveStudyMode(
   activeRecallEnabled: boolean
 ): StudyModeConfig {
   const isNew = state.state === State.New || state.reps === 0;
-  const isWeak = state.lapses >= 2;
+  const isWeak = state.lapses >= 4;
   const isStable = state.stability >= 10;
 
   if (isNew) {

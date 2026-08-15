@@ -44,10 +44,10 @@ export interface ReviewLogInsert {
 
 /** 词库掌握度分布（Phase 6C 掌握度全景；四类互斥，合计 = total） */
 export interface MasteryDistribution {
-  mastered: number;  // 已掌握：stability >= 15 且 lapses < 2
-  learning: number;  // 学习中：0 < stability < 15 且 lapses < 2
-  weak: number;      // 弱词：lapses >= 2
-  unlearned: number; // 未学习：state = 0 且 lapses < 2
+  mastered: number;  // 已掌握：stability >= 15 且 lapses < 4
+  learning: number;  // 学习中：0 < stability < 15 且 lapses < 4
+  weak: number;      // 弱词：lapses >= 4
+  unlearned: number; // 未学习：state = 0 且 lapses < 4
   total: number;
 }
 
@@ -267,10 +267,10 @@ class ReciterDB {
   async getDeckMasteryDistribution(deckId: number): Promise<MasteryDistribution> {
     const rows = await this.requireDb().select<MasteryDistribution[]>(
       `SELECT
-         COALESCE(SUM(CASE WHEN cs.lapses >= 2 THEN 1 ELSE 0 END), 0) AS weak,
-         COALESCE(SUM(CASE WHEN cs.lapses < 2 AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
-         COALESCE(SUM(CASE WHEN cs.lapses < 2 AND cs.state != 0 AND cs.stability >= 15 THEN 1 ELSE 0 END), 0) AS mastered,
-         COALESCE(SUM(CASE WHEN cs.lapses < 2 AND cs.state != 0 AND cs.stability < 15 THEN 1 ELSE 0 END), 0) AS learning,
+         COALESCE(SUM(CASE WHEN cs.lapses >= 4 THEN 1 ELSE 0 END), 0) AS weak,
+         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
+         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state != 0 AND cs.stability >= 15 THEN 1 ELSE 0 END), 0) AS mastered,
+         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state != 0 AND cs.stability < 15 THEN 1 ELSE 0 END), 0) AS learning,
          COUNT(*) AS total
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ?`,
@@ -285,7 +285,7 @@ class ReciterDB {
     return this.requireDb().select<DeckWeakWord[]>(
       `SELECT c.front, cs.lapses, cs.stability
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.lapses >= 2
+       WHERE c.deck_id = ? AND cs.lapses >= 4
        ORDER BY cs.lapses DESC, cs.stability ASC
        LIMIT ?`,
       [deckId, limit]
@@ -441,8 +441,8 @@ class ReciterDB {
 
   // ==================== 弱词追踪（Phase 6B） ====================
 
-  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序） */
-  async getWeakCards(deckId: number, threshold = 2, limit = 50): Promise<(Card & CardState)[]> {
+  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 4，P1-⑤） */
+  async getWeakCards(deckId: number, threshold = 4, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
               c.created_at, c.updated_at,
@@ -457,8 +457,8 @@ class ReciterDB {
     );
   }
 
-  /** 全局弱词计数 */
-  async getGlobalWeakCount(threshold = 2): Promise<number> {
+  /** 全局弱词计数（默认阈值 4） */
+  async getGlobalWeakCount(threshold = 4): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       "SELECT COUNT(*) AS cnt FROM card_states WHERE lapses >= ?",
       [threshold]
@@ -507,7 +507,9 @@ class ReciterDB {
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
-       ORDER BY cs.due ASC, c.id ASC${limitSql}`,
+       ORDER BY
+          CASE WHEN cs.state IN (1, 3) THEN 0 ELSE 1 END,
+          cs.due ASC, c.id ASC${limitSql}`,
       params
     );
   }

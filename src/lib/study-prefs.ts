@@ -67,3 +67,35 @@ export async function getSummaryInterval(): Promise<number> {
 export async function saveSummaryInterval(interval: number): Promise<void> {
   await db.setSetting("session_summary_interval", String(interval));
 }
+
+/** 新卡交错比例：每 N 张复习卡插入 1 张新卡（P0-①，默认 5） */
+export async function getInterleaveRatio(): Promise<number> {
+  const raw = await db.getSetting("interleave_ratio");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : 5;
+}
+
+export async function saveInterleaveRatio(ratio: number): Promise<void> {
+  await db.setSetting("interleave_ratio", String(Math.min(10, Math.max(1, Math.round(ratio)))));
+}
+
+/** 熟练卡秒答阈值（毫秒）：阈值内答对自动 Good（P2-⑨，默认 5 秒） */
+export async function getQuickTestMs(): Promise<number> {
+  const raw = await db.getSetting("quick_test_threshold_ms");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 2000 && n <= 15000 ? n : 5000;
+}
+
+export async function saveQuickTestMs(ms: number): Promise<void> {
+  await db.setSetting("quick_test_threshold_ms", String(Math.min(15000, Math.max(2000, Math.round(ms)))));
+}
+
+/** 学习步骤（P3-⑪）：如 "1m,10m"；默认短且少，第二天起交给 FSRS 动态调度 */
+export async function getLearningSteps(): Promise<string> {
+  const raw = await db.getSetting("learning_steps");
+  return raw && raw.trim() ? raw.trim() : "1m,10m";
+}
+
+export async function saveLearningSteps(steps: string): Promise<void> {
+  await db.setSetting("learning_steps", steps.trim());
+}

@@ -8,14 +8,17 @@ import {
   type FSRSParameters,
   type Grade,
   type ReviewLog,
+  type StepUnit,
 } from "ts-fsrs";
 import { formatInterval } from "@/lib/day";
+import { getLearningSteps } from "@/lib/study-prefs";
 import type { CardState } from "@/types";
 
 const DEFAULT_RETENTION = 0.9;
 
-/** 缓存调度器：以 request_retention 为键，设置变更后 invalidate */
+/** 缓存调度器：以 request_retention + learning_steps 为键，设置变更后 invalidate */
 let cachedRetention: number | null = null;
+let cachedStepsKey: string | null = null;
 let scheduler: ReturnType<typeof fsrs> | null = null;
 
 function clampRetention(v: number): number {
@@ -23,17 +26,37 @@ function clampRetention(v: number): number {
   return Math.min(0.95, Math.max(0.8, v));
 }
 
-/** 获取（缓存的）FSRS 调度器；retention 缺省用缓存值 */
-export async function getScheduler(retention?: number): Promise<ReturnType<typeof fsrs>> {
+/** 解析学习步骤字符串（"1m,10m" → StepUnit[]）；非法格式回退默认短步骤 */
+export function parseLearningSteps(raw: string | null | undefined): StepUnit[] {
+  const parts = (raw ?? "")
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d{1,4}[mhd]$/.test(s)) as StepUnit[];
+  if (parts.length > 0) return parts;
+  return ["1m", "10m"];
+}
+
+/** 获取（缓存的）FSRS 调度器；retention / learningSteps 缺省时读取设置并缓存 */
+export async function getScheduler(retention?: number, learningSteps?: string): Promise<ReturnType<typeof fsrs>> {
   const r = clampRetention(retention ?? cachedRetention ?? DEFAULT_RETENTION);
-  if (!scheduler || cachedRetention !== r) {
+  let stepsKey = cachedStepsKey;
+  if (learningSteps !== undefined) {
+    stepsKey = parseLearningSteps(learningSteps).join(",");
+  } else if (stepsKey === null) {
+    stepsKey = parseLearningSteps(await getLearningSteps()).join(",");
+  }
+  if (!scheduler || cachedRetention !== r || cachedStepsKey !== stepsKey) {
+    const steps = parseLearningSteps(stepsKey);
     const params: FSRSParameters = generatorParameters({
       request_retention: r,
       maximum_interval: 36500, // 100 年
       enable_fuzz: true, // 随机微调，避免复习堆积
+      learning_steps: steps,
+      relearning_steps: steps,
     });
     scheduler = fsrs(params);
     cachedRetention = r;
+    cachedStepsKey = steps.join(",");
   }
   return scheduler;
 }
@@ -41,6 +64,7 @@ export async function getScheduler(retention?: number): Promise<ReturnType<typeo
 /** 设置变更后调用，使调度器按新参数重建 */
 export function invalidateFSRS() {
   cachedRetention = null;
+  cachedStepsKey = null;
   scheduler = null;
 }
 
@@ -81,9 +105,10 @@ export async function reviewCard(
   s: CardState,
   grade: Grade,
   now: Date = new Date(),
-  retention?: number
+  retention?: number,
+  learningSteps?: string
 ): Promise<{ card: FSRSCard; log: ReviewLog }> {
-  const scheduler = await getScheduler(retention);
+  const scheduler = await getScheduler(retention, learningSteps);
   const result = scheduler.next(dbStateToFSRSCard(s), now, grade);
   return { card: result.card, log: result.log };
 }
@@ -96,9 +121,10 @@ export interface IntervalPreview {
 export async function previewIntervals(
   s: CardState,
   now: Date = new Date(),
-  retention?: number
+  retention?: number,
+  learningSteps?: string
 ): Promise<IntervalPreview> {
-  const scheduler = await getScheduler(retention);
+  const scheduler = await getScheduler(retention, learningSteps);
   const preview = scheduler.repeat(dbStateToFSRSCard(s), now);
   const out: IntervalPreview = {};
   for (const grade of [Rating.Again, Rating.Hard, Rating.Good, Rating.Easy]) {
@@ -113,9 +139,10 @@ export async function previewIntervals(
 export async function getRetrievability(
   s: CardState,
   now: Date = new Date(),
-  retention?: number
+  retention?: number,
+  learningSteps?: string
 ): Promise<number> {
-  const scheduler = await getScheduler(retention);
+  const scheduler = await getScheduler(retention, learningSteps);
   return scheduler.get_retrievability(dbStateToFSRSCard(s), now, false) as number;
 }
 

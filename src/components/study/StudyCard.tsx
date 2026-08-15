@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import type { StudyCardRow } from "@/lib/db";
 import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
+import { findRelatedWords } from "@/lib/word-family";
 import type { StudyModeConfig } from "@/lib/study-mode";
 import { STUDY_MODE_LABELS } from "@/lib/study-mode";
 import MarkdownContext from "./MarkdownContext";
@@ -38,8 +39,14 @@ const RATINGS_3 = [
   { grade: 3 as const, label: "记得", emoji: "😊", hint: "Good", desc: "基本掌握 → 正常安排" },
 ];
 
-/** 秒答阈值：熟练卡在阈值内答对 → 自动 Good */
-const QUICK_MS = 8000;
+/** 回忆时限提示（P1-④）：超过该秒数仍想不起来时给出柔和建议 */
+const RECALL_HINT_SECONDS = 10;
+
+/** 干扰项/词族来源：词库卡片精简结构 */
+export interface Distractor {
+  front: string;
+  back: string;
+}
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -151,7 +158,10 @@ interface ModeViewProps {
   preview: IntervalPreview | null;
   retrievability: number | null;
   busy: boolean;
-  distractorRows: StudyCardRow[];
+  /** 全词库卡片精简池（P2-⑧：选择题干扰项 + 同族词匹配） */
+  distractors: Distractor[];
+  /** 熟练卡秒答阈值（毫秒），可在设置中调整 */
+  quickMs: number;
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;
   onRateReadyChange: (ready: boolean) => void;
@@ -166,10 +176,36 @@ function RetrievabilityLine({ value }: { value: number | null }) {
   );
 }
 
+/** 揭示答案后展示原文语境（P1-⑥：复习阶段强化语境联想，正面不泄漏） */
+function RevealContext({ row }: { row: StudyCardRow }) {
+  if (!row.markdown_content) return null;
+  return (
+    <div className="w-full max-w-lg text-left">
+      <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
+    </div>
+  );
+}
+
+/** 同族词提示（P3-⑬：从全词库干扰项池中匹配共享词干） */
+function RelatedWordsChips({ front, fronts }: { front: string; fronts: string[] }) {
+  const related = findRelatedWords(front, fronts);
+  if (related.length === 0) return null;
+  return (
+    <div className="flex max-w-lg flex-wrap items-center justify-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">同族词：</span>
+      {related.map((w) => (
+        <Badge key={w} variant="secondary" className="text-[11px]">
+          {w}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 // ============ 1. 经典翻转（降级模式） ============
 
 function ClassicFlipView(props: ModeViewProps) {
-  const { row, preview, retrievability, ratingMode, busy, onReveal, onRate, onRateReadyChange } = props;
+  const { row, preview, retrievability, ratingMode, busy, distractors, onReveal, onRate, onRateReadyChange } = props;
   const [flipped, setFlipped] = useState(false);
 
   useEffect(() => {
@@ -202,12 +238,14 @@ function ClassicFlipView(props: ModeViewProps) {
             )}
             <p className="text-xs text-muted-foreground">正面 · 单词</p>
           </div>
-          {/* 背面 */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+          {/* 背面：释义 + 原文语境 + 同族词 */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
             <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">
               {row.back}
             </div>
             <RetrievabilityLine value={retrievability} />
+            <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
+            <RevealContext row={row} />
             <p className="text-xs text-muted-foreground">背面 · 释义</p>
           </div>
         </div>
@@ -222,11 +260,19 @@ function ClassicFlipView(props: ModeViewProps) {
 // ============ 2. 主动回忆（常规复习卡） ============
 
 function ActiveRecallView(props: ModeViewProps) {
-  const { row, ratingMode, preview, retrievability, busy, onReveal, onRate, onRateReadyChange } = props;
+  const { row, ratingMode, preview, retrievability, busy, distractors, onReveal, onRate, onRateReadyChange } = props;
   const [recallPhase, setRecallPhase] = useState<"prompt" | "input" | "result">("prompt");
   const [recallInput, setRecallInput] = useState("");
   const [recallResult, setRecallResult] = useState<RecallMatchResult | null>(null);
   const [limitedRatings, setLimitedRatings] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // P1-④：10 秒规则柔和提示（不强制，只提醒）
+  useEffect(() => {
+    if (recallPhase === "result") return;
+    const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(timer);
+  }, [recallPhase]);
 
   useEffect(() => {
     onRateReadyChange(recallPhase === "result" && !busy);
@@ -248,6 +294,13 @@ function ActiveRecallView(props: ModeViewProps) {
     onReveal();
   };
 
+  const recallHint =
+    recallPhase !== "result" && elapsed >= RECALL_HINT_SECONDS ? (
+      <p className="text-xs text-amber-500">
+        已思考 {elapsed} 秒 — 超过 10 秒仍想不起来？建议直接点「不确定 / 不知道」，别在一张卡上停留太久。
+      </p>
+    ) : null;
+
   return (
     <div className="space-y-4">
       {recallPhase === "prompt" && (
@@ -263,6 +316,7 @@ function ActiveRecallView(props: ModeViewProps) {
               不确定 / 不知道
             </Button>
           </div>
+          {recallHint}
           <p className="text-xs text-muted-foreground">主动回忆 · 先回忆再看释义</p>
         </div>
       )}
@@ -286,6 +340,7 @@ function ActiveRecallView(props: ModeViewProps) {
               检查
             </Button>
           </div>
+          {recallHint}
           <p className="text-xs text-muted-foreground">系统会模糊比对，不完全一致也没关系</p>
         </div>
       )}
@@ -309,6 +364,8 @@ function ActiveRecallView(props: ModeViewProps) {
               <p className="text-sm text-muted-foreground">没想起来也没关系，先看释义再评分</p>
             )}
             <RetrievabilityLine value={retrievability} />
+            <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
+            <RevealContext row={row} />
           </div>
           <RatingButtons
             ratingMode={ratingMode}
@@ -326,10 +383,22 @@ function ActiveRecallView(props: ModeViewProps) {
 // ============ 3. 新卡教学（先教后测） ============
 
 function NewCardTeachView(props: ModeViewProps) {
-  const { row, config, ratingMode, preview, busy, onReveal, onRate, onRateReadyChange } = props;
+  const { row, config, ratingMode, preview, busy, distractors, onReveal, onRate, onRateReadyChange } = props;
   const [phase, setPhase] = useState<"teach" | "check">("teach");
   const [typed, setTyped] = useState("");
   const [checked, setChecked] = useState<boolean | null>(null);
+
+  // P2-⑦：识别先于产出——新卡首测为「看单词选释义」，选项不足时回退拼写
+  const options = useMemo(() => {
+    const pool: string[] = [];
+    for (const d of distractors) {
+      const b = d.back.trim();
+      if (b && b !== row.back && !pool.includes(b)) pool.push(b);
+      if (pool.length >= 3) break;
+    }
+    return shuffle([row.back, ...pool]);
+  }, [distractors, row.back]);
+  const useChoice = options.length >= 2;
 
   useEffect(() => {
     onRateReadyChange(phase === "check" && checked !== null && !busy);
@@ -341,10 +410,15 @@ function NewCardTeachView(props: ModeViewProps) {
     setPhase("check");
   };
 
-  const submitCheck = () => {
-    if (!typed.trim()) return;
-    const correct = typed.trim().toLowerCase() === row.front.trim().toLowerCase();
-    setChecked(correct);
+  const submitChoice = (opt: string) => {
+    if (checked !== null || busy) return;
+    setChecked(opt.trim() === row.back.trim());
+    onReveal();
+  };
+
+  const submitSpell = () => {
+    if (!typed.trim() || checked !== null || busy) return;
+    setChecked(typed.trim().toLowerCase() === row.front.trim().toLowerCase());
     onReveal();
   };
 
@@ -361,6 +435,7 @@ function NewCardTeachView(props: ModeViewProps) {
             <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
           </div>
         )}
+        <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
         <p className="text-sm text-muted-foreground">
           新卡先理解再记忆：结合释义与原文语境，准备好后开始识别测试
         </p>
@@ -376,24 +451,47 @@ function NewCardTeachView(props: ModeViewProps) {
     <div className="space-y-4">
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
         <CardMetaBadges row={row} />
-        <p className="text-sm text-muted-foreground">根据释义拼写单词（新卡识别测试）</p>
-        <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">{row.back}</div>
-        {checked === null && (
-          <div className="flex w-full max-w-md gap-2">
-            <Input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder="输入英文单词…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitCheck();
-              }}
-              autoFocus
-            />
-            <Button onClick={submitCheck} disabled={!typed.trim() || busy}>
-              检查答案
-            </Button>
+        <p className="text-sm text-muted-foreground">
+          {useChoice ? "识别测试：选择正确释义（首次学习先识别，下次复习再回忆）" : "根据释义拼写单词（识别测试）"}
+        </p>
+        <div className="text-center text-3xl font-bold break-words">{row.front}</div>
+
+        {checked === null && useChoice && (
+          <div className="grid w-full max-w-lg gap-2">
+            {options.map((opt) => (
+              <Button
+                key={opt}
+                variant="outline"
+                className="h-auto justify-start whitespace-normal py-3 text-left"
+                onClick={() => submitChoice(opt)}
+                disabled={busy}
+              >
+                {opt}
+              </Button>
+            ))}
           </div>
         )}
+
+        {checked === null && !useChoice && (
+          <>
+            <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">{row.back}</div>
+            <div className="flex w-full max-w-md gap-2">
+              <Input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="输入英文单词…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitSpell();
+                }}
+                autoFocus
+              />
+              <Button onClick={submitSpell} disabled={!typed.trim() || busy}>
+                检查答案
+              </Button>
+            </div>
+          </>
+        )}
+
         {checked !== null && (
           <div
             className={cn(
@@ -407,13 +505,11 @@ function NewCardTeachView(props: ModeViewProps) {
               ) : (
                 <XCircle className="size-4 text-red-500" />
               )}
-              <span className="font-medium">{checked ? "拼写正确" : "拼写不正确"}</span>
+              <span className="font-medium">{checked ? "回答正确" : "回答错误"}</span>
             </div>
-            {!checked && (
-              <p className="mt-1">
-                正确答案：<span className="font-semibold">{row.front}</span>
-              </p>
-            )}
+            <p className="mt-1">
+              正确答案：<span className="font-semibold">{row.back}</span>
+            </p>
           </div>
         )}
       </div>
@@ -427,7 +523,7 @@ function NewCardTeachView(props: ModeViewProps) {
 // ============ 4. 快速测试（熟练卡，秒答自动 Good） ============
 
 function QuickTestView(props: ModeViewProps) {
-  const { row, ratingMode, preview, busy, distractorRows, onReveal, onRate, onRateReadyChange } = props;
+  const { row, ratingMode, preview, busy, distractors, quickMs, onReveal, onRate, onRateReadyChange } = props;
   const startRef = useRef(Date.now());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [typed, setTyped] = useState("");
@@ -435,14 +531,14 @@ function QuickTestView(props: ModeViewProps) {
   const [autoGood, setAutoGood] = useState(false);
 
   const options = useMemo(() => {
-    const distractors: string[] = [];
-    for (const r of distractorRows) {
-      const b = r.back.trim();
-      if (b && b !== row.back && !distractors.includes(b)) distractors.push(b);
-      if (distractors.length >= 3) break;
+    const pool: string[] = [];
+    for (const d of distractors) {
+      const b = d.back.trim();
+      if (b && b !== row.back && !pool.includes(b)) pool.push(b);
+      if (pool.length >= 3) break;
     }
-    return shuffle([row.back, ...distractors]);
-  }, [distractorRows, row.back]);
+    return shuffle([row.back, ...pool]);
+  }, [distractors, row.back]);
   const useChoice = options.length >= 2;
 
   // 卸载时清理自动推进计时器
@@ -457,7 +553,7 @@ function QuickTestView(props: ModeViewProps) {
   }, [checked, autoGood, busy, onRateReadyChange]);
 
   const finish = (correct: boolean) => {
-    const fast = Date.now() - startRef.current <= QUICK_MS;
+    const fast = Date.now() - startRef.current <= quickMs;
     setChecked(correct);
     onReveal();
     if (correct && fast) {
@@ -481,7 +577,7 @@ function QuickTestView(props: ModeViewProps) {
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
-          熟练卡 · 快速测试（{QUICK_MS / 1000} 秒内答对自动记为「记得」）
+          熟练卡 · 快速测试（{Math.round(quickMs / 1000)} 秒内答对自动记为「记得」）
         </p>
         <div className="text-center text-3xl font-bold break-words">{row.front}</div>
 
@@ -542,6 +638,12 @@ function QuickTestView(props: ModeViewProps) {
             )}
           </div>
         )}
+        {checked !== null && (
+          <>
+            <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
+            <RevealContext row={row} />
+          </>
+        )}
       </div>
 
       {checked !== null && !autoGood && (
@@ -601,8 +703,10 @@ export interface StudyCardProps {
   preview: IntervalPreview | null;
   retrievability: number | null;
   busy: boolean;
-  /** 同队列其他卡片（快速测试的干扰项池） */
-  distractorRows: StudyCardRow[];
+  /** 全词库卡片精简池（P2-⑧：选择题干扰项 + 同族词） */
+  distractors: Distractor[];
+  /** 熟练卡秒答阈值（毫秒，P2-⑨） */
+  quickMs: number;
   /** 揭示答案：父组件据此计算间隔预览与可检索度 */
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;

@@ -23,9 +23,15 @@ import { exportToJSON, importFromJSON } from "@/lib/backup";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
+  getInterleaveRatio,
+  getLearningSteps,
+  getQuickTestMs,
   getRatingMode,
   getSummaryInterval,
   saveActiveRecallEnabled,
+  saveInterleaveRatio,
+  saveLearningSteps,
+  saveQuickTestMs,
   saveRatingMode,
   saveSummaryInterval,
 } from "@/lib/study-prefs";
@@ -43,6 +49,9 @@ export default function Settings() {
   const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
   const [activeRecallEnabled, setActiveRecallEnabled] = useState(true);
   const [summaryInterval, setSummaryInterval] = useState(10);
+  const [interleaveRatio, setInterleaveRatio] = useState(5);
+  const [quickTestSeconds, setQuickTestSeconds] = useState(5);
+  const [learningSteps, setLearningSteps] = useState("1m,10m");
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -63,7 +72,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -72,6 +81,9 @@ export default function Settings() {
         getRatingMode(),
         getActiveRecallEnabled(),
         getSummaryInterval(),
+        getInterleaveRatio(),
+        getQuickTestMs(),
+        getLearningSteps(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -83,6 +95,9 @@ export default function Settings() {
       setRatingMode(rm);
       setActiveRecallEnabled(ar);
       setSummaryInterval(si);
+      setInterleaveRatio(ir);
+      setQuickTestSeconds(Math.round(qt / 1000));
+      setLearningSteps(ls);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -127,6 +142,30 @@ export default function Settings() {
     setDayStart(v);
     if (!dbReady) return;
     await db.setSetting("day_start", v || "04:00");
+    flashSaved();
+  };
+
+  const handleInterleaveRatioChange = async (v: number) => {
+    const n = Math.min(10, Math.max(1, v || 5));
+    setInterleaveRatio(n);
+    if (!dbReady) return;
+    await saveInterleaveRatio(n);
+    flashSaved();
+  };
+
+  const handleQuickTestSecondsChange = async (v: number) => {
+    const n = Math.min(15, Math.max(2, v || 5));
+    setQuickTestSeconds(n);
+    if (!dbReady) return;
+    await saveQuickTestMs(n * 1000);
+    flashSaved();
+  };
+
+  const handleLearningStepsChange = async (v: string) => {
+    setLearningSteps(v);
+    if (!dbReady) return;
+    await saveLearningSteps(v);
+    invalidateFSRS();
     flashSaved();
   };
 
@@ -298,8 +337,19 @@ export default function Settings() {
                   value={[retention]}
                   onValueChange={(v) => saveRetention(v[0])}
                 />
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant={retention === 0.9 ? "default" : "outline"} onClick={() => saveRetention(0.9)}>
+                    考研/考试 0.90
+                  </Button>
+                  <Button size="sm" variant={retention === 0.85 ? "default" : "outline"} onClick={() => saveRetention(0.85)}>
+                    日常阅读 0.85
+                  </Button>
+                  <Button size="sm" variant={retention === 0.8 ? "default" : "outline"} onClick={() => saveRetention(0.8)}>
+                    轻量维持 0.80
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  越高复习越频繁、记忆越牢；越低复习间隔越长。默认 0.90（FSRS 推荐区间 0.8~0.95）
+                  越高复习越频繁、记忆越牢；越低复习间隔越长。考研备考建议 0.90，时间紧张可降至 0.85（复习量约少 30%）
                 </p>
               </div>
 
@@ -349,6 +399,56 @@ export default function Settings() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   全局复习预算（对标 Anki maximum reviews/day）；超出部分留到次日，避免过度复习
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="interleave-ratio">新卡交错比例（P0-①）</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="interleave-ratio"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={interleaveRatio}
+                    onChange={(e) => handleInterleaveRatioChange(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">张复习卡插 1 张新卡</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  交错练习长期记忆提升 20-40%；默认 5（每 5 张复习卡插入 1 张新卡）
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="quick-test-seconds">熟练卡秒答阈值（P2-⑨）</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="quick-test-seconds"
+                    type="number"
+                    min={2}
+                    max={15}
+                    value={quickTestSeconds}
+                    onChange={(e) => handleQuickTestSecondsChange(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">秒</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  阈值内答对自动记为「记得」；研究建议 5 秒（想不起来说明未真正掌握）
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="learning-steps">学习步骤（P3-⑪）</Label>
+                <Input
+                  id="learning-steps"
+                  type="text"
+                  placeholder="1m,10m"
+                  value={learningSteps}
+                  onChange={(e) => handleLearningStepsChange(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  新卡 Learning 阶段的重复间隔（m=分钟/h=小时/d=天），逗号分隔；建议短且少（如 1m,10m），第二天起交给 FSRS 动态调度
                 </p>
               </div>
 

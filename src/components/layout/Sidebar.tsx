@@ -125,7 +125,7 @@ export default function Sidebar({
             collapsed ? "h-0 opacity-0" : "h-auto opacity-100"
           )}
         >
-          Reciter v0.12.0 · Phase 6C
+          Reciter v0.13.0 · Phase 6C
         </div>
       </div>
     </aside>

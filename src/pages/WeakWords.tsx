@@ -97,10 +97,10 @@ export default function WeakWords() {
       const targetDeckId = deckId === "all" ? null : parseInt(deckId, 10);
       let cards: WeakCard[] = [];
       if (targetDeckId) {
-        cards = await db.getWeakCards(targetDeckId, 2, 100);
+        cards = await db.getWeakCards(targetDeckId, 4, 100);
       } else {
         const perDeck = await Promise.all(
-          allDecks.map((d) => db.getWeakCards(d.id, 2, 100))
+          allDecks.map((d) => db.getWeakCards(d.id, 4, 100))
         );
         cards = perDeck.flat().sort((a, b) => b.lapses - a.lapses || a.stability - b.stability);
       }
@@ -160,7 +160,7 @@ export default function WeakWords() {
             <AlertTriangle className="size-4 text-amber-500" />
             弱词列表
           </CardTitle>
-          <CardDescription>lapses ≥ 2 自动收录，按严重程度排序</CardDescription>
+          <CardDescription>lapses ≥ 4 自动收录（达到阈值会自动标记为重点词），按严重程度排序</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between gap-3">
