@@ -4,6 +4,8 @@
  * 并适配为测验（QuizSession）可用的结构 —— 关键：答案与解析在作答前不泄漏。
  */
 
+import { parseAIJSON } from "@/lib/ai-parse";
+
 export interface AIParsedQuestion {
   /** 展示给用户的题目文本（已剔除选项/答案/解析，避免泄漏） */
   question: string;
@@ -78,8 +80,57 @@ function blankWord(text: string, word: string): string {
   return text.replace(new RegExp("\\b" + escapeRegExp(word) + "\\b", "g"), "_____");
 }
 
+/** 从 JSON 结构化输出中解析题目；非 JSON 或字段缺失时返回 null */
+export function parseStructuredQuestion(raw: string): AIParsedQuestion | null {
+  const data = parseAIJSON<{
+    question?: string;
+    options?: string[];
+    answer?: string;
+    explanation?: string;
+  }>(raw);
+  if (!data || typeof data !== "object") return null;
+
+  const options = Array.isArray(data.options) && data.options.length >= 2 ? data.options : null;
+  let answerLetter: string | null = null;
+  let answerText: string | null = null;
+  const answer = typeof data.answer === "string" ? data.answer.trim() : "";
+
+  if (/^[A-Da-d]$/.test(answer)) {
+    answerLetter = answer.toUpperCase();
+    if (options) {
+      const idx = answerLetter.charCodeAt(0) - 65;
+      answerText = options[idx] ?? null;
+    }
+  } else if (options && answer) {
+    const idx = options.findIndex((o) => o === answer);
+    if (idx >= 0) {
+      answerLetter = String.fromCharCode(65 + idx);
+      answerText = answer;
+    } else {
+      answerText = answer;
+    }
+  } else if (answer) {
+    answerText = answer;
+  }
+
+  const question = typeof data.question === "string" ? data.question.trim() : "";
+  if (!question) return null;
+
+  return {
+    question,
+    options,
+    answerLetter,
+    answerText,
+    explanation: typeof data.explanation === "string" ? data.explanation : null,
+    raw,
+  };
+}
+
 /** 解析 AI 回复为结构化题目（不含泄漏） */
 export function parseAIQuestion(raw: string): AIParsedQuestion {
+  const structured = parseStructuredQuestion(raw);
+  if (structured) return structured;
+
   const sections = parseSections(raw);
   const options = parseOptions(sections["选项"]);
   const answerLetter = extractAnswerLetter(sections["答案"]);

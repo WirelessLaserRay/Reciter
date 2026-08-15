@@ -11,6 +11,7 @@ import Study from "@/pages/Study";
 import Import from "@/pages/Import";
 import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
+import WeakWords from "@/pages/WeakWords";
 
 function App() {
   const theme = useThemeStore((s) => s.theme);
@@ -38,6 +39,7 @@ function App() {
           <Route path="/study" element={<Study />} />
           <Route path="/import" element={<Import />} />
           <Route path="/stats" element={<Stats />} />
+          <Route path="/weak-words" element={<WeakWords />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

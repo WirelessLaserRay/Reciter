@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import {
+  AlertTriangle,
   BarChart3,
   BookOpen,
   FileUp,
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/", label: "今日学习", icon: LayoutDashboard },
   { to: "/decks", label: "词库", icon: BookOpen },
+  { to: "/weak-words", label: "弱词本", icon: AlertTriangle },
   { to: "/import", label: "导入", icon: FileUp },
   { to: "/stats", label: "统计", icon: BarChart3 },
   { to: "/settings", label: "设置", icon: Settings },

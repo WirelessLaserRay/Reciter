@@ -1,5 +1,55 @@
 /** AI 响应解析工具（纯函数，可单测） */
 
+/**
+ * 安全解析 AI 返回的 JSON：
+ * 1. 直接 JSON.parse
+ * 2. 提取 ```json ... ``` 代码块
+ * 3. 提取第一个 { ... } 块
+ * 全部失败返回 null
+ */
+export function parseAIJSON<T>(raw: string): T | null {
+  if (!raw) return null;
+
+  // 1. 直接解析
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    // ignore
+  }
+
+  // 2. ```json ... ```
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
+  if (fence) {
+    try {
+      return JSON.parse(fence[1].trim()) as T;
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. 第一个 { ... } 块（简单平衡匹配）
+  const start = raw.indexOf("{");
+  if (start >= 0) {
+    let depth = 0;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          try {
+            return JSON.parse(raw.slice(start, i + 1)) as T;
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export interface AIGradeResult {
   grade: 1 | 2 | 3 | 4;
   comment: string;

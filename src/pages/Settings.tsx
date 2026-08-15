@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
 import { exportToJSON, importFromJSON } from "@/lib/backup";
+import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
   getRatingMode,
@@ -54,6 +55,7 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
 
   // AI 配置
+  const [setupOpen, setSetupOpen] = useState(false);
   const [aiBaseURL, setAiBaseURL] = useState("");
   const [aiKey, setAiKey] = useState("");
   const [aiModel, setAiModel] = useState("");
@@ -456,8 +458,13 @@ export default function Settings() {
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
+              <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">快速切换预设</Label>
+                <Button size="sm" variant="outline" onClick={() => setSetupOpen(true)}>
+                  引导配置
+                </Button>
+              </div>
+              <div>
                 <div className="mt-1.5 flex gap-2">
                   {AI_PRESETS.map((p) => (
                     <Button key={p.name} size="sm" variant="outline" onClick={() => applyPreset(p)}>
@@ -608,6 +615,8 @@ export default function Settings() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />
     </div>
   );
 }

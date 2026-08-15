@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   BookOpen,
@@ -38,7 +38,7 @@ import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
 import QuizSession from "@/components/quiz/QuizSession";
-import AIDeepReviewDialog from "@/components/ai/AIDeepReviewDialog";
+import AIChatPanel from "@/components/ai/AIChatPanel";
 
 const RATINGS = [
   {
@@ -198,11 +198,11 @@ function SessionMiniSummary({
 /** 学习主界面 */
 function StudySession() {
   const { deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
+  const navigate = useNavigate();
   const [flipped, setFlipped] = useState(false);
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [aiReviewOpen, setAiReviewOpen] = useState(false);
 
   // Phase 6A 学习偏好
   const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
@@ -213,8 +213,6 @@ function StudySession() {
   const [recallInput, setRecallInput] = useState("");
   const [recallResult, setRecallResult] = useState<RecallMatchResult | null>(null);
   const [limitedRatings, setLimitedRatings] = useState(false);
-  /** 迷你小结里点「AI 帮我巩固」时，临时指定要复习的弱词 */
-  const [aiReviewTarget, setAiReviewTarget] = useState<{ front: string; back: string } | null>(null);
 
   const item = queue[index];
   const total = queue.length;
@@ -287,17 +285,10 @@ function StudySession() {
     setShowMiniSummary(false);
   };
 
-  /** 迷你小结 → AI 巩固薄弱词（Phase 6A 先用现有深度复习弹窗，不推进队列） */
+  /** 迷你小结 → AI 巩固薄弱词：跳转到弱词本统一处理 */
   const handleAIReviewFromSummary = (words: string[]) => {
     if (words.length === 0) return;
-    const word = words[0];
-    const target = queue.find((q) => q.row.front === word);
-    setAiReviewTarget(
-      target
-        ? { front: target.row.front, back: target.row.back }
-        : { front: word, back: "" }
-    );
-    setAiReviewOpen(true);
+    navigate("/weak-words");
   };
 
   const handleRate = useCallback(
@@ -696,33 +687,21 @@ function StudySession() {
       )}
 
       {!showMiniSummary && (
-        <Button
-          variant="secondary"
-          className="w-full"
-          disabled={busy}
-          onClick={() => {
-            setAiReviewTarget(null);
-            setAiReviewOpen(true);
-          }}
-        >
-          <Sparkles className="size-4" />
-          AI 深度复习（生成完形/语境题并判分）
-        </Button>
+        <AIChatPanel
+          front={item.row.front}
+          back={item.row.back}
+          cardState={rowToState(item.row)}
+          onGradeDecided={(grade, question, answer) =>
+            handleAIComplete(grade, question ?? "", answer ?? "")
+          }
+          onNext={() => handleAIComplete(3, "", "")}
+        />
       )}
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
         <Keyboard className="size-3.5" />
         {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"} · 悬停按钮查看说明
       </div>
-
-      {/* AI 深度复习对话框（普通学习 / 迷你小结弱词巩固共用） */}
-      <AIDeepReviewDialog
-        open={aiReviewOpen}
-        onOpenChange={setAiReviewOpen}
-        front={aiReviewTarget?.front ?? item.row.front}
-        back={aiReviewTarget?.back ?? item.row.back}
-        onComplete={aiReviewTarget ? () => setAiReviewOpen(false) : handleAIComplete}
-      />
     </div>
   );
 }

@@ -23,6 +23,8 @@
 | 📝 测试模式 | 填空（中译英）+ 选择（中译英/英译中）三种题型，掌握度评价回填 FSRS；预留 AI 出题接口（Phase 4 接入语境题） | ✅ Phase 3 / Phase 4 |
 | 🏷️ 词库管理 | 词库重命名、词条编辑（单词/释义/标签）、按标签分类学习与测试 | ✅ 0.6.0 |
 | 🤖 AI 语境测试 | AI 深度复习（流式完形/语境题 + AI 判分 + 申诉）、测试模式 AI 出题；DeepSeek/Ollama/OpenAI 预设一键切换 | ✅ Phase 4 |
+| 🧭 学习体验优化 | 一键续学/智能推荐、三档评分、主动回忆、迷你小结 | ✅ 6A |
+| 🤖 AI 学习助手 | AI 多轮对话面板、FSRS 自适应策略、JSON 结构化 Prompt、弱词本、AI 配置向导 | ✅ 6B |
 | 📊 学习统计 | 复习量堆叠柱状图、记忆保留率折线图、未来 7 天预期复习量、365 天热力图（自定义 CSS Grid） | ✅ Phase 5 |
 | 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；全量 JSON 导出/恢复（不包含 WebDAV 同步） | ✅ Phase 2 / Phase 5 |
 | ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Phase 3 |
@@ -126,11 +128,11 @@ F:\AI\Reciter
 │   ├── components/
 │   │   ├── ui/                       # shadcn/ui 组件（button/card/tabs/... 15 个）
 │   │   └── layout/                   # Sidebar / Header / MainLayout
-│   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置
+│   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置 弱词本
 │   ├── stores/                       # Zustand store（theme/deck/db/study）
-│   ├── lib/                          # db / fsrs / day / review / stats / stats-utils / backup / ai-* / settings / markdown-parser / importer / utils
+│   ├── lib/                          # db / fsrs / day / review / stats / stats-utils / backup / ai-* / ai-strategy / study-prefs / recall-match / settings / markdown-parser / importer / utils
 │   ├── components/stats/              # HeatmapGrid（自定义热力图）
-│   ├── components/ai/                 # AI 深度复习对话框
+│   ├── components/ai/                 # AI Chat Panel / 深度复习 / 配置向导
 │   ├── components/quiz/               # 测试模式（QuizSession）
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
 ├── src-tauri/                        # Tauri 2 Rust 壳
@@ -154,6 +156,7 @@ F:\AI\Reciter
 | `/study` | 学习 | 卡片翻转 + 四档评分（Phase 3 接入 FSRS） |
 | `/import` | 导入 | Markdown/CSV 拖拽导入（Phase 2） |
 | `/stats` | 统计 | 图表与热力图（Phase 5） |
+| `/weak-words` | 弱词本 | 弱词列表 + AI 攻克（Phase 6B） |
 | `/settings` | 设置 | 外观 / 学习偏好 / AI 配置 |
 
 ---
@@ -167,6 +170,8 @@ F:\AI\Reciter
 | **3** | 集成 ts-fsrs (FSRS-5)，学习流程（due 队列 + 新卡配额 + 四按钮） | ✅ 已完成 |
 | **4** | AI 设置页 + OpenAI 兼容客户端 + 完形/语境测试 + 判分/申诉 | ✅ 已完成 |
 | **5** | 统计图表 + 自定义热力图、JSON 导出/恢复、翻转动画、主题打磨（无 WebDAV） | ✅ 已完成 |
+| **6A** | 学习体验基础优化：一键续学、三档评分、主动回忆、迷你小结 | ✅ 已完成 |
+| **6B** | AI 功能重塑：AI 对话面板、FSRS 自适应策略、JSON Prompt、弱词本、配置向导 | ✅ 已完成 |
 
 ---
 

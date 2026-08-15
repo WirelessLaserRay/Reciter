@@ -393,6 +393,42 @@ class ReciterDB {
     return this.requireDb().select<ReviewLog[]>("SELECT * FROM review_logs ORDER BY reviewed_at DESC");
   }
 
+  // ==================== 弱词追踪（Phase 6B） ====================
+
+  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序） */
+  async getWeakCards(deckId: number, threshold = 2, limit = 50): Promise<(Card & CardState)[]> {
+    return this.requireDb().select(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
+              c.created_at, c.updated_at,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.deck_id = ? AND cs.lapses >= ?
+       ORDER BY cs.lapses DESC, cs.stability ASC
+       LIMIT ?`,
+      [deckId, threshold, limit]
+    );
+  }
+
+  /** 全局弱词计数 */
+  async getGlobalWeakCount(threshold = 2): Promise<number> {
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      "SELECT COUNT(*) AS cnt FROM card_states WHERE lapses >= ?",
+      [threshold]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 获取指定卡片最近 N 次评分（按时间倒序） */
+  async getRecentGrades(cardId: number, n = 3): Promise<number[]> {
+    const rows = await this.requireDb().select<{ grade: number }[]>(
+      "SELECT grade FROM review_logs WHERE card_id = ? ORDER BY reviewed_at DESC LIMIT ?",
+      [cardId, n]
+    );
+    return rows.map((r) => r.grade);
+  }
+
   // ==================== Settings (KV) ====================
 
   async getSetting(key: string): Promise<string | null> {

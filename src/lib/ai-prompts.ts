@@ -111,6 +111,48 @@ export const DEFAULT_PROMPTS: Record<PromptType, PromptTemplate> = {
 
 export const PROMPT_TYPES: PromptType[] = ["cloze", "context", "example", "choice", "grading"];
 
+export type AIStrategy = "teach" | "recognition" | "production" | "deep_drill";
+
+export const STRATEGY_TYPES: AIStrategy[] = ["teach", "recognition", "production", "deep_drill"];
+
+/** Phase 6B：按 FSRS 状态自适应的 AI 策略 Prompt（JSON 结构化输出） */
+export const STRATEGY_PROMPTS: Record<AIStrategy, string> = {
+  teach: [
+    '你是一位耐心的英语教师。请针对单词 "{word}"（释义：{meaning}）进行首次教学。',
+    "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
+    'JSON 结构：{ "etymology": "词根/词缀分析", "examples": ["例句1", "例句2"], "simple_quiz": "一个简单的理解题", "explanation": "中文讲解" }',
+  ].join("\n"),
+  recognition: [
+    '你是一位英语测验出题者。请根据单词 "{word}"（释义：{meaning}）出一道识别题。',
+    "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
+    'JSON 结构：{ "question": "题目文本", "options": ["选项1", "选项2", "选项3", "选项4"], "answer": "正确答案", "explanation": "解析" }',
+  ].join("\n"),
+  production: [
+    '你是一位英语写作教练。请针对单词 "{word}"（释义：{meaning}）设计一道产出型练习。',
+    "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
+    'JSON 结构：{ "prompt": "练习要求", "sample_answer": "参考答案", "rubric": "评分要点", "explanation": "讲解" }',
+  ].join("\n"),
+  deep_drill: [
+    '你是一位攻克顽固词的记忆教练。请针对单词 "{word}"（释义：{meaning}）设计多角度深度训练。',
+    "请严格以 JSON 格式回复，不要使用 markdown 标记包裹，不要输出其他内容。",
+    'JSON 结构：{ "mnemonic": "助记法", "confusable_words": ["易混词1", "易混词2"], "quiz_chain": ["递进练习1", "递进练习2", "递进练习3"] }',
+  ].join("\n"),
+};
+
+/** 读取策略 Prompt（settings 覆盖时用用户版本，键名 strategy_prompt_<strategy>） */
+export async function getStrategyPrompt(strategy: AIStrategy): Promise<string> {
+  const saved = await db.getSetting("strategy_prompt_" + strategy);
+  return saved && saved.trim() ? saved : STRATEGY_PROMPTS[strategy];
+}
+
+export async function saveStrategyPrompt(strategy: AIStrategy, content: string): Promise<void> {
+  await db.setSetting("strategy_prompt_" + strategy, content);
+}
+
+export async function resetStrategyPrompt(strategy: AIStrategy): Promise<void> {
+  await db.setSetting("strategy_prompt_" + strategy, STRATEGY_PROMPTS[strategy]);
+}
+
 /** 读取模板（settings 覆盖时用用户版本） */
 export async function getPromptTemplate(type: PromptType): Promise<string> {
   const def = DEFAULT_PROMPTS[type];

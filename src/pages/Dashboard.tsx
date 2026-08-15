@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [lastContext, setLastContext] = useState<LastStudyContext | null>(null);
   const [dueByDeck, setDueByDeck] = useState<Record<number, number>>({});
   const [recommendedDeck, setRecommendedDeck] = useState<Deck | null>(null);
+  const [weakCount, setWeakCount] = useState(0);
 
   useEffect(() => {
     if (!dbReady) return;
@@ -39,14 +40,16 @@ export default function Dashboard() {
         currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString())] as const)
       );
       const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
-      const [due, fresh, last] = await Promise.all([
+      const [due, fresh, last, weak] = await Promise.all([
         db.getGlobalDueCount(dayEnd.toISOString()),
         db.getGlobalNewCount(),
         getLastStudyContext(),
+        db.getGlobalWeakCount(),
       ]);
       setDueCount(due);
       setNewCount(fresh);
       setLastContext(last);
+      setWeakCount(weak);
       setDueByDeck(deckDue);
 
       const top = currentDecks
@@ -221,6 +224,20 @@ export default function Dashboard() {
                 <Link to="/decks">管理词库</Link>
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 弱词提醒 */}
+      {weakCount > 0 && (
+        <Card className="border-amber-500/30">
+          <CardContent className="flex items-center justify-between gap-3 py-4">
+            <p className="text-sm">
+              ⚠️ 你有 <span className="font-semibold text-amber-500">{weakCount}</span> 个词反复遗忘
+            </p>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/weak-words">去弱词本</Link>
+            </Button>
           </CardContent>
         </Card>
       )}
