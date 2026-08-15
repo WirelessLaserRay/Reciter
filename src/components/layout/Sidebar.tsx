@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   FileUp,
+  GraduationCap,
   LayoutDashboard,
   Settings,
   Languages,
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/", label: "今日学习", icon: LayoutDashboard },
   { to: "/decks", label: "词库", icon: BookOpen },
+  { to: "/study", label: "学习", icon: GraduationCap },
   { to: "/weak-words", label: "弱词本", icon: AlertTriangle },
   { to: "/import", label: "导入", icon: FileUp },
   { to: "/stats", label: "统计", icon: BarChart3 },
@@ -56,7 +58,7 @@ export default function Sidebar() {
 
       {/* 版本区 */}
       <div className="border-t p-4 text-xs text-muted-foreground">
-        Reciter v0.1.0 · Phase 1
+        Reciter v0.10.0 · Phase 6C
       </div>
     </aside>
   );

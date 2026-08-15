@@ -16,18 +16,41 @@
 
 ## [Unreleased]
 
-### Added
-
-- **Phase 6B AI 功能重塑**：
-  - AI 策略引擎：根据 FSRS 状态自动选择 teach / recognition / production / deep_drill
-  - AI Chat Panel：内嵌学习页的多轮对话助手，支持讲解、换方式练、AI 判分与评分回填
-  - Prompt 重构：新增 JSON 结构化策略 Prompt，AI 响应优先走 JSON 解析，失败回退旧正则
-  - 弱词本页面：按词库筛选、展示遗忘次数/可检索度，支持 AI 攻克并回填 FSRS
-  - Dashboard 弱词提醒
-  - AI 配置引导向导：DeepSeek / Ollama / 自定义一键配置
-
 ### Planned
-- 后续方向：Phase 6C 统一学习流、Easy Days 负载均衡、更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
+
+- 后续方向：Easy Days 负载均衡、更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
+
+---
+
+## [0.10.0] - 2026-08-15
+
+### Added（Phase 6B · AI 功能重塑）
+
+- AI 策略引擎：根据 FSRS 状态自动选择 teach / recognition / production / deep_drill
+- AI Chat Panel：内嵌学习页的多轮对话助手，支持讲解、换方式练、AI 判分与评分回填
+- Prompt 重构：新增 JSON 结构化策略 Prompt，AI 响应优先走 JSON 解析，失败回退旧正则
+- 弱词本页面：按词库筛选、展示遗忘次数/可检索度，支持 AI 攻克并回填 FSRS
+- Dashboard 弱词提醒
+- AI 配置引导向导：DeepSeek / Ollama / 自定义一键配置
+
+### Added（Phase 6C · 学习流统一与进阶）
+
+- **统一学习流模式引擎**（`src/lib/study-mode.ts`）：按 FSRS 状态自适应切换五种学习模式——新卡教学（new_teach）、主动回忆（recall）、快速测试（quick_test）、AI 深度攻克（ai_drill）、经典翻转（classic）；学习/测试二元入口合并为单一「开始学习」
+- **多模式学习卡片**（`src/components/study/StudyCard.tsx`）：五种模式子视图 + 三档/四档评分组件；熟练卡秒答（8 秒内答对）自动记为 Good；AIChatPanel 支持按模式注入策略（strategyOverride）
+- **语境沉浸展示**（`src/components/study/MarkdownContext.tsx`）：学习时展示 Markdown 原文语境并高亮目标词，支持折叠/展开
+- **词库掌握度全景**（`src/components/deck/MasteryOverview.tsx`）：分段彩色进度条 + 已掌握/学习中/弱词/未学习四类统计 + 弱词 TOP 5 + 一键 AI 攻克跳转
+- db 新增 `getDeckMasteryDistribution` / `getDeckTopWeakWords`；学习队列查询携带 `markdown_content`
+- 词库详情页新增「高级测试」入口（`/study?quiz=<deckId>`）；Sidebar 新增「学习」直达导航
+- 弱词本支持 `?deck=<id>` 参数定位词库
+
+### Fixed
+
+- Markdown 导入此前把 `cards.markdown_content` 存为空串，导致原文语境丢失；现导入时保留原始片段并按真实格式记录 `source_type`（支持 markdown/csv/json）
+
+### Verified
+
+- ✅ `.install/6c-test.ts` 全过：模式引擎 6 组判定、掌握度分布四类互斥且合计=total、TOP 弱词排序、队列携带 markdown_content
+- ✅ `npm run build` 通过（tsc 严格检查 + vite 生产构建 + PWA workbox）
 
 ---
 

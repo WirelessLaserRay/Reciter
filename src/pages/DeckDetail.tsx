@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,15 +21,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { db } from "@/lib/db";
+import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
+import MasteryOverview from "@/components/deck/MasteryOverview";
 import type { Card as CardType, Deck } from "@/types";
 
 export default function DeckDetail() {
   const { id } = useParams<{ id: string }>();
   const deckId = Number(id);
+  const navigate = useNavigate();
   const [deck, setDeck] = useState<Deck | null>(null);
   const [cards, setCards] = useState<CardType[]>([]);
   const [progress, setProgress] = useState({ learned: 0, due: 0 });
+  const [mastery, setMastery] = useState<MasteryDistribution | null>(null);
+  const [topWeak, setTopWeak] = useState<DeckWeakWord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [front, setFront] = useState("");
@@ -50,14 +54,18 @@ export default function DeckDetail() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [d, cs, pg] = await Promise.all([
+      const [d, cs, pg, dist, weak] = await Promise.all([
         db.getDeck(deckId),
         db.getCardsByDeck(deckId),
         db.getDeckProgress(deckId),
+        db.getDeckMasteryDistribution(deckId),
+        db.getDeckTopWeakWords(deckId, 5),
       ]);
       setDeck(d);
       setCards(cs);
       setProgress(pg);
+      setMastery(dist);
+      setTopWeak(weak);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -173,6 +181,10 @@ export default function DeckDetail() {
           <Badge variant="secondary">{cards.length} 张卡片</Badge>
           <span>已学习 {progress.learned}</span>
           <span>待复习 {progress.due}</span>
+          <Button variant="outline" size="sm" onClick={() => navigate(`/study?quiz=${deckId}`)}>
+            <ClipboardList className="size-3.5" />
+            高级测试
+          </Button>
         </div>
       </div>
 
@@ -180,6 +192,11 @@ export default function DeckDetail() {
         <h2 className="text-2xl font-bold">{deck.name}</h2>
         <p className="text-sm text-muted-foreground">{deck.description || "暂无描述"}</p>
       </div>
+
+      {/* Phase 6C：词库掌握度全景 */}
+      {mastery && (
+        <MasteryOverview distribution={mastery} weakWords={topWeak} deckId={deckId} />
+      )}
 
       {/* 手动添加卡片 */}
       <Card>

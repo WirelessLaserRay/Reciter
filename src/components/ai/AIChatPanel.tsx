@@ -28,6 +28,8 @@ interface AIChatPanelProps {
   front: string;
   back: string;
   cardState: CardState;
+  /** 统一学习流模式注入的策略（Phase 6C）；缺省时按 FSRS 状态自动推断 */
+  strategyOverride?: AIStrategy;
   /** AI 判分确认后回调；question/answer 为最近一次判分的题目与用户回答 */
   onGradeDecided?: (grade: 1 | 2 | 3 | 4, question?: string, answer?: string) => void;
   onNext?: () => void;
@@ -45,6 +47,7 @@ export default function AIChatPanel({
   front,
   back,
   cardState,
+  strategyOverride,
   onGradeDecided,
   onNext,
   defaultExpanded = false,
@@ -83,7 +86,7 @@ export default function AIChatPanel({
         return;
       }
 
-      const s = getAIStrategy(cardState);
+      const s = strategyOverride ?? getAIStrategy(cardState);
       setStrategy(s);
       const strategyPrompt = await getStrategyPrompt(s);
       if (cancelled) return;

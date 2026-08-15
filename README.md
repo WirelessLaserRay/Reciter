@@ -25,9 +25,10 @@
 | 🤖 AI 语境测试 | AI 深度复习（流式完形/语境题 + AI 判分 + 申诉）、测试模式 AI 出题；DeepSeek/Ollama/OpenAI 预设一键切换 | ✅ Phase 4 |
 | 🧭 学习体验优化 | 一键续学/智能推荐、三档评分、主动回忆、迷你小结 | ✅ 6A |
 | 🤖 AI 学习助手 | AI 多轮对话面板、FSRS 自适应策略、JSON 结构化 Prompt、弱词本、AI 配置向导 | ✅ 6B |
+| 🧬 统一学习流 | 按 FSRS 状态自适应切换：新卡教学 → 主动回忆 / 快速测试 / AI 深度攻克 / 经典翻转；Markdown 语境沉浸、词库掌握度全景 | ✅ 6C |
 | 📊 学习统计 | 复习量堆叠柱状图、记忆保留率折线图、未来 7 天预期复习量、365 天热力图（自定义 CSS Grid） | ✅ Phase 5 |
 | 💾 本地优先 | 所有数据存本地 SQLite（6 表 + 迁移管理）；全量 JSON 导出/恢复（不包含 WebDAV 同步） | ✅ Phase 2 / Phase 5 |
-| ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Phase 3 |
+| ⚖️ Easy Days 负载均衡 | 避免周末/特定日期复习堆积（对标 Anki 2025 新特性） | Planned（设置页占位） |
 
 **差异化亮点**（主流竞品未实现）：Markdown 原生导入、AI 语境测试、记忆可检索度实时可视化（ts-fsrs `get_retrievability`）。
 
@@ -47,6 +48,7 @@
 │  ├─ 状态: Zustand；路由: React Router               │
 │  ├─ 解析: remark AST + 正则后处理 → Card            │
 │  ├─ SRS: ts-fsrs (FSRS-5 scheduler)                 │
+│  ├─ 学习流: study-mode 五模式自适应 + StudyCard      │
 │  └─ 图表: Recharts + 自定义 HeatmapGrid             │
 └────────────────────────────────────────────────────┘
                     │
@@ -63,7 +65,7 @@
 | `decks` | 词库 | name(UNIQUE), new_cards_per_day |
 | `cards` | 卡片 | (deck_id, front) UNIQUE → 重导入 upsert 保留进度 |
 | `card_states` | FSRS 记忆状态（与卡片 1:1） | state/stability/difficulty/due/desired_retention/algorithm_version |
-| `review_logs` | 复习记录 | grade(1-4), source(review|ai_test), ai_question/ai_answer |
+| `review_logs` | 复习记录 | grade(1-4), source(review|quiz|ai_test), ai_question/ai_answer |
 | `settings` | KV 设置 | key/value |
 | `daily_stats` | 学习日报（统计 O(1) 查询） | new_count/review_count/again_count/retention_rate |
 
@@ -127,13 +129,15 @@ F:\AI\Reciter
 │   ├── index.css                     # Tailwind v4 + 双主题 CSS 变量
 │   ├── components/
 │   │   ├── ui/                       # shadcn/ui 组件（button/card/tabs/... 15 个）
-│   │   └── layout/                   # Sidebar / Header / MainLayout
+│   │   ├── layout/                   # Sidebar / Header / MainLayout
+│   │   ├── study/                    # StudyCard（五模式学习卡片）/ MarkdownContext（语境沉浸）
+│   │   └── deck/                     # MasteryOverview（掌握度全景）
 │   ├── pages/                        # Dashboard 词库 词库详情 学习 导入 统计 设置 弱词本
 │   ├── stores/                       # Zustand store（theme/deck/db/study）
-│   ├── lib/                          # db / fsrs / day / review / stats / stats-utils / backup / ai-* / ai-strategy / study-prefs / recall-match / settings / markdown-parser / importer / utils
+│   ├── lib/                          # db / fsrs / day / review / stats / stats-utils / backup / ai-* / ai-strategy / study-mode / study-prefs / recall-match / settings / markdown-parser / importer / utils
 │   ├── components/stats/              # HeatmapGrid（自定义热力图）
 │   ├── components/ai/                 # AI Chat Panel / 深度复习 / 配置向导
-│   ├── components/quiz/               # 测试模式（QuizSession）
+│   ├── components/quiz/               # 测试模式（QuizSession，高级入口）
 │   └── types/                        # 全局类型（与数据库 Schema 对齐）
 ├── src-tauri/                        # Tauri 2 Rust 壳
 │   ├── src/main.rs / lib.rs          # 入口 + Builder
@@ -152,11 +156,11 @@ F:\AI\Reciter
 |---|---|---|
 | `/` | Dashboard | 今日任务概览 + 快捷操作 |
 | `/decks` | 词库列表 | 新建/管理词库 |
-| `/decks/:id` | 词库详情 | 卡片列表与进度 |
-| `/study` | 学习 | 卡片翻转 + 四档评分（Phase 3 接入 FSRS） |
-| `/import` | 导入 | Markdown/CSV 拖拽导入（Phase 2） |
+| `/decks/:id` | 词库详情 | 卡片列表、掌握度全景 + 高级测试入口 |
+| `/study` | 学习 | 统一学习流（新卡教学/主动回忆/快速测试/AI 攻克自适应）；`/study?quiz=<id>` 进入高级测试 |
+| `/import` | 导入 | Markdown/CSV/JSON 拖拽导入（预览 + 冲突检测） |
 | `/stats` | 统计 | 图表与热力图（Phase 5） |
-| `/weak-words` | 弱词本 | 弱词列表 + AI 攻克（Phase 6B） |
+| `/weak-words` | 弱词本 | 弱词列表 + AI 攻克（Phase 6B），支持 `?deck=<id>` 筛选 |
 | `/settings` | 设置 | 外观 / 学习偏好 / AI 配置 |
 
 ---
@@ -172,6 +176,7 @@ F:\AI\Reciter
 | **5** | 统计图表 + 自定义热力图、JSON 导出/恢复、翻转动画、主题打磨（无 WebDAV） | ✅ 已完成 |
 | **6A** | 学习体验基础优化：一键续学、三档评分、主动回忆、迷你小结 | ✅ 已完成 |
 | **6B** | AI 功能重塑：AI 对话面板、FSRS 自适应策略、JSON Prompt、弱词本、配置向导 | ✅ 已完成 |
+| **6C** | 学习流统一与进阶：五模式自适应、语境沉浸、掌握度全景、测试入口降级 | ✅ 已完成 |
 
 ---
 
@@ -202,7 +207,7 @@ npm run tauri build          # 构建正式版（输出 src-tauri/target/release
 ```
 
 - **一键启动**：双击桌面「Reciter」快捷方式，或从开始菜单启动（已自动创建）
-- **安装分发**：运行 `Reciter_0.1.0_x64-setup.exe` 安装到系统，获得开始菜单/桌面图标与卸载程序
+- **安装分发**：运行 `Reciter_0.10.0_x64-setup.exe` 安装到系统，获得开始菜单/桌面图标与卸载程序
 - 数据目录：`%APPDATA%\\com.reciter.app\\reciter.db`（SQLite，可整目录备份）
 
 ### 开发模式

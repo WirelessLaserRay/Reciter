@@ -15,7 +15,7 @@
 | 技术栈 | Tauri 2 · React 18 · TypeScript · Vite 7 · Tailwind v4 + shadcn/ui · Zustand · React Router 7 · SQLite · ts-fsrs v5 (FSRS-5) · Recharts |
 | 授权 | MIT（© 2026 WirelessLaserRay） |
 
-**当前进度**：Phase 1-5 全部完成（0.5.0），后续迭代 0.6-0.9（词库管理/重点词/学习量设置/Phase 6A 学习体验优化）。后续方向参考 `AI_LEARNING_OPTIMIZATION.md`。
+**当前进度**：Phase 1-5 + 6A/6B/6C 全部完成（0.10.0）。后续方向：Easy Days 负载均衡、更多题型、备份加密、多端迁移、FSRS-6 升级预留（参考 `AI_LEARNING_OPTIMIZATION.md`）。
 
 ---
 
@@ -138,15 +138,18 @@ gh release create v0.1.0 --title "..." --notes-file notes.md "bundle/nsis/*.exe"
 src/
 ├── lib/          db / fsrs / day / review / settings / stats / backup / env / migrations /
 │                 sql/{backend,tauri-backend,sqljs-backend} / ai-client / ai-parse / ai-prompts /
-│                 ai-adapter / markdown-parser / importer / recall-match / study-prefs / utils
-├── components/   ui(shadcn) / layout / quiz(QuizSession) / stats(HeatmapGrid) / ai(AIDeepReviewDialog)
-├── pages/        Dashboard 词库 词库详情 学习 导入 统计 设置
+│                 ai-adapter / ai-strategy / study-mode / markdown-parser / importer /
+│                 recall-match / study-prefs / utils
+├── components/   ui(shadcn) / layout / quiz(QuizSession) / stats(HeatmapGrid) /
+│                 ai(AIChatPanel, AISetupWizard) / study(StudyCard, MarkdownContext) / deck(MasteryOverview)
+├── pages/        Dashboard 词库 词库详情 学习 导入 统计 设置 弱词本
 ├── stores/       useThemeStore / useDbStore / useDeckStore / useStudyStore
 └── types/        与数据库 Schema 对齐
 src-tauri/        Rust 壳：plugins(sql/http/dialog) + 命令(write/read_text_file) + migrations 001-005
 ```
 
 - 学习队列 = due 卡片（受每日复习上限截取）+ 配额内新卡（`deck.new_cards_per_day - 今日已学`），可标签/重点过滤
+- 统一学习流：`resolveStudyMode()`（new_teach/recall/quick_test/ai_drill/classic）→ `StudyCard` 分发；高级测试入口 `/study?quiz=<deckId>`
 - 评分链路统一走 `applyReview()`（FSRS 调度 → card_states → review_logs → daily_stats）
 - 重点词：Markdown 黑体（strong 首节点）→ `cards.is_key`；学习/测试可选"重点词"范围
 - AI：OpenAI 兼容双通道（DeepSeek/Ollama/OpenAI），tauri-plugin-http（Tauri）/ window.fetch（Web，CORS 受限需代理）；AI 出题经 `ai-adapter.ts` 解析防泄漏

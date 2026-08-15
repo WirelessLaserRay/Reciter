@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft, Loader2, Sparkles } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -75,8 +75,10 @@ function WeakRow({
 }
 
 export default function WeakWords() {
+  const [searchParams] = useSearchParams();
   const [decks, setDecks] = useState<Deck[]>([]);
-  const [deckFilter, setDeckFilter] = useState<string>("all");
+  // 支持 /weak-words?deck=<id>（词库掌握度全景一键跳转）
+  const [deckFilter, setDeckFilter] = useState<string>(() => searchParams.get("deck") ?? "all");
   const [weakCards, setWeakCards] = useState<WeakCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,10 @@ export default function WeakWords() {
     try {
       const allDecks = await db.getDecks();
       setDecks(allDecks);
+      // 参数中的词库不存在时回退到「全部词库」
+      if (deckId !== "all" && !allDecks.some((d) => String(d.id) === deckId)) {
+        setDeckFilter("all");
+      }
       const targetDeckId = deckId === "all" ? null : parseInt(deckId, 10);
       let cards: WeakCard[] = [];
       if (targetDeckId) {

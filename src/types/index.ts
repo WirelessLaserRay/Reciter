@@ -19,7 +19,7 @@ export interface Card {
   front: string; // 单词/短语
   back: string; // 释义/例句
   markdown_content: string;
-  source_type: "markdown" | "csv" | "manual";
+  source_type: "markdown" | "csv" | "json" | "manual";
   tags: string; // JSON 数组字符串（如 '["熟词生义"]'），使用前需 JSON.parse
   is_key: number; // 1=重点词（Markdown 黑体释义识别），0=普通
   created_at: string;

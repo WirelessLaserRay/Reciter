@@ -33,6 +33,8 @@ interface PreviewRow {
   deckName: string;
   front: string;
   back: string;
+  markdown: string;
+  sourceType: "markdown" | "csv" | "json" | "manual";
   tags: string[];
   isKey: boolean;
   status: "new" | "exists" | "duplicate";
@@ -86,6 +88,8 @@ export default function Import() {
           deckName,
           front: c.front,
           back: c.back,
+          markdown: c.markdown,
+          sourceType: parsed.format,
           tags: c.tags,
           isKey: c.isKey,
           status: dup ? "duplicate" : existing.has(c.front) ? "exists" : "new",
@@ -177,8 +181,8 @@ export default function Import() {
           deckId,
           front: r.front,
           back: r.back,
-          markdown: "",
-          sourceType: "markdown",
+          markdown: r.markdown,
+          sourceType: r.sourceType,
           tags: r.tags,
           isKey: r.isKey ? 1 : 0,
         },

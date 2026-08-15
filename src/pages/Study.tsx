@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
-  ClipboardList,
   Keyboard,
   Layers,
   Loader2,
@@ -22,74 +21,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
+import { getAIConfig } from "@/lib/ai-client";
 import { getActiveRecallEnabled, getRatingMode, getSummaryInterval } from "@/lib/study-prefs";
-import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
+import { resolveStudyMode } from "@/lib/study-mode";
+import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
 import QuizSession from "@/components/quiz/QuizSession";
 import AIChatPanel from "@/components/ai/AIChatPanel";
-
-const RATINGS = [
-  {
-    grade: 1 as const,
-    label: "忘了",
-    hint: "Again",
-    desc: "完全没想起来或答错 → 立即重学，几分钟后再次出现",
-  },
-  {
-    grade: 2 as const,
-    label: "困难",
-    hint: "Hard",
-    desc: "想起来了但很吃力 → 较短间隔复习",
-  },
-  {
-    grade: 3 as const,
-    label: "良好",
-    hint: "Good",
-    desc: "基本掌握 → 按正常记忆曲线安排",
-  },
-  {
-    grade: 4 as const,
-    label: "简单",
-    hint: "Easy",
-    desc: "非常轻松 → 跳过学习步骤，大幅延长间隔",
-  },
-];
-
-const RATINGS_3 = [
-  {
-    grade: 1 as const,
-    label: "不记得",
-    emoji: "😕",
-    hint: "Again",
-    desc: "没想起来 → 立即重学",
-  },
-  {
-    grade: 2 as const,
-    label: "模糊",
-    emoji: "🤔",
-    hint: "Hard",
-    desc: "想起来了但不确定 → 较短间隔",
-  },
-  {
-    grade: 3 as const,
-    label: "记得",
-    emoji: "😊",
-    hint: "Good",
-    desc: "基本掌握 → 正常安排",
-  },
-];
 
 function formatDuration(totalSeconds: number): string {
   const sec = Math.max(0, Math.floor(totalSeconds));
@@ -115,15 +58,6 @@ function rowToState(row: StudyCardRow): CardState {
     desired_retention: row.desired_retention,
     algorithm_version: row.algorithm_version,
   };
-}
-
-function tagsOf(raw: string): string[] {
-  try {
-    const t = JSON.parse(raw);
-    return Array.isArray(t) ? t : [];
-  } catch {
-    return [];
-  }
 }
 
 type SessionStats = {
@@ -195,24 +129,21 @@ function SessionMiniSummary({
   );
 }
 
-/** 学习主界面 */
+/** 学习主界面（Phase 6C：统一学习流，多模式自适应） */
 function StudySession() {
   const { deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
   const navigate = useNavigate();
-  const [flipped, setFlipped] = useState(false);
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Phase 6A 学习偏好
+  // Phase 6A 学习偏好 + Phase 6C AI 状态
   const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
   const [activeRecallEnabled, setActiveRecallEnabled] = useState(true);
   const [summaryInterval, setSummaryInterval] = useState(10);
   const [showMiniSummary, setShowMiniSummary] = useState(false);
-  const [recallPhase, setRecallPhase] = useState<"prompt" | "input" | "result" | "off">("prompt");
-  const [recallInput, setRecallInput] = useState("");
-  const [recallResult, setRecallResult] = useState<RecallMatchResult | null>(null);
-  const [limitedRatings, setLimitedRatings] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [rateReady, setRateReady] = useState(false);
 
   const item = queue[index];
   const total = queue.length;
@@ -221,64 +152,54 @@ function StudySession() {
     ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
     : "0 秒";
 
-  // 加载学习偏好
+  // 加载学习偏好与 AI 配置
   useEffect(() => {
     (async () => {
-      const [rm, ar, si] = await Promise.all([
+      const [rm, ar, si, aiCfg] = await Promise.all([
         getRatingMode(),
         getActiveRecallEnabled(),
         getSummaryInterval(),
+        getAIConfig(),
       ]);
       setRatingMode(rm);
       setActiveRecallEnabled(ar);
       setSummaryInterval(si);
+      setAiEnabled(aiCfg.enabled);
     })().catch(() => {});
   }, []);
 
-  // 卡片切换时：重置翻转/回忆状态、记录展示时间
+  // 卡片切换时：重置间隔预览/可检索度；迷你小结出现时先不开始计时
   useEffect(() => {
-    setFlipped(false);
     setPreview(null);
     setRetrievability(null);
-    setRecallInput("");
-    setRecallResult(null);
-    setLimitedRatings(false);
-    setRecallPhase(activeRecallEnabled ? "prompt" : "off");
-    // 迷你小结出现时先不开始下一张卡片的计时，等用户点「继续学习」再记录
     if (item && !showMiniSummary) {
       markShown();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, queue.length, activeRecallEnabled]);
+  }, [index, queue.length]);
 
-  const showAnswer = async () => {
-    if (!item || flipped) return;
-    setFlipped(true);
-    const state = rowToState(item.row);
-    getEffectiveRetention().then((retention) => {
-      previewIntervals(state, undefined, retention).then(setPreview).catch(() => {});
-      getRetrievability(state, undefined, retention).then(setRetrievability).catch(() => {});
-    });
-  };
+  /** 当前卡片的统一学习流模式（Phase 6C） */
+  const modeConfig = useMemo(
+    () => (item ? resolveStudyMode(rowToState(item.row), aiEnabled, activeRecallEnabled) : null),
+    [item, aiEnabled, activeRecallEnabled]
+  );
 
-  /** 主动回忆：不确定 → 直接看释义，只提供「不记得/模糊」两档 */
-  const handleDontKnow = () => {
+  /** 揭示答案：计算四档间隔预览与记忆可检索度 */
+  const handleReveal = useCallback(async () => {
     if (!item) return;
-    setRecallPhase("result");
-    setRecallResult(null);
-    setLimitedRatings(true);
-    void showAnswer();
-  };
-
-  /** 主动回忆：检查用户输入的释义 */
-  const handleCheckRecall = () => {
-    if (!item || !recallInput.trim()) return;
-    const result = matchRecall(recallInput, item.row.back);
-    setRecallResult(result);
-    setRecallPhase("result");
-    setLimitedRatings(false);
-    void showAnswer();
-  };
+    const state = rowToState(item.row);
+    try {
+      const retention = await getEffectiveRetention();
+      const [p, r] = await Promise.all([
+        previewIntervals(state, undefined, retention),
+        getRetrievability(state, undefined, retention),
+      ]);
+      setPreview(p);
+      setRetrievability(r);
+    } catch {
+      // 预览失败不阻断评分流程
+    }
+  }, [item]);
 
   const handleContinue = () => {
     markShown();
@@ -293,10 +214,7 @@ function StudySession() {
 
   const handleRate = useCallback(
     async (grade: 1 | 2 | 3 | 4) => {
-      if ((!flipped && recallPhase !== "result") || busy) return;
-      if (limitedRatings && (grade === 3 || grade === 4)) return;
-      // 先同步收起卡片，避免新卡片以"已翻转"状态渲染一帧（露出释义）
-      setFlipped(false);
+      if (busy) return;
       setBusy(true);
       try {
         const before = useStudyStore.getState().stats.reviewed;
@@ -309,7 +227,7 @@ function StudySession() {
         setBusy(false);
       }
     },
-    [flipped, recallPhase, limitedRatings, busy, rate, summaryInterval]
+    [busy, rate, summaryInterval]
   );
 
   /** AI 深度复习完成：以 ai_test 来源评分并推进队列 */
@@ -335,15 +253,16 @@ function StudySession() {
     [item, busy, rate, summaryInterval]
   );
 
-  // 键盘快捷键 1-4
+  // 键盘快捷键 1-4（仅在当前模式允许评分时生效）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!rateReady) return;
       const g = parseInt(e.key, 10);
       if (g >= 1 && g <= 4) handleRate(g as 1 | 2 | 3 | 4);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleRate]);
+  }, [rateReady, handleRate]);
 
   // 结束页（本轮完成）
   if (finished) {
@@ -412,8 +331,6 @@ function StudySession() {
     );
   }
 
-  const tags = tagsOf(item.row.tags);
-
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
@@ -459,237 +376,21 @@ function StudySession() {
           onAIReview={handleAIReviewFromSummary}
         />
       ) : (
-        <>
-          {/* 卡片区域（主动回忆 / 经典翻转） */}
-          {recallPhase === "prompt" && (
-            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
-              <div className="flex gap-1.5">
-                {item.row.is_key === 1 && (
-                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-                    <Star className="size-2.5" />
-                    重点
-                  </Badge>
-                )}
-                {tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                ))}
-              </div>
-              <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
-              <p className="text-sm text-muted-foreground">你知道这个词的意思吗？</p>
-              <div className="flex gap-3">
-                <Button onClick={() => setRecallPhase("input")} size="lg">
-                  我知道
-                </Button>
-                <Button variant="outline" onClick={handleDontKnow} size="lg">
-                  不确定 / 不知道
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">主动回忆 · 先回忆再看释义</p>
-            </div>
-          )}
-
-          {recallPhase === "input" && (
-            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
-              <div className="flex gap-1.5">
-                {item.row.is_key === 1 && (
-                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-                    <Star className="size-2.5" />
-                    重点
-                  </Badge>
-                )}
-                {tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                ))}
-              </div>
-              <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
-              <p className="text-sm text-muted-foreground">请输入你记得的释义：</p>
-              <div className="flex w-full max-w-md gap-2">
-                <Input
-                  value={recallInput}
-                  onChange={(e) => setRecallInput(e.target.value)}
-                  placeholder="例如：放弃；抛弃"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCheckRecall();
-                  }}
-                  autoFocus
-                />
-                <Button onClick={handleCheckRecall} disabled={!recallInput.trim() || busy}>
-                  检查
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">系统会模糊比对，不完全一致也没关系</p>
-            </div>
-          )}
-
-          {recallPhase === "result" && (
-            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
-              <div className="flex gap-1.5">
-                {item.row.is_key === 1 && (
-                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-                    <Star className="size-2.5" />
-                    重点
-                  </Badge>
-                )}
-                {tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                ))}
-              </div>
-              <div className="text-center text-3xl font-bold break-words">{item.row.front}</div>
-              <div className="max-w-md text-center text-2xl font-semibold whitespace-pre-wrap break-words">
-                {item.row.back}
-              </div>
-              {recallResult && (
-                <p className={recallResult.match ? "text-sm text-green-600" : "text-sm text-amber-600"}>
-                  {recallResult.match
-                    ? `✅ 基本正确！相似度 ${Math.round(recallResult.similarity * 100)}%`
-                    : `🤔 和标准释义有差距（相似度 ${Math.round(recallResult.similarity * 100)}%），请对照记忆`}
-                </p>
-              )}
-              {!recallResult && (
-                <p className="text-sm text-muted-foreground">没想起来也没关系，先看释义再评分</p>
-              )}
-              {retrievability !== null && (
-                <p className="text-xs text-muted-foreground">
-                  记忆可检索度：{(retrievability * 100).toFixed(0)}%
-                </p>
-              )}
-            </div>
-          )}
-
-          {recallPhase === "off" && (
-            <div className="[perspective:1000px]" key={item.row.card_id}>
-              <div
-                className={cn(
-                  "relative min-h-80 w-full transition-transform duration-500 [transform-style:preserve-3d]",
-                  flipped && "[transform:rotateY(180deg)]"
-                )}
-              >
-                {/* 正面 */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
-                  <div className="flex gap-1.5">
-                    {item.row.is_key === 1 && (
-                      <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-                        <Star className="size-2.5" />
-                        重点
-                      </Badge>
-                    )}
-                    {tags.map((t) => (
-                      <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                    ))}
-                  </div>
-                  <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
-                  {!flipped && (
-                    <Button onClick={showAnswer} size="lg">
-                      显示答案
-                    </Button>
-                  )}
-                  <p className="text-xs text-muted-foreground">正面 · 单词</p>
-                </div>
-                {/* 背面 */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                  <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">
-                    {item.row.back}
-                  </div>
-                  {retrievability !== null && (
-                    <p className="text-xs text-muted-foreground">
-                      记忆可检索度：{(retrievability * 100).toFixed(0)}%
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">背面 · 释义</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 评分按钮 */}
-          {flipped && (
-            limitedRatings ? (
-              <div className="grid grid-cols-2 gap-4">
-                {RATINGS_3.slice(0, 2).map((r) => (
-                  <Tooltip key={r.grade}>
-                    <TooltipTrigger asChild>
-                      <span tabIndex={0} className="inline-flex">
-                        <Button
-                          variant={r.grade === 1 ? "destructive" : "outline"}
-                          className="w-full flex-col gap-1.5 py-5 disabled:opacity-60"
-                          disabled={busy}
-                          onClick={() => handleRate(r.grade)}
-                          >
-                          <span className="text-lg font-semibold">
-                            <span className="mr-1 text-xl">{r.emoji}</span>
-                            {r.label}
-                          </span>
-                          <span className="text-sm text-muted-foreground">
-                            {preview?.[r.grade]?.label ?? r.hint}
-                          </span>
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-52 text-center">
-                      <p className="font-medium">{r.label}（{r.hint}）</p>
-                      <p className="text-xs">{r.desc}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            ) : ratingMode === "3" ? (
-              <div className="grid grid-cols-3 gap-4">
-                {RATINGS_3.map((r) => (
-                  <Tooltip key={r.grade}>
-                    <TooltipTrigger asChild>
-                      <span tabIndex={0} className="inline-flex">
-                        <Button
-                          variant={r.grade === 1 ? "destructive" : "outline"}
-                          className="w-full flex-col gap-1.5 py-5 disabled:opacity-60"
-                          disabled={busy}
-                          onClick={() => handleRate(r.grade)}
-                          >
-                          <span className="text-lg font-semibold">
-                            <span className="mr-1 text-xl">{r.emoji}</span>
-                            {r.label}
-                          </span>
-                          <span className="text-sm text-muted-foreground">
-                            {preview?.[r.grade]?.label ?? r.hint}
-                          </span>
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-52 text-center">
-                      <p className="font-medium">{r.label}（{r.hint}）</p>
-                      <p className="text-xs">{r.desc}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-3">
-                {RATINGS.map((r) => (
-                  <Tooltip key={r.grade}>
-                    <TooltipTrigger asChild>
-                      <span tabIndex={0} className="inline-flex">
-                        <Button
-                          variant={r.grade === 1 ? "destructive" : "outline"}
-                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
-                          disabled={busy}
-                          onClick={() => handleRate(r.grade)}
-                        >
-                          <span>{r.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {preview?.[r.grade]?.label ?? r.hint}
-                          </span>
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-52 text-center">
-                      <p className="font-medium">{r.label}（{r.hint}）</p>
-                      <p className="text-xs">{r.desc}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            )
-          )}
-        </>
+        modeConfig && (
+          <StudyCard
+            key={item.row.card_id}
+            row={item.row}
+            config={modeConfig}
+            ratingMode={ratingMode}
+            preview={preview}
+            retrievability={retrievability}
+            busy={busy}
+            distractorRows={queue.map((q) => q.row)}
+            onReveal={() => void handleReveal()}
+            onRate={(grade) => void handleRate(grade)}
+            onRateReadyChange={setRateReady}
+          />
+        )
       )}
 
       {!showMiniSummary && (
@@ -697,6 +398,8 @@ function StudySession() {
           front={item.row.front}
           back={item.row.back}
           cardState={rowToState(item.row)}
+          strategyOverride={modeConfig?.aiStrategy ?? undefined}
+          defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
           onGradeDecided={(grade, question, answer) =>
             handleAIComplete(grade, question ?? "", answer ?? "")
           }
@@ -712,14 +415,8 @@ function StudySession() {
   );
 }
 
-/** 词库选择页（学习 / 测试两个入口） */
-function DeckPicker({
-  onStudy,
-  onQuiz,
-}: {
-  onStudy: (id: number, name: string) => void;
-  onQuiz: (id: number) => void;
-}) {
+/** 词库选择页（Phase 6C：单一「开始学习」入口） */
+function DeckPicker({ onStudy }: { onStudy: (id: number, name: string) => void }) {
   const { decks, cardCounts, refresh } = useDeckStore();
 
   useEffect(() => {
@@ -746,7 +443,8 @@ function DeckPicker({
       <div>
         <h2 className="text-2xl font-bold">选择词库</h2>
         <p className="text-sm text-muted-foreground">
-          学习 = 今日到期卡片 + 配额内新卡（FSRS 调度） · 测试 = 填空/选择题检验记忆（回填 FSRS）
+          统一学习流：新卡教学 → 主动回忆 / 快速测试 / AI 攻克，按 FSRS 状态自适应切换；
+          自定义测试请到词库详情页使用「高级测试」。
         </p>
       </div>
       <div className="space-y-3">
@@ -759,16 +457,10 @@ function DeckPicker({
                   {cardCounts[d.id] ?? 0} 张卡片 · 每日新卡 {d.new_cards_per_day}
                 </div>
               </div>
-              <div className="flex shrink-0 gap-2">
-                <Button onClick={() => onStudy(d.id, d.name)}>
-                  <RefreshCw className="size-3.5" />
-                  学习
-                </Button>
-                <Button variant="outline" onClick={() => onQuiz(d.id)}>
-                  <ClipboardList className="size-3.5" />
-                  测试
-                </Button>
-              </div>
+              <Button onClick={() => onStudy(d.id, d.name)} className="shrink-0">
+                <RefreshCw className="size-3.5" />
+                开始学习
+              </Button>
             </CardContent>
           </Card>
         ))}
@@ -863,6 +555,39 @@ export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
   const [quizDeck, setQuizDeck] = useState<{ id: number; name: string } | null>(null);
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const quizParam = searchParams.get("quiz");
+
+  // 高级测试入口：/study?quiz=<deckId>（词库详情页进入）
+  useEffect(() => {
+    if (!quizParam) return;
+    const id = parseInt(quizParam, 10);
+    if (!Number.isFinite(id)) return;
+    let cancelled = false;
+    (async () => {
+      const store = useDeckStore.getState();
+      if (!store.decks.some((d) => d.id === id)) await store.refresh();
+      if (cancelled) return;
+      const d = useDeckStore.getState().decks.find((x) => x.id === id);
+      if (d) setQuizDeck({ id: d.id, name: d.name });
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [quizParam]);
+
+  if (quizDeck) {
+    return (
+      <QuizSession
+        deckId={quizDeck.id}
+        deckName={quizDeck.name}
+        onExit={() => {
+          setQuizDeck(null);
+          setSearchParams({}, { replace: true });
+        }}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -881,10 +606,6 @@ export default function Study() {
     );
   }
 
-  if (quizDeck) {
-    return <QuizSession deckId={quizDeck.id} deckName={quizDeck.name} onExit={() => setQuizDeck(null)} />;
-  }
-
   if (pendingDeck) {
     return (
       <TagPicker
@@ -900,15 +621,7 @@ export default function Study() {
   }
 
   if (deckId === null) {
-    return (
-      <DeckPicker
-        onStudy={(id, name) => setPendingDeck({ id, name })}
-        onQuiz={(id) => {
-          const d = useDeckStore.getState().decks.find((x) => x.id === id);
-          setQuizDeck({ id, name: d?.name ?? "词库" });
-        }}
-      />
-    );
+    return <DeckPicker onStudy={(id, name) => setPendingDeck({ id, name })} />;
   }
 
   return <StudySession />;
