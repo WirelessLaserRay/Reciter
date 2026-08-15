@@ -12,8 +12,8 @@ const TITLES: Record<string, string> = {
 };
 
 export default function Header() {
-  const mode = useThemeStore((s) => s.mode);
-  const toggleMode = useThemeStore((s) => s.toggleMode);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleDarkLight = useThemeStore((s) => s.toggleDarkLight);
 
   const title =
     TITLES[window.location.hash.replace("#", "")] ?? "Reciter";
@@ -25,11 +25,11 @@ export default function Header() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={toggleMode}
-          aria-label="切换明暗主题"
-          title={mode === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
+          onClick={toggleDarkLight}
+          aria-label="明暗快捷切换"
+          title={theme === "light" ? "切换到暗色主题" : "切换到亮色主题"}
         >
-          {mode === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {theme === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
         </Button>
       </div>
     </header>

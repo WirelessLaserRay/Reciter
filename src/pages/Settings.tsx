@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Database, Download, Loader2, Moon, Sun, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Database, Download, Loader2, Upload, XCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -14,7 +14,7 @@ import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useThemeStore, type ThemeAccent } from "@/stores/useThemeStore";
+import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
@@ -30,21 +30,9 @@ import {
   saveSummaryInterval,
 } from "@/lib/study-prefs";
 
-/** 强调色主题预设（与 src/index.css 中 [data-accent=...] 变量对应） */
-const ACCENTS: { id: ThemeAccent; label: string; swatch: string }[] = [
-  { id: "neutral", label: "中性", swatch: "#737373" },
-  { id: "blue", label: "海蓝", swatch: "#3b82f6" },
-  { id: "green", label: "森林", swatch: "#22c55e" },
-  { id: "purple", label: "星紫", swatch: "#a855f7" },
-  { id: "orange", label: "暖橙", swatch: "#f97316" },
-  { id: "rose", label: "玫红", swatch: "#e11d48" },
-];
-
 export default function Settings() {
-  const mode = useThemeStore((s) => s.mode);
-  const setMode = useThemeStore((s) => s.setMode);
-  const accent = useThemeStore((s) => s.accent);
-  const setAccent = useThemeStore((s) => s.setAccent);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
   const dbReady = useDbStore((s) => s.ready);
 
   // 学习设置
@@ -242,63 +230,44 @@ export default function Settings() {
         <TabsContent value="appearance" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>明暗模式</CardTitle>
-              <CardDescription>选择应用的亮色或暗色外观</CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm">
-                {mode === "dark" ? (
-                  <Moon className="size-4 text-muted-foreground" />
-                ) : (
-                  <Sun className="size-4 text-muted-foreground" />
-                )}
-                当前：{mode === "dark" ? "暗色" : "亮色"}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={mode === "dark" ? "default" : "outline"}
-                  onClick={() => setMode("dark")}
-                >
-                  暗色
-                </Button>
-                <Button
-                  size="sm"
-                  variant={mode === "light" ? "default" : "outline"}
-                  onClick={() => setMode("light")}
-                >
-                  亮色
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>强调色主题</CardTitle>
+              <CardTitle>主题</CardTitle>
               <CardDescription>
-                主按钮、进度条、图表与选中态会跟随强调色变化；明暗模式可自由组合
+                每套主题同时决定背景、卡片与主色；右上角太阳/月亮按钮可在暗色与亮色主题间快速切换
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                {ACCENTS.map((a) => (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {THEME_PRESETS.map((t) => (
                   <button
-                    key={a.id}
+                    key={t.id}
                     type="button"
-                    onClick={() => setAccent(a.id)}
+                    onClick={() => setTheme(t.id)}
                     className={
-                      "flex flex-col items-center gap-2 rounded-lg border p-3 text-xs transition-colors " +
-                      (accent === a.id
-                        ? "border-primary bg-primary/10 font-medium text-foreground"
+                      "group overflow-hidden rounded-lg border text-left transition-all " +
+                      (theme === t.id
+                        ? "border-primary ring-2 ring-ring/40"
                         : "border-border hover:bg-accent")
                     }
                   >
                     <span
-                      className="size-6 rounded-full border border-foreground/20"
-                      style={{ backgroundColor: a.swatch }}
-                    />
-                    {a.label}
+                      className="flex h-14 items-center gap-2 px-3"
+                      style={{ backgroundColor: t.background }}
+                    >
+                      <span
+                        className="size-4 rounded-full"
+                        style={{ backgroundColor: t.primary }}
+                      />
+                      <span
+                        className="text-xs font-medium"
+                        style={{ color: t.primary }}
+                      >
+                        Aa
+                      </span>
+                    </span>
+                    <span className="block border-t px-3 py-2">
+                      <span className="block text-sm font-medium">{t.label}</span>
+                      <span className="block text-xs text-muted-foreground">{t.description}</span>
+                    </span>
                   </button>
                 ))}
               </div>

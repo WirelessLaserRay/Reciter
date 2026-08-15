@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useThemeStore } from "@/stores/useThemeStore";
+import { useThemeStore, DARK_THEMES } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import Dashboard from "@/pages/Dashboard";
 import DeckList from "@/pages/DeckList";
@@ -14,16 +14,16 @@ import Settings from "@/pages/Settings";
 import WeakWords from "@/pages/WeakWords";
 
 function App() {
-  const mode = useThemeStore((s) => s.mode);
-  const accent = useThemeStore((s) => s.accent);
+  const theme = useThemeStore((s) => s.theme);
 
-  // 将明暗模式与强调色应用到 <html>（shadcn dark mode: class 策略 + data-accent）
+  // 应用统一主题到 <html>：data-theme 控制配色，.dark 类控制暗色变体与 color-scheme
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle("dark", mode === "dark");
-    root.dataset.accent = accent;
-    root.style.colorScheme = mode;
-  }, [mode, accent]);
+    const dark = DARK_THEMES.includes(theme);
+    root.classList.toggle("dark", dark);
+    root.dataset.theme = theme;
+    root.style.colorScheme = dark ? "dark" : "light";
+  }, [theme]);
 
   // 应用启动时初始化本地数据库（tauri-plugin-sql）
   useEffect(() => {

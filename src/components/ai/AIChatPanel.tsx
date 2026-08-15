@@ -25,6 +25,33 @@ interface ChatMessage {
   timestamp: number;
 }
 
+/** 会话缓存条目：同一单词/词组的首次生成结果（消息/策略/判分），避免折叠重开重复调用 AI */
+interface CachedConversation {
+  messages: ChatMessage[];
+  strategy: AIStrategy;
+  gradeResult: AIGradeResult | null;
+  finalGrade: 1 | 2 | 3 | 4;
+  lastQuestion: string;
+  lastAnswer: string;
+}
+
+const CACHE_LIMIT = 30;
+const conversationCache = new Map<string, CachedConversation>();
+
+function conversationKey(front: string, back: string): string {
+  return front + "\u0000" + back;
+}
+
+function rememberConversation(key: string, entry: CachedConversation): void {
+  if (conversationCache.has(key)) conversationCache.delete(key);
+  conversationCache.set(key, entry);
+  while (conversationCache.size > CACHE_LIMIT) {
+    const oldest = conversationCache.keys().next().value;
+    if (oldest === undefined) break;
+    conversationCache.delete(oldest);
+  }
+}
+
 interface AIChatPanelProps {
   front: string;
   back: string;
@@ -70,21 +97,44 @@ export default function AIChatPanel({
   const [lastAnswer, setLastAnswer] = useState("");
   const initializedRef = useRef(false);
 
-  // 初始化：加载 AI 配置、确定策略并自动发送首轮消息
+  // 初始化：优先复用同一单词/词组的会话缓存（不重复调用 AI），否则加载配置并生成首轮内容
   useEffect(() => {
     let cancelled = false;
     initializedRef.current = true;
     setExpanded(defaultExpanded);
-    setMessages([]);
     setError(null);
-    setGradeResult(null);
     setInput("");
+    setGradeResult(null);
+    setFinalGrade(3);
+    setLastQuestion("");
+    setLastAnswer("");
+
+    const key = conversationKey(front, back);
+    const cached = conversationCache.get(key);
+
+    if (cached) {
+      // 命中缓存：直接恢复首次生成内容，节省 token
+      setMessages(cached.messages);
+      setStrategy(cached.strategy);
+      setGradeResult(cached.gradeResult);
+      setFinalGrade(cached.finalGrade);
+      setLastQuestion(cached.lastQuestion);
+      setLastAnswer(cached.lastAnswer);
+    } else {
+      setMessages([]);
+    }
 
     (async () => {
       const cfg = await getAIConfig();
       if (cancelled) return;
       const c = new AIClient(cfg);
       setClient(c);
+
+      if (cached) {
+        if (!c.isReady) setError("未配置 AI 接口，请先完成 AI 设置。");
+        return;
+      }
+
       if (!c.isReady) {
         setError("未配置 AI 接口，请先完成 AI 设置。");
         return;
@@ -114,10 +164,19 @@ export default function AIChatPanel({
           0.7
         );
         if (cancelled) return;
-        setMessages([
+        const finalMessages: ChatMessage[] = [
           systemMsg,
           { role: "assistant", content: reply, timestamp: Date.now() },
-        ]);
+        ];
+        setMessages(finalMessages);
+        rememberConversation(key, {
+          messages: finalMessages,
+          strategy: s,
+          gradeResult: null,
+          finalGrade: 3,
+          lastQuestion: "",
+          lastAnswer: "",
+        });
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -157,10 +216,18 @@ export default function AIChatPanel({
         },
         0.7
       );
-      setMessages((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = { ...copy[copy.length - 1], content: full };
-        return copy;
+      const finalMessages: ChatMessage[] = [
+        ...nextMessages,
+        { ...assistantMsg, content: full },
+      ];
+      setMessages(finalMessages);
+      rememberConversation(conversationKey(front, back), {
+        messages: finalMessages,
+        strategy,
+        gradeResult,
+        finalGrade,
+        lastQuestion,
+        lastAnswer,
       });
     } catch (e) {
       setError(String(e));
@@ -198,6 +265,14 @@ export default function AIChatPanel({
       setFinalGrade(res.grade);
       setLastQuestion(question);
       setLastAnswer(answer);
+      rememberConversation(conversationKey(front, back), {
+        messages,
+        strategy,
+        gradeResult: res,
+        finalGrade: res.grade,
+        lastQuestion: question,
+        lastAnswer: answer,
+      });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -208,6 +283,14 @@ export default function AIChatPanel({
   const confirmGrade = () => {
     onGradeDecided?.(finalGrade, lastQuestion, lastAnswer);
     setGradeResult(null);
+    rememberConversation(conversationKey(front, back), {
+      messages,
+      strategy,
+      gradeResult: null,
+      finalGrade,
+      lastQuestion,
+      lastAnswer,
+    });
   };
 
   return (
