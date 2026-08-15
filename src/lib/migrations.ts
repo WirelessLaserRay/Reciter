@@ -26,6 +26,11 @@ export const MIGRATIONS: MigrationDef[] = [
   },
   { version: 3, description: "normalize timestamps", sql: "-- Phase 3 修复：统一时间格式为 ISO-8601 UTC（'T' 分隔 + 'Z'）\n-- 避免 'YYYY-MM-DD HH:MM:SS'（SQLite datetime('now')）与\n-- 'YYYY-MM-DDTHH:MM:SS.sssZ'（ts-fsrs toISOString）字符串比较错乱\nUPDATE card_states SET due = replace(due, ' ', 'T') || 'Z' WHERE due LIKE '% %';\nUPDATE card_states SET last_review = replace(last_review, ' ', 'T') || 'Z' WHERE last_review LIKE '% %';\nUPDATE review_logs SET reviewed_at = replace(reviewed_at, ' ', 'T') || 'Z' WHERE reviewed_at LIKE '% %';\nUPDATE cards SET created_at = replace(created_at, ' ', 'T') || 'Z' WHERE created_at LIKE '% %';\nUPDATE cards SET updated_at = replace(updated_at, ' ', 'T') || 'Z' WHERE updated_at LIKE '% %';\nUPDATE decks SET created_at = replace(created_at, ' ', 'T') || 'Z' WHERE created_at LIKE '% %';\nUPDATE decks SET updated_at = replace(updated_at, ' ', 'T') || 'Z' WHERE updated_at LIKE '% %';\n" },
   { version: 4, description: "add is_key to cards", sql: "-- Phase: 重点词标记（Markdown 黑体释义识别）\nALTER TABLE cards ADD COLUMN is_key INTEGER NOT NULL DEFAULT 0;\n" },
+  {
+    version: 5,
+    description: "add study preference defaults",
+    sql: "INSERT OR IGNORE INTO settings (key, value) VALUES ('rating_mode', '3'), ('active_recall_enabled', 'true'), ('session_summary_interval', '10');",
+  },
 ];
 
 const META_TABLE = "_reciter_migrations";

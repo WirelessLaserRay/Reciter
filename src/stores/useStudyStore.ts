@@ -3,6 +3,7 @@ import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
+import { saveLastStudyContext } from "@/lib/study-prefs";
 
 export interface QueueItem {
   row: StudyCardRow;
@@ -22,7 +23,14 @@ interface StudyState {
   loading: boolean;
   error: string | null;
   /** 会话统计 */
-  stats: { reviewed: number; newDone: number; again: number };
+  stats: {
+    reviewed: number;
+    newDone: number;
+    again: number;
+    hard: number;
+    sessionStartTime: number;
+    weakWords: string[];
+  };
   finished: boolean;
 
   loadQueue: (deckId: number, tag?: string, keyOnly?: boolean) => Promise<void>;
@@ -45,7 +53,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   index: 0,
   loading: false,
   error: null,
-  stats: { reviewed: 0, newDone: 0, again: 0 },
+  stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, sessionStartTime: 0, weakWords: [] },
   finished: false,
 
   /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤） */
@@ -81,10 +89,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
         keyOnly,
         queue,
         index: 0,
-        stats: { reviewed: 0, newDone: 0, again: 0 },
+        stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, sessionStartTime: Date.now(), weakWords: [] },
         loading: false,
         finished: queue.length === 0,
       });
+      // 记住本次学习上下文，供 Dashboard「继续上次」使用
+      await saveLastStudyContext(deckId, tag, keyOnly).catch(() => {});
     } catch (e) {
       set({ loading: false, error: String(e) });
     }
@@ -122,6 +132,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       reviewed: get().stats.reviewed + 1,
       newDone: get().stats.newDone + (wasNew ? 1 : 0),
       again: get().stats.again + (grade === Rating.Again ? 1 : 0),
+      hard: get().stats.hard + (grade === Rating.Hard ? 1 : 0),
+      sessionStartTime: get().stats.sessionStartTime,
+      weakWords:
+        grade === Rating.Again
+          ? [...get().stats.weakWords, item.row.front]
+          : get().stats.weakWords,
     };
 
     // 5. Learning 或 Again → 重插队列尾部（同 session 内重复）
@@ -143,6 +159,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   reset: () => {
-    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0 } });
+    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, sessionStartTime: 0, weakWords: [] } });
   },
 }));

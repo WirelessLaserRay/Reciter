@@ -498,6 +498,18 @@ class ReciterDB {
     return map;
   }
 
+  /** 单个词库今日待复习数 */
+  async getDueCountByDeck(deckId: number, before?: string): Promise<number> {
+    const b = before ?? new Date().toISOString();
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(*) AS cnt FROM cards c
+       JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.deck_id = ? AND cs.reps > 0 AND cs.due < ?`,
+      [deckId, b]
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
   /** 区间内到期卡片（用于未来复习量预测） */
   async getDueDatesBetween(from: string, to: string): Promise<string[]> {
     const rows = await this.requireDb().select<{ due: string }[]>(

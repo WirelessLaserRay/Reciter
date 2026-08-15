@@ -39,6 +39,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_is_key.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "add study preference defaults",
+            sql: include_str!("../migrations/005_study_prefs.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

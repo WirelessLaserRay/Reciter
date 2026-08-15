@@ -22,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +32,8 @@ import { cn } from "@/lib/utils";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
+import { getActiveRecallEnabled, getRatingMode, getSummaryInterval } from "@/lib/study-prefs";
+import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
@@ -64,6 +67,38 @@ const RATINGS = [
   },
 ];
 
+const RATINGS_3 = [
+  {
+    grade: 1 as const,
+    label: "不记得",
+    emoji: "😕",
+    hint: "Again",
+    desc: "没想起来 → 立即重学",
+  },
+  {
+    grade: 2 as const,
+    label: "模糊",
+    emoji: "🤔",
+    hint: "Hard",
+    desc: "想起来了但不确定 → 较短间隔",
+  },
+  {
+    grade: 3 as const,
+    label: "记得",
+    emoji: "😊",
+    hint: "Good",
+    desc: "基本掌握 → 正常安排",
+  },
+];
+
+function formatDuration(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  if (sec < 60) return sec + " 秒";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分钟`;
+}
+
 function rowToState(row: StudyCardRow): CardState {
   return {
     card_id: row.card_id,
@@ -91,6 +126,75 @@ function tagsOf(raw: string): string[] {
   }
 }
 
+type SessionStats = {
+  reviewed: number;
+  newDone: number;
+  again: number;
+  hard: number;
+  weakWords: string[];
+};
+
+/** 学习会话中的迷你小结：每 N 张插入一次 */
+function SessionMiniSummary({
+  stats,
+  onContinue,
+  onAIReview,
+}: {
+  stats: SessionStats;
+  onContinue: () => void;
+  onAIReview: (words: string[]) => void;
+}) {
+  const remembered = Math.max(0, stats.reviewed - stats.again - stats.hard);
+  return (
+    <Card className="mx-auto max-w-2xl border-primary/30 bg-primary/5">
+      <CardHeader>
+        <CardTitle>📊 本轮小结</CardTitle>
+        <CardDescription>
+          已学习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-muted/60 p-3">
+            <p className="text-2xl font-bold text-green-600">{remembered}</p>
+            <p className="text-xs text-muted-foreground">记得</p>
+          </div>
+          <div className="rounded-lg bg-muted/60 p-3">
+            <p className="text-2xl font-bold text-amber-500">{stats.hard}</p>
+            <p className="text-xs text-muted-foreground">模糊</p>
+          </div>
+          <div className="rounded-lg bg-muted/60 p-3">
+            <p className="text-2xl font-bold text-red-500">{stats.again}</p>
+            <p className="text-xs text-muted-foreground">忘记</p>
+          </div>
+        </div>
+
+        {stats.weakWords.length > 0 && (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">本轮薄弱词：</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[...new Set(stats.weakWords)].slice(0, 8).map((w) => (
+                <Badge key={w} variant="destructive">{w}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onContinue}>
+            <RefreshCw className="size-4" />
+            继续学习
+          </Button>
+          <Button variant="outline" onClick={() => onAIReview(stats.weakWords)} disabled={stats.weakWords.length === 0}>
+            <Sparkles className="size-4" />
+            AI 帮我巩固
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** 学习主界面 */
 function StudySession() {
   const { deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
@@ -100,20 +204,54 @@ function StudySession() {
   const [busy, setBusy] = useState(false);
   const [aiReviewOpen, setAiReviewOpen] = useState(false);
 
+  // Phase 6A 学习偏好
+  const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
+  const [activeRecallEnabled, setActiveRecallEnabled] = useState(true);
+  const [summaryInterval, setSummaryInterval] = useState(10);
+  const [showMiniSummary, setShowMiniSummary] = useState(false);
+  const [recallPhase, setRecallPhase] = useState<"prompt" | "input" | "result" | "off">("prompt");
+  const [recallInput, setRecallInput] = useState("");
+  const [recallResult, setRecallResult] = useState<RecallMatchResult | null>(null);
+  const [limitedRatings, setLimitedRatings] = useState(false);
+  /** 迷你小结里点「AI 帮我巩固」时，临时指定要复习的弱词 */
+  const [aiReviewTarget, setAiReviewTarget] = useState<{ front: string; back: string } | null>(null);
+
   const item = queue[index];
   const total = queue.length;
   const done = stats.reviewed;
+  const sessionDuration = stats.sessionStartTime > 0
+    ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
+    : "0 秒";
 
-  // 卡片切换时：重置翻转状态、记录展示时间
+  // 加载学习偏好
+  useEffect(() => {
+    (async () => {
+      const [rm, ar, si] = await Promise.all([
+        getRatingMode(),
+        getActiveRecallEnabled(),
+        getSummaryInterval(),
+      ]);
+      setRatingMode(rm);
+      setActiveRecallEnabled(ar);
+      setSummaryInterval(si);
+    })().catch(() => {});
+  }, []);
+
+  // 卡片切换时：重置翻转/回忆状态、记录展示时间
   useEffect(() => {
     setFlipped(false);
     setPreview(null);
     setRetrievability(null);
-    if (item) {
+    setRecallInput("");
+    setRecallResult(null);
+    setLimitedRatings(false);
+    setRecallPhase(activeRecallEnabled ? "prompt" : "off");
+    // 迷你小结出现时先不开始下一张卡片的计时，等用户点「继续学习」再记录
+    if (item && !showMiniSummary) {
       markShown();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, queue.length]);
+  }, [index, queue.length, activeRecallEnabled]);
 
   const showAnswer = async () => {
     if (!item || flipped) return;
@@ -125,19 +263,62 @@ function StudySession() {
     });
   };
 
+  /** 主动回忆：不确定 → 直接看释义，只提供「不记得/模糊」两档 */
+  const handleDontKnow = () => {
+    if (!item) return;
+    setRecallPhase("result");
+    setRecallResult(null);
+    setLimitedRatings(true);
+    void showAnswer();
+  };
+
+  /** 主动回忆：检查用户输入的释义 */
+  const handleCheckRecall = () => {
+    if (!item || !recallInput.trim()) return;
+    const result = matchRecall(recallInput, item.row.back);
+    setRecallResult(result);
+    setRecallPhase("result");
+    setLimitedRatings(false);
+    void showAnswer();
+  };
+
+  const handleContinue = () => {
+    markShown();
+    setShowMiniSummary(false);
+  };
+
+  /** 迷你小结 → AI 巩固薄弱词（Phase 6A 先用现有深度复习弹窗，不推进队列） */
+  const handleAIReviewFromSummary = (words: string[]) => {
+    if (words.length === 0) return;
+    const word = words[0];
+    const target = queue.find((q) => q.row.front === word);
+    setAiReviewTarget(
+      target
+        ? { front: target.row.front, back: target.row.back }
+        : { front: word, back: "" }
+    );
+    setAiReviewOpen(true);
+  };
+
   const handleRate = useCallback(
     async (grade: 1 | 2 | 3 | 4) => {
-      if (!flipped || busy) return;
+      if ((!flipped && recallPhase !== "result") || busy) return;
+      if (limitedRatings && (grade === 3 || grade === 4)) return;
       // 先同步收起卡片，避免新卡片以"已翻转"状态渲染一帧（露出释义）
       setFlipped(false);
       setBusy(true);
       try {
-        await rate(grade);
+        const before = useStudyStore.getState().stats.reviewed;
+        const hasNext = await rate(grade);
+        const newDone = before + 1;
+        if (newDone > 0 && newDone % summaryInterval === 0 && hasNext) {
+          setShowMiniSummary(true);
+        }
       } finally {
         setBusy(false);
       }
     },
-    [flipped, busy, rate]
+    [flipped, recallPhase, limitedRatings, busy, rate, summaryInterval]
   );
 
   /** AI 深度复习完成：以 ai_test 来源评分并推进队列 */
@@ -146,16 +327,21 @@ function StudySession() {
       if (!item || busy) return;
       setBusy(true);
       try {
-        await rate(grade, Date.now() - item.shownAt, {
+        const before = useStudyStore.getState().stats.reviewed;
+        const hasNext = await rate(grade, Date.now() - item.shownAt, {
           source: "ai_test",
           aiQuestion,
           aiAnswer,
         });
+        const newDone = before + 1;
+        if (newDone > 0 && newDone % summaryInterval === 0 && hasNext) {
+          setShowMiniSummary(true);
+        }
       } finally {
         setBusy(false);
       }
     },
-    [item, busy, rate]
+    [item, busy, rate, summaryInterval]
   );
 
   // 键盘快捷键 1-4
@@ -196,11 +382,25 @@ function StudySession() {
               {done > 0 ? (
                 <>
                   复习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张
+                  {stats.hard > 0 ? ` · 模糊 ${stats.hard} 张` : ""}
                 </>
               ) : (
                 "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
               )}
             </CardDescription>
+            {done > 0 && (
+              <p className="text-xs text-muted-foreground">本次学习时长：{sessionDuration}</p>
+            )}
+            {done > 0 && stats.weakWords.length > 0 && (
+              <div className="w-full max-w-md rounded-lg bg-muted/50 p-3 text-left">
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">需要关注</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...new Set(stats.weakWords)].slice(0, 8).map((w) => (
+                    <Badge key={w} variant="destructive">{w}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-3">
               <Button onClick={() => reset()}>返回词库选择</Button>
               <Button asChild variant="outline">
@@ -260,102 +460,268 @@ function StudySession() {
         />
       </div>
 
-      {/* 卡片翻转区（key 按卡片重建，杜绝切换瞬间残留翻转状态） */}
-      <div className="[perspective:1000px]" key={item.row.card_id}>
-        <div
-          className={cn(
-            "relative min-h-80 w-full transition-transform duration-500 [transform-style:preserve-3d]",
-            flipped && "[transform:rotateY(180deg)]"
-          )}
-        >
-          {/* 正面 */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
-            <div className="flex gap-1.5">
-              {item.row.is_key === 1 && (
-                <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-                  <Star className="size-2.5" />
-                  重点
-                </Badge>
-              )}
-              {tags.map((t) => (
-                <Badge key={t} variant="secondary" className="text-[10px]">
-                  {t}
-                </Badge>
-              ))}
-            </div>
-            <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
-            {!flipped && (
-              <Button onClick={showAnswer} size="lg">
-                显示答案
-              </Button>
-            )}
-            <p className="text-xs text-muted-foreground">正面 · 单词</p>
-          </div>
-          {/* 背面 */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-            <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">
-              {item.row.back}
-            </div>
-            {retrievability !== null && (
-              <p className="text-xs text-muted-foreground">
-                记忆可检索度：{(retrievability * 100).toFixed(0)}%
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">背面 · 释义</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 评分按钮（Tooltip 说明四档含义） */}
-      <div className="grid grid-cols-4 gap-3">
-        {RATINGS.map((r) => (
-          <Tooltip key={r.grade}>
-            <TooltipTrigger asChild>
-              {/* span 包裹：disabled 按钮不触发指针事件，span 保证悬停提示始终可用 */}
-              <span tabIndex={0} className="inline-flex">
-                <Button
-                  variant={r.grade === 1 ? "destructive" : "outline"}
-                  className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
-                  disabled={!flipped || busy}
-                  onClick={() => handleRate(r.grade)}
-                >
-                  <span>{r.label}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {preview?.[r.grade]?.label ?? r.hint}
-                  </span>
+      {/* 迷你小结：每 N 张插入一次，替换卡片区 */}
+      {showMiniSummary ? (
+        <SessionMiniSummary
+          stats={stats}
+          onContinue={handleContinue}
+          onAIReview={handleAIReviewFromSummary}
+        />
+      ) : (
+        <>
+          {/* 卡片区域（主动回忆 / 经典翻转） */}
+          {recallPhase === "prompt" && (
+            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
+              <div className="flex gap-1.5">
+                {item.row.is_key === 1 && (
+                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+                    <Star className="size-2.5" />
+                    重点
+                  </Badge>
+                )}
+                {tags.map((t) => (
+                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                ))}
+              </div>
+              <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
+              <p className="text-sm text-muted-foreground">你知道这个词的意思吗？</p>
+              <div className="flex gap-3">
+                <Button onClick={() => setRecallPhase("input")} size="lg">
+                  我知道
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-52 text-center">
-              <p className="font-medium">{r.label}（{r.hint}）</p>
-              <p className="text-xs">{r.desc}</p>
-            </TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
+                <Button variant="outline" onClick={handleDontKnow} size="lg">
+                  不确定 / 不知道
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">主动回忆 · 先回忆再看释义</p>
+            </div>
+          )}
 
-      <Button
-        variant="secondary"
-        className="w-full"
-        disabled={busy}
-        onClick={() => setAiReviewOpen(true)}
-      >
-        <Sparkles className="size-4" />
-        AI 深度复习（生成完形/语境题并判分）
-      </Button>
+          {recallPhase === "input" && (
+            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
+              <div className="flex gap-1.5">
+                {item.row.is_key === 1 && (
+                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+                    <Star className="size-2.5" />
+                    重点
+                  </Badge>
+                )}
+                {tags.map((t) => (
+                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                ))}
+              </div>
+              <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
+              <p className="text-sm text-muted-foreground">请输入你记得的释义：</p>
+              <div className="flex w-full max-w-md gap-2">
+                <Input
+                  value={recallInput}
+                  onChange={(e) => setRecallInput(e.target.value)}
+                  placeholder="例如：放弃；抛弃"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCheckRecall();
+                  }}
+                  autoFocus
+                />
+                <Button onClick={handleCheckRecall} disabled={!recallInput.trim() || busy}>
+                  检查
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">系统会模糊比对，不完全一致也没关系</p>
+            </div>
+          )}
+
+          {recallPhase === "result" && (
+            <div key={item.row.card_id} className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
+              <div className="flex gap-1.5">
+                {item.row.is_key === 1 && (
+                  <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+                    <Star className="size-2.5" />
+                    重点
+                  </Badge>
+                )}
+                {tags.map((t) => (
+                  <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                ))}
+              </div>
+              <div className="text-center text-3xl font-bold break-words">{item.row.front}</div>
+              <div className="max-w-md text-center text-2xl font-semibold whitespace-pre-wrap break-words">
+                {item.row.back}
+              </div>
+              {recallResult && (
+                <p className={recallResult.match ? "text-sm text-green-600" : "text-sm text-amber-600"}>
+                  {recallResult.match
+                    ? `✅ 基本正确！相似度 ${Math.round(recallResult.similarity * 100)}%`
+                    : `🤔 和标准释义有差距（相似度 ${Math.round(recallResult.similarity * 100)}%），请对照记忆`}
+                </p>
+              )}
+              {!recallResult && (
+                <p className="text-sm text-muted-foreground">没想起来也没关系，先看释义再评分</p>
+              )}
+              {retrievability !== null && (
+                <p className="text-xs text-muted-foreground">
+                  记忆可检索度：{(retrievability * 100).toFixed(0)}%
+                </p>
+              )}
+            </div>
+          )}
+
+          {recallPhase === "off" && (
+            <div className="[perspective:1000px]" key={item.row.card_id}>
+              <div
+                className={cn(
+                  "relative min-h-80 w-full transition-transform duration-500 [transform-style:preserve-3d]",
+                  flipped && "[transform:rotateY(180deg)]"
+                )}
+              >
+                {/* 正面 */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
+                  <div className="flex gap-1.5">
+                    {item.row.is_key === 1 && (
+                      <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+                        <Star className="size-2.5" />
+                        重点
+                      </Badge>
+                    )}
+                    {tags.map((t) => (
+                      <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                    ))}
+                  </div>
+                  <div className="text-center text-4xl font-bold break-words">{item.row.front}</div>
+                  {!flipped && (
+                    <Button onClick={showAnswer} size="lg">
+                      显示答案
+                    </Button>
+                  )}
+                  <p className="text-xs text-muted-foreground">正面 · 单词</p>
+                </div>
+                {/* 背面 */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                  <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">
+                    {item.row.back}
+                  </div>
+                  {retrievability !== null && (
+                    <p className="text-xs text-muted-foreground">
+                      记忆可检索度：{(retrievability * 100).toFixed(0)}%
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">背面 · 释义</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 评分按钮 */}
+          {flipped && (
+            limitedRatings ? (
+              <div className="grid grid-cols-2 gap-3">
+                {RATINGS_3.slice(0, 2).map((r) => (
+                  <Tooltip key={r.grade}>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0} className="inline-flex">
+                        <Button
+                          variant={r.grade === 1 ? "destructive" : "outline"}
+                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                          disabled={busy}
+                          onClick={() => handleRate(r.grade)}
+                        >
+                          <span>{r.emoji} {r.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {preview?.[r.grade]?.label ?? r.hint}
+                          </span>
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-52 text-center">
+                      <p className="font-medium">{r.label}（{r.hint}）</p>
+                      <p className="text-xs">{r.desc}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            ) : ratingMode === "3" ? (
+              <div className="grid grid-cols-3 gap-3">
+                {RATINGS_3.map((r) => (
+                  <Tooltip key={r.grade}>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0} className="inline-flex">
+                        <Button
+                          variant={r.grade === 1 ? "destructive" : "outline"}
+                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                          disabled={busy}
+                          onClick={() => handleRate(r.grade)}
+                        >
+                          <span>{r.emoji} {r.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {preview?.[r.grade]?.label ?? r.hint}
+                          </span>
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-52 text-center">
+                      <p className="font-medium">{r.label}（{r.hint}）</p>
+                      <p className="text-xs">{r.desc}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-3">
+                {RATINGS.map((r) => (
+                  <Tooltip key={r.grade}>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0} className="inline-flex">
+                        <Button
+                          variant={r.grade === 1 ? "destructive" : "outline"}
+                          className="w-full flex-col gap-0.5 py-3 disabled:opacity-60"
+                          disabled={busy}
+                          onClick={() => handleRate(r.grade)}
+                        >
+                          <span>{r.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {preview?.[r.grade]?.label ?? r.hint}
+                          </span>
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-52 text-center">
+                      <p className="font-medium">{r.label}（{r.hint}）</p>
+                      <p className="text-xs">{r.desc}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            )
+          )}
+        </>
+      )}
+
+      {!showMiniSummary && (
+        <Button
+          variant="secondary"
+          className="w-full"
+          disabled={busy}
+          onClick={() => {
+            setAiReviewTarget(null);
+            setAiReviewOpen(true);
+          }}
+        >
+          <Sparkles className="size-4" />
+          AI 深度复习（生成完形/语境题并判分）
+        </Button>
+      )}
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
         <Keyboard className="size-3.5" />
-        快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单 · 悬停按钮查看说明
+        {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"} · 悬停按钮查看说明
       </div>
 
-      {/* AI 深度复习对话框 */}
+      {/* AI 深度复习对话框（普通学习 / 迷你小结弱词巩固共用） */}
       <AIDeepReviewDialog
         open={aiReviewOpen}
         onOpenChange={setAiReviewOpen}
-        front={item.row.front}
-        back={item.row.back}
-        onComplete={handleAIComplete}
+        front={aiReviewTarget?.front ?? item.row.front}
+        back={aiReviewTarget?.back ?? item.row.back}
+        onComplete={aiReviewTarget ? () => setAiReviewOpen(false) : handleAIComplete}
       />
     </div>
   );

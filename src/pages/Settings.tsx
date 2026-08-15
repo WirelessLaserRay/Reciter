@@ -22,6 +22,14 @@ import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
 import { exportToJSON, importFromJSON } from "@/lib/backup";
 import {
+  getActiveRecallEnabled,
+  getRatingMode,
+  getSummaryInterval,
+  saveActiveRecallEnabled,
+  saveRatingMode,
+  saveSummaryInterval,
+} from "@/lib/study-prefs";
+import {
   DEFAULT_PROMPTS,
   getPromptTemplate,
   PROMPT_TYPES,
@@ -40,6 +48,9 @@ export default function Settings() {
   const [dayStart, setDayStart] = useState("04:00");
   const [defaultNewPerDay, setDefaultNewPerDay] = useState(20);
   const [dailyReviewLimit, setDailyReviewLimit] = useState(200);
+  const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
+  const [activeRecallEnabled, setActiveRecallEnabled] = useState(true);
+  const [summaryInterval, setSummaryInterval] = useState(10);
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -70,12 +81,15 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
         db.getSetting("daily_review_limit"),
         getAIConfig(),
+        getRatingMode(),
+        getActiveRecallEnabled(),
+        getSummaryInterval(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -84,6 +98,9 @@ export default function Settings() {
       if (Number.isFinite(np) && np > 0) setDefaultNewPerDay(np);
       const rlN = rl ? parseInt(rl, 10) : 200;
       if (Number.isFinite(rlN) && rlN > 0) setDailyReviewLimit(rlN);
+      setRatingMode(rm);
+      setActiveRecallEnabled(ar);
+      setSummaryInterval(si);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -136,6 +153,28 @@ export default function Settings() {
     setDayStart(v);
     if (!dbReady) return;
     await db.setSetting("day_start", v || "04:00");
+    flashSaved();
+  };
+
+  const handleRatingModeChange = async (v: "3" | "4") => {
+    setRatingMode(v);
+    if (!dbReady) return;
+    await saveRatingMode(v);
+    flashSaved();
+  };
+
+  const handleActiveRecallChange = async (v: boolean) => {
+    setActiveRecallEnabled(v);
+    if (!dbReady) return;
+    await saveActiveRecallEnabled(v);
+    flashSaved();
+  };
+
+  const handleSummaryIntervalChange = async (v: number) => {
+    const n = Math.min(50, Math.max(1, v || 10));
+    setSummaryInterval(n);
+    if (!dbReady) return;
+    await saveSummaryInterval(n);
     flashSaved();
   };
 
@@ -342,6 +381,59 @@ export default function Settings() {
                   </p>
                 </div>
                 <Switch disabled />
+              </div>
+
+              <div className="border-t pt-4">
+                <p className="mb-3 text-sm font-medium">学习体验</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label>评分模式</Label>
+                      <p className="text-xs text-muted-foreground">
+                        三档更直觉（推荐）；开启四档保留 Anki 式 Easy
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">三档</span>
+                      <Switch
+                        checked={ratingMode === "4"}
+                        onCheckedChange={(v) => handleRatingModeChange(v ? "4" : "3")}
+                      />
+                      <span className="text-xs text-muted-foreground">四档</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label>主动回忆模式</Label>
+                      <p className="text-xs text-muted-foreground">
+                        先回忆释义再显示答案，记忆效果更好（默认开启）
+                      </p>
+                    </div>
+                    <Switch
+                      checked={activeRecallEnabled}
+                      onCheckedChange={handleActiveRecallChange}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="summary-interval">迷你小结间隔</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="summary-interval"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={summaryInterval}
+                        onChange={(e) => handleSummaryIntervalChange(parseInt(e.target.value, 10) || 10)}
+                      />
+                      <span className="text-sm text-muted-foreground">张/次</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      每学习 N 张卡片后插入一次阶段性小结（10/15/20 推荐）
+                    </p>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

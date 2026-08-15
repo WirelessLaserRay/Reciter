@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { BookOpen, CalendarClock, FileUp, GraduationCap } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { BookOpen, CalendarClock, FileUp, GraduationCap, PlayCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,29 +12,59 @@ import {
 import { db } from "@/lib/db";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
+import { useStudyStore } from "@/stores/useStudyStore";
 import { getDayEndDate, parseDayStartHour } from "@/lib/day";
+import { getLastStudyContext, type LastStudyContext } from "@/lib/study-prefs";
+import type { Deck } from "@/types";
 
 export default function Dashboard() {
   const dbReady = useDbStore((s) => s.ready);
+  const navigate = useNavigate();
   const { decks, cardCounts, refresh } = useDeckStore();
+  const loadQueue = useStudyStore((s) => s.loadQueue);
   const [dueCount, setDueCount] = useState(0);
   const [newCount, setNewCount] = useState(0);
+  const [lastContext, setLastContext] = useState<LastStudyContext | null>(null);
+  const [dueByDeck, setDueByDeck] = useState<Record<number, number>>({});
+  const [recommendedDeck, setRecommendedDeck] = useState<Deck | null>(null);
 
   useEffect(() => {
-    if (dbReady) {
-      refresh();
-      (async () => {
-        const hour = parseDayStartHour(await db.getSetting("day_start"));
-        const dayEnd = getDayEndDate(hour);
-        const [due, fresh] = await Promise.all([
-          db.getGlobalDueCount(dayEnd.toISOString()),
-          db.getGlobalNewCount(),
-        ]);
-        setDueCount(due);
-        setNewCount(fresh);
-      })().catch(() => {});
-    }
+    if (!dbReady) return;
+    (async () => {
+      await refresh();
+      const hour = parseDayStartHour(await db.getSetting("day_start"));
+      const dayEnd = getDayEndDate(hour);
+      const currentDecks = useDeckStore.getState().decks;
+      const deckDueEntries = await Promise.all(
+        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString())] as const)
+      );
+      const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
+      const [due, fresh, last] = await Promise.all([
+        db.getGlobalDueCount(dayEnd.toISOString()),
+        db.getGlobalNewCount(),
+        getLastStudyContext(),
+      ]);
+      setDueCount(due);
+      setNewCount(fresh);
+      setLastContext(last);
+      setDueByDeck(deckDue);
+
+      const top = currentDecks
+        .filter((d) => (deckDue[d.id] ?? 0) > 0)
+        .sort((a, b) => (deckDue[b.id] ?? 0) - (deckDue[a.id] ?? 0))[0] ?? null;
+      setRecommendedDeck(top);
+    })().catch(() => {});
   }, [dbReady, refresh]);
+
+  const startStudy = async (deckId: number, tag?: string, keyOnly?: boolean) => {
+    await loadQueue(deckId, tag, keyOnly);
+    navigate("/study");
+  };
+
+  const lastDeck = lastContext ? decks.find((d) => d.id === lastContext.deckId) ?? null : null;
+  const otherDecks = decks.filter(
+    (d) => (dueByDeck[d.id] ?? 0) > 0 && d.id !== recommendedDeck?.id
+  );
 
   const today = new Date().toLocaleDateString("zh-CN", {
     year: "numeric",
@@ -78,27 +108,122 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* 快捷操作 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>快捷操作</CardTitle>
-          <CardDescription>FSRS-5 调度：今日到期卡片 + 配额内新卡</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          <Button asChild>
-            <Link to="/study">开始学习</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/import">
-              <FileUp className="size-4" />
-              导入词库
-            </Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/decks">浏览词库</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      {/* 智能推荐：到期最多的词库一键开始 */}
+      {recommendedDeck ? (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PlayCircle className="size-5 text-primary" />
+              今日推荐
+            </CardTitle>
+            <CardDescription>FSRS-5 调度：今日到期卡片 + 配额内新卡</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-lg font-semibold">{recommendedDeck.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {dueByDeck[recommendedDeck.id] ?? 0} 张到期
+              </p>
+            </div>
+            <Button size="lg" onClick={() => startStudy(recommendedDeck.id)}>
+              <PlayCircle className="size-4" />
+              开始今日学习
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>今日学习</CardTitle>
+            <CardDescription>当前没有到期卡片，可浏览词库或导入新内容</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Button asChild variant="outline">
+              <Link to="/decks">浏览词库</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/import">
+                <FileUp className="size-4" />
+                导入词库
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 继续上次学习 */}
+      {lastDeck && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RotateCcw className="size-4 text-muted-foreground" />
+              继续上次
+            </CardTitle>
+            <CardDescription>跳过选择，直接回到上次的学习位置</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">
+                {lastDeck.name}
+                {lastContext?.tag ? ` · ${lastContext.tag}` : ""}
+                {lastContext?.keyOnly ? " · 仅重点词" : ""}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {dueByDeck[lastDeck.id] ?? 0} 张到期
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                startStudy(lastContext!.deckId, lastContext?.tag, lastContext?.keyOnly)
+              }
+            >
+              <RotateCcw className="size-4" />
+              继续上次
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 其他到期词库 + 快捷入口 */}
+      {(otherDecks.length > 0 || decks.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>其他词库</CardTitle>
+            <CardDescription>按今日到期数快速进入</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {otherDecks.length > 0 ? (
+              otherDecks.map((d) => (
+                <div key={d.id} className="flex items-center justify-between gap-3">
+                  <span className="text-sm">
+                    {d.name}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {dueByDeck[d.id] ?? 0} 张到期
+                    </span>
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => startStudy(d.id)}>
+                    开始
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无其他到期词库</p>
+            )}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/import">
+                  <FileUp className="size-3.5" />
+                  导入词库
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/decks">管理词库</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 今日计划 */}
       <Card>
