@@ -4,9 +4,12 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ClipboardList,
   Keyboard,
   Layers,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   RefreshCw,
   Sparkles,
   Star,
@@ -130,8 +133,13 @@ function SessionMiniSummary({
 }
 
 /** 学习主界面（Phase 6C：统一学习流，多模式自适应） */
-function StudySession() {
-  const { deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
+function StudySession({
+  onStartTagQuiz,
+}: {
+  /** 标签学习完成后的针对性测试入口（选择/填空为主） */
+  onStartTagQuiz?: (deckId: number, tag: string) => void;
+}) {
+  const { deckId, deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
   const navigate = useNavigate();
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
@@ -144,6 +152,30 @@ function StudySession() {
   const [showMiniSummary, setShowMiniSummary] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [rateReady, setRateReady] = useState(false);
+
+  // AI 助手右侧栏：折叠状态持久化；窄屏（<lg）退化为卡片下方面板
+  const [aiPanelOpen, setAiPanelOpen] = useState(
+    () => localStorage.getItem("reciter-ai-panel-open") !== "0"
+  );
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
+  );
+
+  const toggleAiPanel = () => {
+    setAiPanelOpen((v) => {
+      const next = !v;
+      localStorage.setItem("reciter-ai-panel-open", next ? "1" : "0");
+      return next;
+    });
+  };
+
+  // 监听视口切换（桌面侧栏 / 移动端折叠面板）
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   const item = queue[index];
   const total = queue.length;
@@ -280,6 +312,32 @@ function StudySession() {
             {tagName && " · 标签：" + tagName}
           </span>
         </div>
+
+        {/* 标签学习完成：建议立即进行该标签集的选择/填空测试 */}
+        {finished && done > 0 && tagName && deckId !== null && onStartTagQuiz && (
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="size-5 text-primary" />
+                标签巩固测试
+              </CardTitle>
+              <CardDescription>
+                你已完成「{tagName}」标签的全部学习内容，建议用 10 道选择/填空题立即检验记忆（掌握度回填 FSRS）。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-4">
+              <Badge variant="secondary" className="text-xs">
+                <Tag className="mr-1 inline size-3" />
+                {tagName}
+              </Badge>
+              <Button onClick={() => onStartTagQuiz(deckId, tagName)}>
+                <ClipboardList className="size-4" />
+                开始标签测试
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             {done > 0 ? (
@@ -331,8 +389,23 @@ function StudySession() {
     );
   }
 
+  const renderAI = (embedded: boolean) => (
+    <AIChatPanel
+      embedded={embedded}
+      front={item.row.front}
+      back={item.row.back}
+      cardState={rowToState(item.row)}
+      strategyOverride={modeConfig?.aiStrategy ?? undefined}
+      defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
+      onGradeDecided={(grade, question, answer) =>
+        handleAIComplete(grade, question ?? "", answer ?? "")
+      }
+      onNext={() => handleAIComplete(3, "", "")}
+    />
+  );
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto w-full max-w-7xl space-y-6">
       <div className="flex items-center justify-between">
         <Button asChild variant="ghost" size="sm">
           <Link to="/decks">
@@ -368,49 +441,90 @@ function StudySession() {
         />
       </div>
 
-      {/* 迷你小结：每 N 张插入一次，替换卡片区 */}
-      {showMiniSummary ? (
-        <SessionMiniSummary
-          stats={stats}
-          onContinue={handleContinue}
-          onAIReview={handleAIReviewFromSummary}
-        />
-      ) : (
-        modeConfig && (
-          <StudyCard
-            key={item.row.card_id}
-            row={item.row}
-            config={modeConfig}
-            ratingMode={ratingMode}
-            preview={preview}
-            retrievability={retrievability}
-            busy={busy}
-            distractorRows={queue.map((q) => q.row)}
-            onReveal={() => void handleReveal()}
-            onRate={(grade) => void handleRate(grade)}
-            onRateReadyChange={setRateReady}
-          />
+      <div className="flex items-start gap-4">
+        {/* 左侧主学习区 */}
+        <div className="min-w-0 flex-1">
+          <div className="mx-auto w-full max-w-3xl space-y-4">
+            {/* 迷你小结：每 N 张插入一次，替换卡片区 */}
+            {showMiniSummary ? (
+              <SessionMiniSummary
+                stats={stats}
+                onContinue={handleContinue}
+                onAIReview={handleAIReviewFromSummary}
+              />
+            ) : (
+              modeConfig && (
+                <StudyCard
+                  key={item.row.card_id}
+                  row={item.row}
+                  config={modeConfig}
+                  ratingMode={ratingMode}
+                  preview={preview}
+                  retrievability={retrievability}
+                  busy={busy}
+                  distractorRows={queue.map((q) => q.row)}
+                  onReveal={() => void handleReveal()}
+                  onRate={(grade) => void handleRate(grade)}
+                  onRateReadyChange={setRateReady}
+                />
+              )
+            )}
+
+            <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+              <Keyboard className="size-3.5" />
+              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"} · 悬停按钮查看说明
+            </div>
+          </div>
+        </div>
+
+        {/* 桌面端：右侧可折叠 AI 助手侧栏 */}
+        {!showMiniSummary && isDesktop && (
+          aiPanelOpen ? (
+            <aside className="sticky top-4 w-80 shrink-0 overflow-hidden rounded-xl border bg-card xl:w-96">
+              <div className="flex items-center justify-between border-b px-3 py-2">
+                <span className="flex items-center gap-1.5 text-[15px] font-medium">
+                  <Sparkles className="size-4 text-purple-500" />
+                  AI 学习助手
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={toggleAiPanel}
+                  title="收起 AI 助手"
+                >
+                  <PanelRightClose className="size-4" />
+                </Button>
+              </div>
+              {renderAI(true)}
+            </aside>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleAiPanel}
+              className="sticky top-4 flex shrink-0 flex-col items-center gap-1.5 rounded-xl border bg-card px-3 py-4 text-xs text-muted-foreground transition-colors hover:bg-accent"
+              title="展开 AI 助手"
+            >
+              <PanelRightOpen className="size-5 text-purple-500" />
+              <span>AI 助手</span>
+            </button>
+          )
+        )}
+      </div>
+
+      {/* 窄屏：AI 助手退化为卡片下方的折叠面板 */}
+      {!showMiniSummary && !isDesktop && (
+        aiPanelOpen ? (
+          renderAI(false)
+        ) : (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={toggleAiPanel}>
+              <Sparkles className="size-4 text-purple-500" />
+              AI 学习助手
+            </Button>
+          </div>
         )
       )}
-
-      {!showMiniSummary && (
-        <AIChatPanel
-          front={item.row.front}
-          back={item.row.back}
-          cardState={rowToState(item.row)}
-          strategyOverride={modeConfig?.aiStrategy ?? undefined}
-          defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
-          onGradeDecided={(grade, question, answer) =>
-            handleAIComplete(grade, question ?? "", answer ?? "")
-          }
-          onNext={() => handleAIComplete(3, "", "")}
-        />
-      )}
-
-      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-        <Keyboard className="size-3.5" />
-        {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"} · 悬停按钮查看说明
-      </div>
     </div>
   );
 }
@@ -553,12 +667,13 @@ function TagPicker({
 
 export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
-  const [quizDeck, setQuizDeck] = useState<{ id: number; name: string } | null>(null);
+  const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string } | null>(null);
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
+  const tagParam = searchParams.get("tag");
 
-  // 高级测试入口：/study?quiz=<deckId>（词库详情页进入）
+  // 测试入口：/study?quiz=<deckId>（词库详情页）；/study?quiz=<deckId>&tag=<tag>（标签巩固测试）
   useEffect(() => {
     if (!quizParam) return;
     const id = parseInt(quizParam, 10);
@@ -569,21 +684,25 @@ export default function Study() {
       if (!store.decks.some((d) => d.id === id)) await store.refresh();
       if (cancelled) return;
       const d = useDeckStore.getState().decks.find((x) => x.id === id);
-      if (d) setQuizDeck({ id: d.id, name: d.name });
+      if (d) setQuizDeck({ id: d.id, name: d.name, tag: tagParam ?? undefined });
     })().catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [quizParam]);
+  }, [quizParam, tagParam]);
 
   if (quizDeck) {
     return (
       <QuizSession
         deckId={quizDeck.id}
         deckName={quizDeck.name}
+        presetTag={quizDeck.tag}
         onExit={() => {
+          const taggedQuiz = !!quizDeck.tag;
           setQuizDeck(null);
           setSearchParams({}, { replace: true });
+          // 标签巩固测试结束后回到词库选择页（结束学习会话）
+          if (taggedQuiz) useStudyStore.getState().reset();
         }}
       />
     );
@@ -624,5 +743,11 @@ export default function Study() {
     return <DeckPicker onStudy={(id, name) => setPendingDeck({ id, name })} />;
   }
 
-  return <StudySession />;
+  return (
+    <StudySession
+      onStartTagQuiz={(deckId, tag) => {
+        setSearchParams({ quiz: String(deckId), tag }, { replace: true });
+      }}
+    />
+  );
 }

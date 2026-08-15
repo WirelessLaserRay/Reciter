@@ -25,7 +25,7 @@ function renderValue(v: unknown): React.ReactNode {
     const items = v.filter((x) => typeof x === "string" && x.trim());
     if (items.length === 0) return null;
     return (
-      <ul className="space-y-0.5 text-[13px] leading-relaxed">
+      <ul className="space-y-1 text-[15px] leading-relaxed">
         {items.map((t, i) => (
           <li key={i}>• {t}</li>
         ))}
@@ -33,7 +33,7 @@ function renderValue(v: unknown): React.ReactNode {
     );
   }
   if (typeof v === "string" && v.trim()) {
-    return <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{v}</p>;
+    return <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{v}</p>;
   }
   if (v && typeof v === "object") {
     // 嵌套对象（如 { options: [...] }）拼成文本
@@ -42,7 +42,7 @@ function renderValue(v: unknown): React.ReactNode {
       .filter((x): x is string => typeof x === "string" && !!x.trim())
       .map((x) => x.trim());
     if (parts.length === 0) return null;
-    return <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{parts.join("；")}</p>;
+    return <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{parts.join("；")}</p>;
   }
   return null;
 }
@@ -108,7 +108,7 @@ export function MessageContent({ content }: { content: string }) {
   }
 
   return (
-    <div className="space-y-1.5 text-left text-[13px] leading-relaxed [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h1]:text-base [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
+    <div className="space-y-2 text-left text-[15px] leading-relaxed [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h1]:text-base [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-[15px] [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
       <ReactMarkdown>{content}</ReactMarkdown>
     </div>
   );

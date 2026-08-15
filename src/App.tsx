@@ -14,14 +14,16 @@ import Settings from "@/pages/Settings";
 import WeakWords from "@/pages/WeakWords";
 
 function App() {
-  const theme = useThemeStore((s) => s.theme);
+  const mode = useThemeStore((s) => s.mode);
+  const accent = useThemeStore((s) => s.accent);
 
-  // 将主题应用到 <html> 元素（shadcn dark mode: class 策略）
+  // 将明暗模式与强调色应用到 <html>（shadcn dark mode: class 策略 + data-accent）
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
-    root.style.colorScheme = theme;
-  }, [theme]);
+    root.classList.toggle("dark", mode === "dark");
+    root.dataset.accent = accent;
+    root.style.colorScheme = mode;
+  }, [mode, accent]);
 
   // 应用启动时初始化本地数据库（tauri-plugin-sql）
   useEffect(() => {

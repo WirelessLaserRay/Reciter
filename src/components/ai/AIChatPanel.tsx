@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { AIClient, getAIConfig, type AIGradeResult } from "@/lib/ai-client";
 import { getAIStrategy, buildLearnerContext, type AIStrategy } from "@/lib/ai-strategy";
 import { getStrategyPrompt } from "@/lib/ai-prompts";
@@ -30,6 +31,8 @@ interface AIChatPanelProps {
   cardState: CardState;
   /** 统一学习流模式注入的策略（Phase 6C）；缺省时按 FSRS 状态自动推断 */
   strategyOverride?: AIStrategy;
+  /** 嵌入侧栏模式：不渲染自带折叠头，内容始终展开（由外层侧栏控制折叠） */
+  embedded?: boolean;
   /** AI 判分确认后回调；question/answer 为最近一次判分的题目与用户回答 */
   onGradeDecided?: (grade: 1 | 2 | 3 | 4, question?: string, answer?: string) => void;
   onNext?: () => void;
@@ -48,6 +51,7 @@ export default function AIChatPanel({
   back,
   cardState,
   strategyOverride,
+  embedded = false,
   onGradeDecided,
   onNext,
   defaultExpanded = false,
@@ -207,26 +211,39 @@ export default function AIChatPanel({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent/50"
-      >
-        <span className="flex items-center gap-2">
-          <Sparkles className="size-4 text-purple-500" />
-          AI 学习助手
-          {expanded && strategy && (
-            <Badge variant="secondary" className="text-[10px]">
-              {STRATEGY_LABEL[strategy]}
-            </Badge>
-          )}
-        </span>
-        {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-      </button>
+    <div className={cn("overflow-hidden", !embedded && "rounded-xl border bg-card")}>
+      {!embedded && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] font-medium transition-colors hover:bg-accent/50"
+        >
+          <span className="flex items-center gap-2">
+            <Sparkles className="size-4 text-purple-500" />
+            AI 学习助手
+            {expanded && strategy && (
+              <Badge variant="secondary" className="text-[10px]">
+                {STRATEGY_LABEL[strategy]}
+              </Badge>
+            )}
+          </span>
+          {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+        </button>
+      )}
 
-      {expanded && (
-        <div className="space-y-3 border-t p-3">
+      {(embedded || expanded) && (
+        <div className={cn("space-y-3 p-3", !embedded && "border-t")}>
+          {embedded && strategy && (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[11px]">
+                {STRATEGY_LABEL[strategy]}
+              </Badge>
+              <span className="truncate text-sm font-medium">
+                {front} · {back}
+              </span>
+            </div>
+          )}
+
           {error && !client?.isReady && (
             <div className="flex items-center justify-between gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-600">
               <span>{error}</span>
@@ -236,7 +253,12 @@ export default function AIChatPanel({
             </div>
           )}
 
-          <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg bg-muted/40 p-3 text-sm">
+          <div
+            className={cn(
+              "space-y-2.5 overflow-y-auto rounded-lg bg-muted/40 p-3 text-[15px]",
+              embedded ? "max-h-[58vh]" : "max-h-80"
+            )}
+          >
             {messages
               .filter((m) => m.role !== "system")
               .map((m, i) => (
@@ -246,10 +268,10 @@ export default function AIChatPanel({
                 >
                   <div
                     className={
-                      "inline-block max-w-[88%] rounded-lg px-3 py-2 text-left " +
+                      "inline-block max-w-[90%] rounded-lg px-3 py-2 text-left text-[15px] leading-relaxed " +
                       (m.role === "user"
                         ? "whitespace-pre-wrap bg-primary text-primary-foreground"
-                        : "bg-background border")
+                        : "border bg-background")
                     }
                   >
                     {m.role === "assistant" ? (
@@ -305,6 +327,7 @@ export default function AIChatPanel({
               onChange={(e) => setInput(e.target.value)}
               placeholder="输入回答或提问…"
               rows={2}
+              className="min-h-20 text-sm"
               disabled={busy || !client?.isReady}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void sendText(input);

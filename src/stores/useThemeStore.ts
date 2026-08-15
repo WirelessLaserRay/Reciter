@@ -1,21 +1,39 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type Theme = "dark" | "light";
+export type ThemeMode = "dark" | "light";
+export type ThemeAccent = "neutral" | "blue" | "green" | "purple" | "orange" | "rose";
 
 interface ThemeState {
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-  toggleTheme: () => void;
+  mode: ThemeMode;
+  accent: ThemeAccent;
+  setMode: (t: ThemeMode) => void;
+  toggleMode: () => void;
+  setAccent: (a: ThemeAccent) => void;
 }
+
+type LegacyPersisted = { theme?: ThemeMode };
 
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: "dark", // 默认暗色主题
-      setTheme: (t) => set({ theme: t }),
-      toggleTheme: () => get().setTheme(get().theme === "dark" ? "light" : "dark"),
+      mode: "dark", // 默认暗色主题
+      accent: "neutral", // 默认中性强调色
+      setMode: (t) => set({ mode: t }),
+      toggleMode: () => get().setMode(get().mode === "dark" ? "light" : "dark"),
+      setAccent: (a) => set({ accent: a }),
     }),
-    { name: "reciter-theme" }
+    {
+      name: "reciter-theme",
+      version: 2,
+      // 兼容旧版本：{ theme: "dark" } → { mode: "dark", accent: "neutral" }
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<ThemeState & LegacyPersisted>;
+        if (p.mode === undefined && p.theme !== undefined) {
+          return { ...current, ...p, mode: p.theme, accent: p.accent ?? current.accent };
+        }
+        return { ...current, ...p };
+      },
+    }
   )
 );

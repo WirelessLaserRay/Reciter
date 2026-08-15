@@ -14,8 +14,7 @@ import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { useThemeStore } from "@/stores/useThemeStore";
+import { useThemeStore, type ThemeAccent } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
@@ -30,18 +29,22 @@ import {
   saveRatingMode,
   saveSummaryInterval,
 } from "@/lib/study-prefs";
-import {
-  DEFAULT_PROMPTS,
-  getPromptTemplate,
-  PROMPT_TYPES,
-  resetPromptTemplate,
-  savePromptTemplate,
-  type PromptType,
-} from "@/lib/ai-prompts";
+
+/** 强调色主题预设（与 src/index.css 中 [data-accent=...] 变量对应） */
+const ACCENTS: { id: ThemeAccent; label: string; swatch: string }[] = [
+  { id: "neutral", label: "中性", swatch: "#737373" },
+  { id: "blue", label: "海蓝", swatch: "#3b82f6" },
+  { id: "green", label: "森林", swatch: "#22c55e" },
+  { id: "purple", label: "星紫", swatch: "#a855f7" },
+  { id: "orange", label: "暖橙", swatch: "#f97316" },
+  { id: "rose", label: "玫红", swatch: "#e11d48" },
+];
 
 export default function Settings() {
-  const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
+  const mode = useThemeStore((s) => s.mode);
+  const setMode = useThemeStore((s) => s.setMode);
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
   const dbReady = useDbStore((s) => s.ready);
 
   // 学习设置
@@ -63,17 +66,6 @@ export default function Settings() {
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
-
-  // Prompt 模板
-  const [promptTab, setPromptTab] = useState<PromptType>("cloze");
-  const [prompts, setPrompts] = useState<Record<PromptType, string>>({
-    cloze: DEFAULT_PROMPTS.cloze.default,
-    context: DEFAULT_PROMPTS.context.default,
-    example: DEFAULT_PROMPTS.example.default,
-    choice: DEFAULT_PROMPTS.choice.default,
-    grading: DEFAULT_PROMPTS.grading.default,
-  });
-  const [promptSaved, setPromptSaved] = useState(false);
 
   // 数据备份
   const [backupBusy, setBackupBusy] = useState(false);
@@ -107,10 +99,6 @@ export default function Settings() {
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
       setAiTemp(aiCfg.temperature);
-
-      const p = { ...prompts };
-      for (const t of PROMPT_TYPES) p[t] = await getPromptTemplate(t);
-      setPrompts(p);
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
@@ -122,10 +110,6 @@ export default function Settings() {
   const flashAiSaved = () => {
     setAiSaved(true);
     setTimeout(() => setAiSaved(false), 1500);
-  };
-  const flashPromptSaved = () => {
-    setPromptSaved(true);
-    setTimeout(() => setPromptSaved(false), 1500);
   };
 
   // ============ 学习设置动作 ============
@@ -218,17 +202,6 @@ export default function Settings() {
     }
   };
 
-  const savePrompts = async () => {
-    for (const t of PROMPT_TYPES) await savePromptTemplate(t, prompts[t]);
-    flashPromptSaved();
-  };
-
-  const resetOnePrompt = async (t: PromptType) => {
-    await resetPromptTemplate(t);
-    setPrompts((p) => ({ ...p, [t]: DEFAULT_PROMPTS[t].default }));
-    flashPromptSaved();
-  };
-
   const handleExport = async () => {
     setBackupBusy(true);
     const r = await exportToJSON();
@@ -269,34 +242,69 @@ export default function Settings() {
         <TabsContent value="appearance" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>主题</CardTitle>
-              <CardDescription>选择应用的明暗外观</CardDescription>
+              <CardTitle>明暗模式</CardTitle>
+              <CardDescription>选择应用的亮色或暗色外观</CardDescription>
             </CardHeader>
             <CardContent className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm">
-                {theme === "dark" ? (
+                {mode === "dark" ? (
                   <Moon className="size-4 text-muted-foreground" />
                 ) : (
                   <Sun className="size-4 text-muted-foreground" />
                 )}
-                当前：{theme === "dark" ? "暗色" : "亮色"}
+                当前：{mode === "dark" ? "暗色" : "亮色"}
               </div>
               <div className="flex gap-2">
                 <Button
                   size="sm"
-                  variant={theme === "dark" ? "default" : "outline"}
-                  onClick={() => setTheme("dark")}
+                  variant={mode === "dark" ? "default" : "outline"}
+                  onClick={() => setMode("dark")}
                 >
                   暗色
                 </Button>
                 <Button
                   size="sm"
-                  variant={theme === "light" ? "default" : "outline"}
-                  onClick={() => setTheme("light")}
+                  variant={mode === "light" ? "default" : "outline"}
+                  onClick={() => setMode("light")}
                 >
                   亮色
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>强调色主题</CardTitle>
+              <CardDescription>
+                主按钮、进度条、图表与选中态会跟随强调色变化；明暗模式可自由组合
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {ACCENTS.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setAccent(a.id)}
+                    className={
+                      "flex flex-col items-center gap-2 rounded-lg border p-3 text-xs transition-colors " +
+                      (accent === a.id
+                        ? "border-primary bg-primary/10 font-medium text-foreground"
+                        : "border-border hover:bg-accent")
+                    }
+                  >
+                    <span
+                      className="size-6 rounded-full border border-foreground/20"
+                      style={{ backgroundColor: a.swatch }}
+                    />
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                选择后立即生效并自动保存；黑白主题的边框对比度已同步增强。
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -539,44 +547,16 @@ export default function Settings() {
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div>
-                <CardTitle>Prompt 模板</CardTitle>
-                <CardDescription>
-                  AI 出题与判分的提示词，支持 {"{word}"} {"{meaning}"} {"{level}"} {"{question}"} {"{answer}"} {"{userAnswer}"} 占位符
-                </CardDescription>
-              </div>
-              {promptSaved && <span className="text-xs text-green-600">已保存 ✓</span>}
+            <CardHeader>
+              <CardTitle>AI 出题与判分</CardTitle>
+              <CardDescription>
+                内置模板自动生效，无需手动配置
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <Tabs value={promptTab} onValueChange={(v) => setPromptTab(v as PromptType)}>
-                <TabsList>
-                  {PROMPT_TYPES.map((t) => (
-                    <TabsTrigger key={t} value={t}>
-                      {DEFAULT_PROMPTS[t].label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {PROMPT_TYPES.map((t) => (
-                  <TabsContent key={t} value={t} className="space-y-2">
-                    <p className="text-xs text-muted-foreground">{DEFAULT_PROMPTS[t].description}</p>
-                    <Textarea
-                      rows={12}
-                      className="font-mono text-xs"
-                      value={prompts[t]}
-                      onChange={(e) => setPrompts((p) => ({ ...p, [t]: e.target.value }))}
-                    />
-                    <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" onClick={() => resetOnePrompt(t)}>
-                        恢复默认
-                      </Button>
-                      <Button size="sm" onClick={savePrompts}>
-                        保存模板
-                      </Button>
-                    </div>
-                  </TabsContent>
-                ))}
-              </Tabs>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>· 出题 / 判分 Prompt 已内置为 JSON 结构化模板，并按学习状态自动选择策略（新卡教学 / 识别练习 / 产出练习 / 顽固词深度攻克）。</p>
+              <p>· 历史版本中可编辑的 Prompt 模板入口已移除；设置项只保留必要的接口连接配置，避免误改导致 AI 输出格式异常。</p>
+              <p>· 如需恢复旧数据中的自定义模板，可在设置 KV 中直接删除 <code className="rounded bg-muted px-1">prompt_*</code> 键，应用会自动回退内置默认值。</p>
             </CardContent>
           </Card>
         </TabsContent>

@@ -102,30 +102,29 @@ function RatingButtons({
   return (
     <div
       className={cn(
-        "grid gap-3",
-        items.length === 2 && "grid-cols-2 gap-4",
-        items.length === 3 && "grid-cols-3 gap-4",
-        items.length === 4 && "grid-cols-4 gap-3"
+        "grid gap-2",
+        items.length === 2 && "grid-cols-2 gap-3",
+        items.length === 3 && "grid-cols-3 gap-3",
+        items.length === 4 && "grid-cols-2 gap-2 sm:grid-cols-4"
       )}
     >
       {items.map((r) => (
         <Tooltip key={r.grade}>
           <TooltipTrigger asChild>
-            <span tabIndex={0} className="inline-flex">
+            <span tabIndex={0} className="inline-flex w-full min-w-0">
               <Button
                 variant={r.grade === 1 ? "destructive" : "outline"}
                 className={cn(
-                  "w-full flex-col gap-0.5 py-3 disabled:opacity-60",
-                  items.length === 3 && "py-5"
+                  "h-auto min-h-24 w-full min-w-0 flex-col gap-1.5 px-2 py-4 disabled:opacity-60"
                 )}
                 disabled={busy}
                 onClick={() => onRate(r.grade)}
               >
-                <span className="text-lg font-semibold">
-                  {r.emoji ? <span className="mr-1 text-xl">{r.emoji}</span> : null}
+                {r.emoji ? <span className="text-2xl leading-none">{r.emoji}</span> : null}
+                <span className="w-full whitespace-normal break-words text-center text-sm font-semibold leading-tight sm:text-base">
                   {r.label}
                 </span>
-                <span className="text-sm text-muted-foreground">
+                <span className="w-full whitespace-normal break-words text-center text-[11px] leading-tight text-muted-foreground sm:text-xs">
                   {preview?.[r.grade]?.label ?? r.hint}
                 </span>
               </Button>

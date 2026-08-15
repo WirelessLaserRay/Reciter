@@ -139,15 +139,18 @@ function buildItems(cards: CardType[], type: QuizType, count: number): QuizItem[
 export default function QuizSession({
   deckId,
   deckName,
+  presetTag,
   onExit,
 }: {
   deckId: number;
   deckName: string;
+  /** 预设考察标签（标签学习完成后的针对性测试入口） */
+  presetTag?: string;
   onExit: () => void;
 }) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
   const [configCount, setConfigCount] = useState("10");
-  const [tagFilter, setTagFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(presetTag ?? "all");
   const [useAI, setUseAI] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const [cards, setCards] = useState<CardType[]>([]);
@@ -297,6 +300,7 @@ export default function QuizSession({
             <CardTitle>测试模式</CardTitle>
             <CardDescription>
               通过填空与选择检验记忆，掌握度将回填 FSRS 记忆状态（忘记/模糊/掌握 → Again/Hard/Good）
+              {presetTag && ` · 当前范围：${presetTag}`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
