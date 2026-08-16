@@ -208,7 +208,7 @@ npm run tauri build          # 构建正式版（输出 src-tauri/target/release
 ```
 
 - **一键启动**：双击桌面「Reciter」快捷方式，或从开始菜单启动（已自动创建）
-- **安装分发**：运行 `Reciter_0.14.0_x64-setup.exe` 安装到系统，获得开始菜单/桌面图标与卸载程序
+- **安装分发**：运行 `Reciter_0.14.1_x64-setup.exe` 安装到系统，获得开始菜单/桌面图标与卸载程序
 - 数据目录：`%APPDATA%\\com.reciter.app\\reciter.db`（SQLite，可整目录备份）
 
 ### 开发模式

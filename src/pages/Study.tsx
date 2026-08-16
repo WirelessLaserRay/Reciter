@@ -24,7 +24,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
@@ -509,7 +508,7 @@ function StudySession({
 
             <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <Keyboard className="size-3.5" />
-              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"} · 悬停按钮查看说明
+              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"}
             </div>
           </div>
         </div>
@@ -518,13 +517,11 @@ function StudySession({
         {!showMiniSummary && isDesktop && (
           <>
             <div
-              className={cn(
-                "shrink-0 overflow-hidden transition-all duration-300 ease-in-out",
-                aiPanelOpen ? "w-80 opacity-100 xl:w-96" : "w-0 opacity-0"
-              )}
+              className="ai-side-panel shrink-0 overflow-hidden"
+              style={{ width: aiPanelOpen ? "22rem" : "0rem", opacity: aiPanelOpen ? 1 : 0 }}
             >
               {aiPanelMounted && (
-                <aside className="sticky top-4 w-80 overflow-hidden rounded-xl border bg-card xl:w-96">
+                <aside className="sticky top-4 w-full overflow-hidden rounded-xl border bg-card">
                   <div className="flex items-center justify-between border-b px-3 py-2">
                     <span className="flex items-center gap-1.5 text-[15px] font-medium">
                       <Sparkles className="size-4 text-purple-500" />
@@ -604,8 +601,7 @@ function DeckPicker({ onStudy }: { onStudy: (id: number, name: string) => void }
       <div>
         <h2 className="text-2xl font-bold">选择词库</h2>
         <p className="text-sm text-muted-foreground">
-          统一学习流：新卡教学 → 主动回忆 / 快速测试 / AI 攻克，按 FSRS 状态自适应切换；
-          自定义测试请到词库详情页使用「高级测试」。
+          按记忆状态自动切换模式；自定义测试在词库详情页
         </p>
       </div>
       <div className="space-y-3">

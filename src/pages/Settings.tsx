@@ -301,9 +301,7 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle>主题</CardTitle>
-              <CardDescription>
-                每套主题同时决定背景、卡片与主色；右上角太阳/月亮按钮可在暗色与亮色主题间快速切换
-              </CardDescription>
+              <CardDescription>选择配色，右上角按钮可快速切换明暗</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
@@ -342,7 +340,7 @@ export default function Settings() {
                 ))}
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                选择后立即生效并自动保存；黑白主题的边框对比度已同步增强。
+                选择后立即生效并自动保存。
               </p>
             </CardContent>
           </Card>
@@ -380,7 +378,7 @@ export default function Settings() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  越高复习越频繁、记忆越牢；越低复习间隔越长。考研备考建议 0.90，时间紧张可降至 0.85（复习量约少 30%）
+                  数值越高复习越频繁；考研建议 0.90，时间紧可降至 0.85
                 </p>
               </div>
 
@@ -393,7 +391,7 @@ export default function Settings() {
                   onChange={(e) => saveDayStart(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  默认 04:00（Anki 惯例）。日界之前的复习计入前一天（时区陷阱对策）
+                  默认 04:00（Anki 惯例），日界前复习计入前一天
                 </p>
               </div>
 
@@ -411,7 +409,7 @@ export default function Settings() {
                   <span className="text-sm text-muted-foreground">张/天</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  新词库的默认配额；可在「词库」页对单个词库单独调整（重命名对话框）
+                  新词库默认配额，词库页可单独调整
                 </p>
               </div>
 
@@ -429,7 +427,7 @@ export default function Settings() {
                   <span className="text-sm text-muted-foreground">次/天</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  全局复习预算（对标 Anki maximum reviews/day）；超出部分留到次日，避免过度复习
+                  全局复习预算，超出部分留到次日
                 </p>
               </div>
 
@@ -447,7 +445,7 @@ export default function Settings() {
                   <span className="text-sm text-muted-foreground">张复习卡插 1 张新卡</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  交错练习长期记忆提升 20-40%；默认 5（每 5 张复习卡插入 1 张新卡）
+                  默认 5（每 5 张复习卡插 1 张新卡）
                 </p>
               </div>
 
@@ -465,7 +463,7 @@ export default function Settings() {
                   <span className="text-sm text-muted-foreground">秒</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  阈值内答对自动记为「记得」；研究建议 5 秒（想不起来说明未真正掌握）
+                  阈值内答对自动记为「记得」
                 </p>
               </div>
 
@@ -479,7 +477,7 @@ export default function Settings() {
                   onChange={(e) => handleLearningStepsChange(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  新卡 Learning 阶段的重复间隔（m=分钟/h=小时/d=天），逗号分隔；建议短且少（如 1m,10m），第二天起交给 FSRS 动态调度
+                  新卡 Learning 阶段的重复间隔（m=分钟/h=小时/d=天），建议 1m,10m
                 </p>
               </div>
 
@@ -487,7 +485,7 @@ export default function Settings() {
                 <div className="space-y-0.5">
                   <Label>Easy Days 负载均衡</Label>
                   <p className="text-xs text-muted-foreground">
-                    避免周末/特定日期复习堆积（规划中）
+                    避免周末复习堆积（规划中）
                   </p>
                 </div>
                 <Switch disabled />
@@ -556,7 +554,7 @@ export default function Settings() {
               <div>
                 <CardTitle>AI 接口</CardTitle>
                 <CardDescription>
-                  OpenAI 兼容接口（DeepSeek 云端 / Ollama 本地 / OpenAI），经 tauri-plugin-http 直连，无 CORS 限制
+                  OpenAI 兼容接口（DeepSeek / Ollama / OpenAI），桌面端无 CORS 限制
                 </CardDescription>
               </div>
               {isLocal ? (
@@ -654,9 +652,7 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>· 出题 / 判分 Prompt 已内置为 JSON 结构化模板，并按学习状态自动选择策略（新卡教学 / 识别练习 / 产出练习 / 顽固词深度攻克）。</p>
-              <p>· 历史版本中可编辑的 Prompt 模板入口已移除；设置项只保留必要的接口连接配置，避免误改导致 AI 输出格式异常。</p>
-              <p>· 如需恢复旧数据中的自定义模板，可在设置 KV 中直接删除 <code className="rounded bg-muted px-1">prompt_*</code> 键，应用会自动回退内置默认值。</p>
+              <p>· 出题与判分 Prompt 已内置 JSON 结构化模板，按学习状态自动选择策略，无需手动配置。</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -687,8 +683,8 @@ export default function Settings() {
               <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Database className="mt-0.5 size-3.5 shrink-0" />
                 <div>
-                  <p>备份文件为本地 JSON（不含 WebDAV 同步，按需自行保存/迁移）。</p>
-                  <p>恢复操作会清空当前全部数据后写入备份内容，请谨慎使用。</p>
+                  <p>备份为本地 JSON（不含 WebDAV 同步）。</p>
+                  <p>恢复会清空现有数据，请谨慎使用。</p>
                 </div>
               </div>
             </CardContent>

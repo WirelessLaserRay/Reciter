@@ -305,7 +305,7 @@ export default function QuizSession({
           <CardHeader>
             <CardTitle>测试模式</CardTitle>
             <CardDescription>
-              通过填空与选择检验记忆，掌握度将回填 FSRS 记忆状态（忘记/模糊/掌握 → Again/Hard/Good）
+              填空与选择题，掌握度回填 FSRS
               {presetTag && ` · 当前范围：${presetTag}`}
             </CardDescription>
           </CardHeader>
@@ -342,7 +342,7 @@ export default function QuizSession({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                按标签分组考察（如「单词」「词组」分开测试）；仅显示有卡片的标签
+                按标签分组考察
               </p>
             </div>
 
@@ -368,7 +368,7 @@ export default function QuizSession({
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   {aiReady
-                    ? "已检测到 AI 配置，启用后由 AI 生成语境题目（Phase 4 接入）"
+                    ? "已配置 AI，启用后由 AI 生成语境题"
                     : "预留接口：在设置页配置 AI（DeepSeek/Ollama）后启用（Phase 4）"}
                 </p>
               </div>
@@ -400,7 +400,7 @@ export default function QuizSession({
               {result.aiQuestions > 0 && " · AI 出题 " + result.aiQuestions}
             </CardDescription>
             <p className="text-xs text-muted-foreground">
-              掌握度已按 FSRS 评分回填记忆状态（忘记=Again / 模糊=Hard / 掌握=Good）
+              掌握度已回填 FSRS
             </p>
             <div className="flex gap-3">
               <Button onClick={() => { setPhase("setup"); setResult(null); }}>
@@ -521,10 +521,15 @@ export default function QuizSession({
                 <Button
                   key={i}
                   variant="outline"
-                  className="h-auto justify-start whitespace-normal py-3 text-left"
+                  className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
                   onClick={() => submitAnswer(opt)}
                 >
-                  {opt}
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
+                    {opt}
+                  </span>
                 </Button>
               ))}
             </div>
@@ -609,7 +614,7 @@ export default function QuizSession({
       </Card>
 
       <p className="text-center text-xs text-muted-foreground">
-        {isFill ? "填空：系统自动对拼写，掌握度由你自评" : "选择题：系统自动判分，可调整掌握度"}
+        {isFill ? "填空自评掌握度" : "选择自动判分，可调整掌握度"}
       </p>
     </div>
   );

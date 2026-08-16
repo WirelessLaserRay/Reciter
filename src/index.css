@@ -332,6 +332,18 @@ main {
 
 /* ============ 侧栏折叠动画（grid-template-columns 平滑折叠文本） ============ */
 
+.sidebar-aside {
+  transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: width;
+}
+
+.ai-side-panel {
+  transition:
+    width 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 250ms ease;
+  will-change: width, opacity;
+}
+
 .sidebar-collapse-text {
   display: grid;
   grid-template-columns: 1fr;

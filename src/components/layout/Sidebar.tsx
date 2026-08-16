@@ -49,9 +49,10 @@ export default function Sidebar({
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-in-out",
-        collapsed ? "sidebar-collapsed w-14" : "w-56"
+        "sidebar-aside flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        collapsed && "sidebar-collapsed"
       )}
+      style={{ width: collapsed ? "3.5rem" : "14rem" }}
     >
       {/* 品牌区 */}
       <div className={cn("flex h-14 items-center border-b border-sidebar-border transition-all duration-300", collapsed ? "justify-center px-2" : "gap-2 px-4")}>
@@ -114,7 +115,7 @@ export default function Sidebar({
         </Button>
         <div className="sidebar-collapse-text mt-2 justify-center">
           <div className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground">
-            Reciter v0.14.0 · Phase 6C
+            Reciter v0.14.1 · Phase 6C
           </div>
         </div>
       </div>

@@ -28,15 +28,15 @@ import MarkdownContext from "./MarkdownContext";
 // ============ 评分常量（Phase 6A：三档默认 / 四档可选） ============
 
 const RATINGS_4 = [
-  { grade: 1 as const, label: "忘了", emoji: null, hint: "Again", desc: "完全没想起来或答错 → 立即重学，几分钟后再次出现" },
-  { grade: 2 as const, label: "困难", emoji: null, hint: "Hard", desc: "想起来了但很吃力 → 较短间隔复习" },
-  { grade: 3 as const, label: "良好", emoji: null, hint: "Good", desc: "基本掌握 → 按正常记忆曲线安排" },
-  { grade: 4 as const, label: "简单", emoji: null, hint: "Easy", desc: "非常轻松 → 跳过学习步骤，大幅延长间隔" },
+  { grade: 1 as const, label: "忘了", emoji: null, hint: "Again", desc: "没想起来 → 立即重学" },
+  { grade: 2 as const, label: "困难", emoji: null, hint: "Hard", desc: "很吃力 → 较短间隔" },
+  { grade: 3 as const, label: "良好", emoji: null, hint: "Good", desc: "基本掌握 → 正常安排" },
+  { grade: 4 as const, label: "简单", emoji: null, hint: "Easy", desc: "非常轻松 → 大幅延长间隔" },
 ];
 
 const RATINGS_3 = [
   { grade: 1 as const, label: "不记得", emoji: "😕", hint: "Again", desc: "没想起来 → 立即重学" },
-  { grade: 2 as const, label: "模糊", emoji: "🤔", hint: "Hard", desc: "想起来了但不确定 → 较短间隔" },
+  { grade: 2 as const, label: "模糊", emoji: "🤔", hint: "Hard", desc: "不确定 → 较短间隔" },
   { grade: 3 as const, label: "记得", emoji: "😊", hint: "Good", desc: "基本掌握 → 正常安排" },
 ];
 
@@ -438,7 +438,7 @@ function NewCardTeachView(props: ModeViewProps) {
         )}
         <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
         <p className="text-sm text-muted-foreground">
-          新卡先理解再记忆：结合释义与原文语境，准备好后开始识别测试
+          先看释义与语境，再开始测试
         </p>
         <Button size="lg" onClick={startCheck}>
           <BookOpen className="size-4" />
@@ -453,7 +453,7 @@ function NewCardTeachView(props: ModeViewProps) {
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
-          {useChoice ? "识别测试：选择正确释义（首次学习先识别，下次复习再回忆）" : "根据释义拼写单词（识别测试）"}
+          {useChoice ? "选择正确释义" : "拼写单词"}
         </p>
         <div className="text-center text-3xl font-bold break-words">{row.front}</div>
 
@@ -463,11 +463,16 @@ function NewCardTeachView(props: ModeViewProps) {
               <Button
                 key={opt}
                 variant="outline"
-                className="h-auto justify-start whitespace-normal py-3 text-left"
+                className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
                 onClick={() => submitChoice(opt)}
                 disabled={busy}
               >
-                {opt}
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {String.fromCharCode(65 + options.indexOf(opt))}
+                </span>
+                <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
+                  {opt}
+                </span>
               </Button>
             ))}
           </div>
@@ -597,22 +602,27 @@ function QuickTestView(props: ModeViewProps) {
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
-          熟练卡 · 快速测试（{Math.round(quickMs / 1000)} 秒内答对自动记为「记得」）
+          快速测试 · {Math.round(quickMs / 1000)} 秒内答对自动「记得」
           {choice.useFront ? " · 形近词干扰" : ""}
         </p>
         <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
 
         {checked === null && useChoice && (
           <div className="grid w-full max-w-lg gap-2">
-            {choice.options.map((opt) => (
+            {choice.options.map((opt, i) => (
               <Button
                 key={opt}
                 variant="outline"
-                className="h-auto justify-start whitespace-normal py-3 text-left"
+                className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
                 onClick={() => submitChoice(opt)}
                 disabled={busy}
               >
-                {opt}
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
+                  {opt}
+                </span>
               </Button>
             ))}
           </div>
@@ -705,8 +715,7 @@ function AiDrillView(props: ModeViewProps) {
         <div className="flex max-w-lg items-start gap-2 rounded-md bg-amber-500/10 p-3 text-left text-sm text-amber-600">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <p>
-            顽固词 · 已自动进入 AI 深度攻克。请使用下方 AI 学习助手多轮练习；
-            完成 AI 判分确认评分后继续，或跳过 AI 直接手动评分。
+            顽固词 · 用下方 AI 助手多轮攻克，或直接手动评分
           </p>
         </div>
       </div>
