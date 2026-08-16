@@ -9,6 +9,7 @@ const TITLES: Record<string, string> = {
   "/stats": "统计",
   "/settings": "设置",
   "/study": "学习",
+  "/weak-words": "弱词本",
 };
 
 export default function Header() {

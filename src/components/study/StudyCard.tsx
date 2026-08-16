@@ -381,147 +381,42 @@ function ActiveRecallView(props: ModeViewProps) {
   );
 }
 
-// ============ 3. 新卡教学（先教后测） ============
+// ============ 3. 新卡教学（先教，延迟突击测试） ============
 
 function NewCardTeachView(props: ModeViewProps) {
-  const { row, config, ratingMode, preview, busy, distractors, onReveal, onRate, onRateReadyChange } = props;
-  const [phase, setPhase] = useState<"teach" | "check">("teach");
-  const [typed, setTyped] = useState("");
-  const [checked, setChecked] = useState<boolean | null>(null);
+  const { row, config, busy, distractors, onRate, onRateReadyChange } = props;
 
-  // P2-⑦：识别先于产出——新卡首测为「看单词选释义」，选项不足时回退拼写
-  const options = useMemo(() => {
-    const pool: string[] = [];
-    for (const d of distractors) {
-      const b = d.back.trim();
-      if (b && b !== row.back && !pool.includes(b)) pool.push(b);
-      if (pool.length >= 3) break;
-    }
-    return shuffle([row.back, ...pool]);
-  }, [distractors, row.back]);
-  const useChoice = options.length >= 2;
-
+  // 教学阶段不允许快捷键评分；点击「开始记忆」后按 Good 进入 Learning（1m），
+  // 由 FSRS 步骤在稍后队列末尾触发突击测试，而不是当场测试。
   useEffect(() => {
-    onRateReadyChange(phase === "check" && checked !== null && !busy);
-  }, [phase, checked, busy, onRateReadyChange]);
+    onRateReadyChange(false);
+  }, [busy, onRateReadyChange]);
 
-  const startCheck = () => {
-    setTyped("");
-    setChecked(null);
-    setPhase("check");
+  const handleStartMemory = () => {
+    if (busy) return;
+    onRate(3);
   };
-
-  const submitChoice = (opt: string) => {
-    if (checked !== null || busy) return;
-    setChecked(opt.trim() === row.back.trim());
-    onReveal();
-  };
-
-  const submitSpell = () => {
-    if (!typed.trim() || checked !== null || busy) return;
-    setChecked(typed.trim().toLowerCase() === row.front.trim().toLowerCase());
-    onReveal();
-  };
-
-  if (phase === "teach") {
-    return (
-      <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
-        <CardMetaBadges row={row} />
-        <div className="text-center text-4xl font-bold break-words">{row.front}</div>
-        <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
-          {row.back}
-        </div>
-        {config.showMarkdown && (
-          <div className="w-full max-w-lg">
-            <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
-          </div>
-        )}
-        <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-        <p className="text-sm text-muted-foreground">
-          先看释义与语境，再开始测试
-        </p>
-        <Button size="lg" onClick={startCheck}>
-          <BookOpen className="size-4" />
-          开始记忆测试
-        </Button>
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
-        <CardMetaBadges row={row} />
-        <p className="text-sm text-muted-foreground">
-          {useChoice ? "选择正确释义" : "拼写单词"}
-        </p>
-        <div className="text-center text-3xl font-bold break-words">{row.front}</div>
-
-        {checked === null && useChoice && (
-          <div className="grid w-full max-w-lg gap-2">
-            {options.map((opt) => (
-              <Button
-                key={opt}
-                variant="outline"
-                className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
-                onClick={() => submitChoice(opt)}
-                disabled={busy}
-              >
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {String.fromCharCode(65 + options.indexOf(opt))}
-                </span>
-                <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
-                  {opt}
-                </span>
-              </Button>
-            ))}
-          </div>
-        )}
-
-        {checked === null && !useChoice && (
-          <>
-            <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">{row.back}</div>
-            <div className="flex w-full max-w-md gap-2">
-              <Input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                placeholder="输入英文单词…"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitSpell();
-                }}
-                autoFocus
-              />
-              <Button onClick={submitSpell} disabled={!typed.trim() || busy}>
-                检查答案
-              </Button>
-            </div>
-          </>
-        )}
-
-        {checked !== null && (
-          <div
-            className={cn(
-              "w-full max-w-md rounded-lg border p-3 text-sm",
-              checked ? "border-green-500/40 bg-green-500/10" : "border-red-500/40 bg-red-500/10"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              {checked ? (
-                <CheckCircle2 className="size-4 text-green-500" />
-              ) : (
-                <XCircle className="size-4 text-red-500" />
-              )}
-              <span className="font-medium">{checked ? "回答正确" : "回答错误"}</span>
-            </div>
-            <p className="mt-1">
-              正确答案：<span className="font-semibold">{row.back}</span>
-            </p>
-          </div>
-        )}
+    <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
+      <CardMetaBadges row={row} />
+      <div className="text-center text-4xl font-bold break-words">{row.front}</div>
+      <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
+        {row.back}
       </div>
-      {checked !== null && (
-        <RatingButtons ratingMode={ratingMode} preview={preview} busy={busy} onRate={onRate} />
+      {config.showMarkdown && (
+        <div className="w-full max-w-lg">
+          <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
+        </div>
       )}
+      <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
+      <p className="text-sm text-muted-foreground">
+        先看释义与语境；开始记忆后，稍后会随队列突击测试
+      </p>
+      <Button size="lg" onClick={handleStartMemory} disabled={busy}>
+        <BookOpen className="size-4" />
+        开始记忆
+      </Button>
     </div>
   );
 }

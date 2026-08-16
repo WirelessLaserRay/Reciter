@@ -226,7 +226,7 @@ export default function QuizSession({
           if (q?.question) {
             const adapted = adaptAIQuestion(q.question, it.type, it.card.front, it.card.back);
             it.aiQuestion = adapted.prompt;
-            it.aiOptions = adapted.options;
+            it.aiOptions = adapted.options ? shuffle(adapted.options) : null;
             it.explanation = adapted.explanation;
             it.aiRaw = adapted.aiRaw;
             it.aiType = genType;

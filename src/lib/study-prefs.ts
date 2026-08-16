@@ -99,3 +99,13 @@ export async function getLearningSteps(): Promise<string> {
 export async function saveLearningSteps(steps: string): Promise<void> {
   await db.setSetting("learning_steps", steps.trim());
 }
+
+/** 词库乱序学习开关（按词库存储） */
+export async function getDeckShuffle(deckId: number): Promise<boolean> {
+  const raw = await db.getSetting(`deck_shuffle_${deckId}`);
+  return raw === "true";
+}
+
+export async function saveDeckShuffle(deckId: number, enabled: boolean): Promise<void> {
+  await db.setSetting(`deck_shuffle_${deckId}`, enabled ? "true" : "false");
+}

@@ -3,7 +3,7 @@ import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
-import { getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
+import { getDeckShuffle, getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
 
 export interface QueueItem {
   row: StudyCardRow;
@@ -43,6 +43,16 @@ export function insertByDue(queue: QueueItem[], item: QueueItem): void {
     else hi = mid;
   }
   queue.splice(lo, 0, item);
+}
+
+/** Fisher-Yates 洗牌（词库乱序学习） */
+export function shuffleRows<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 interface StudyState {
@@ -117,7 +127,13 @@ export const useStudyStore = create<StudyState>((set, get) => ({
 
       // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）
       const interleaveRatio = await getInterleaveRatio();
-      const ordered = interleaveQueue(due, fresh, interleaveRatio);
+      let ordered = interleaveQueue(due, fresh, interleaveRatio);
+
+      // 4. 词库乱序学习：按词库偏好打乱整个队列
+      if (await getDeckShuffle(deckId)) {
+        ordered = shuffleRows(ordered);
+      }
+
       const queue: QueueItem[] = ordered.map((row) => ({ row, shownAt: Date.now() }));
       set({
         deckId,

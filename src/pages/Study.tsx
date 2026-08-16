@@ -11,6 +11,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
+  Shuffle,
   Sparkles,
   Star,
   Tag,
@@ -24,11 +25,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
 import { getAIConfig } from "@/lib/ai-client";
-import { getActiveRecallEnabled, getLearningSteps, getQuickTestMs, getRatingMode, getSummaryInterval } from "@/lib/study-prefs";
+import {
+  getActiveRecallEnabled,
+  getDeckShuffle,
+  getLearningSteps,
+  getQuickTestMs,
+  getRatingMode,
+  getSummaryInterval,
+  saveDeckShuffle,
+} from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -640,6 +650,7 @@ function TagPicker({
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [total, setTotal] = useState(0);
   const [keyCount, setKeyCount] = useState(0);
+  const [shuffle, setShuffle] = useState(false);
 
   useEffect(() => {
     db.getDeckTagsWithCount(deckId)
@@ -649,7 +660,13 @@ function TagPicker({
       })
       .catch(() => {});
     db.getDeckKeyCount(deckId).then(setKeyCount).catch(() => {});
+    getDeckShuffle(deckId).then(setShuffle).catch(() => {});
   }, [deckId]);
+
+  const toggleShuffle = async (v: boolean) => {
+    setShuffle(v);
+    await saveDeckShuffle(deckId, v).catch(() => {});
+  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -701,6 +718,16 @@ function TagPicker({
           {tags.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">该词库暂无标签，将学习全部卡片</p>
           )}
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+            <div className="space-y-0.5">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <Shuffle className="size-3.5 text-muted-foreground" />
+                乱序学习
+              </p>
+              <p className="text-xs text-muted-foreground">打乱本词库的新卡与复习卡顺序（按词库记忆）</p>
+            </div>
+            <Switch checked={shuffle} onCheckedChange={(v) => void toggleShuffle(v)} />
+          </div>
         </CardContent>
       </Card>
     </div>
