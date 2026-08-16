@@ -432,7 +432,7 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="interleave-ratio">新卡交错比例（P0-①）</Label>
+                <Label htmlFor="interleave-ratio">新卡交错比例</Label>
                 <div className="flex items-center gap-2">
                   <Input
                     id="interleave-ratio"
@@ -450,7 +450,7 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="quick-test-seconds">熟练卡秒答阈值（P2-⑨）</Label>
+                <Label htmlFor="quick-test-seconds">熟练卡秒答阈值</Label>
                 <div className="flex items-center gap-2">
                   <Input
                     id="quick-test-seconds"
@@ -468,7 +468,7 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="learning-steps">学习步骤（P3-⑪）</Label>
+                <Label htmlFor="learning-steps">学习步骤</Label>
                 <Input
                   id="learning-steps"
                   type="text"
