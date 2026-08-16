@@ -61,9 +61,9 @@
 
 ### 3.1 路径与工具链
 
-- 项目根：`F:\AI\Reciter`；安装脚本/日志：``.install/``（gitignored，可自由存放测试文件）
-- Node 22.17.1 / npm 10.9.2 / Rust 1.97.1（`C:\Users\ukcwx\.cargo`，PATH 需手动加 `$env:USERPROFILE\.cargo\bin`）
-- MSVC Build Tools 已装（VS2022，cl.exe 就绪）；gh CLI：`C:\Program Files\GitHub CLI\gh.exe`（**不在 PATH**，用全路径）
+- 项目根：`<项目根目录>`；安装脚本/日志：``.install/``（gitignored，可自由存放测试文件）
+- Node 22.17.1 / npm 10.9.2 / Rust 1.97.1（`%USERPROFILE%\.cargo`，PATH 需手动加 `$env:USERPROFILE\.cargo\bin`）
+- MSVC Build Tools 已装（VS2022，cl.exe 就绪）；gh CLI：`%ProgramFiles%\GitHub CLI\gh.exe`（**不在 PATH**，用全路径）
 - **Vite 端口 14210**（非 1420！1420 在 Windows 保留端口区间，绑定报 EACCES）
 
 ### 3.2 网络与代理（最大坑）
@@ -75,7 +75,7 @@
 ```powershell
 $env:HTTP_PROXY=''; $env:HTTPS_PROXY=''; $env:ALL_PROXY=''
 $env:http_proxy=''; $env:https_proxy=''; $env:all_proxy=''
-& 'C:\Program Files\GitHub CLI\gh.exe' <command>
+& '%ProgramFiles%\GitHub CLI\gh.exe' <command>
 ```
 
 - GitHub API 直连验证：`curl.exe --noproxy "*" -s https://api.github.com/...`

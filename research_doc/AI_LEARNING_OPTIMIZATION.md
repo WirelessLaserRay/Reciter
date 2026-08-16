@@ -48,7 +48,7 @@
 
 #### 痛点 ① AI 深度复习 = 一次性出题机器，而非学习伙伴
 
-**现状**：[`AIDeepReviewDialog.tsx`](file:///F:/AI/Reciter/src/components/ai/AIDeepReviewDialog.tsx) 的流程是：
+**现状**：[`AIDeepReviewDialog.tsx`](src/components/ai/AIDeepReviewDialog.tsx) 的流程是：
 
 ```
 idle → 选题型（例句/语境题） → 等待 AI 生成 → 用户文本作答 → AI 判分 → 确认评分 → 关闭
@@ -66,7 +66,7 @@ idle → 选题型（例句/语境题） → 等待 AI 生成 → 用户文本�
 
 #### 痛点 ② AI 题目质量不稳定，模板输出格式脆弱
 
-**现状**：[`ai-prompts.ts`](file:///F:/AI/Reciter/src/lib/ai-prompts.ts) 使用固定模板 + `**标签**: 内容` 格式。[`ai-adapter.ts`](file:///F:/AI/Reciter/src/lib/ai-adapter.ts) 用正则解析。
+**现状**：[`ai-prompts.ts`](src/lib/ai-prompts.ts) 使用固定模板 + `**标签**: 内容` 格式。[`ai-adapter.ts`](src/lib/ai-adapter.ts) 用正则解析。
 
 **问题**：
 - 不同 AI 模型（DeepSeek vs Ollama vs GPT）的输出格式差异大，正则经常匹配失败
@@ -120,7 +120,7 @@ Dashboard → 点击"开始学习" → 选择词库 → 选择标签范围 → �
 
 #### 痛点 ⑥ 翻卡片模式过于传统，认知负担高
 
-**现状**：[`Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx) 的学习交互：
+**现状**：[`Study.tsx`](src/pages/Study.tsx) 的学习交互：
 
 ```
 显示单词正面 → 点击"显示答案" → 3D 翻转看释义 → 四档评分（忘了/困难/良好/简单）
@@ -332,7 +332,7 @@ Dashboard 改造：
 
 ##### 步骤 A-1: 数据库新增「学习偏好」字段
 
-**涉及文件**：[`src/lib/sql/`](file:///F:/AI/Reciter/src/lib/sql) 新建迁移 + [`migrations.ts`](file:///F:/AI/Reciter/src/lib/migrations.ts)
+**涉及文件**：[`src/lib/sql/`](src/lib/sql) 新建迁移 + [`migrations.ts`](src/lib/migrations.ts)
 
 ```sql
 -- src-tauri/migrations/004_study_prefs.sql（新建）
@@ -346,8 +346,8 @@ Dashboard 改造：
 ```
 
 操作：
-1. 在 [`migrations.ts`](file:///F:/AI/Reciter/src/lib/migrations.ts) 的 `MIGRATIONS` 数组末尾追加 `004_study_prefs` 条目
-2. 利用 `db.setSetting()` / `db.getSetting()` 读写，无需修改 [`db.ts`](file:///F:/AI/Reciter/src/lib/db.ts) 的接口
+1. 在 [`migrations.ts`](src/lib/migrations.ts) 的 `MIGRATIONS` 数组末尾追加 `004_study_prefs` 条目
+2. 利用 `db.setSetting()` / `db.getSetting()` 读写，无需修改 [`db.ts`](src/lib/db.ts) 的接口
 
 ##### 步骤 A-2: 新增学习偏好工具库
 
@@ -364,7 +364,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-3: Dashboard 智能推荐改造
 
-**修改文件**：[`src/pages/Dashboard.tsx`](file:///F:/AI/Reciter/src/pages/Dashboard.tsx)
+**修改文件**：[`src/pages/Dashboard.tsx`](src/pages/Dashboard.tsx)
 
 改动清单：
 1. 导入 `getLastStudyContext`、`db.getDueCountByDeck`（需在 db.ts 新增）
@@ -377,7 +377,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-4: useStudyStore 保存学习上下文
 
-**修改文件**：[`src/stores/useStudyStore.ts`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts)
+**修改文件**：[`src/stores/useStudyStore.ts`](src/stores/useStudyStore.ts)
 
 改动清单：
 1. 在 `loadQueue` 函数成功加载后，调用 `saveLastStudyContext(deckId, tag, keyOnly)`
@@ -396,7 +396,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-5: 三档评分 UI
 
-**修改文件**：[`src/pages/Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx)
+**修改文件**：[`src/pages/Study.tsx`](src/pages/Study.tsx)
 
 改动清单：
 1. 导入 `getRatingMode` 并在组件中用 `useState` 加载当前模式
@@ -414,7 +414,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-6: 主动回忆模式
 
-**修改文件**：[`src/pages/Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx)
+**修改文件**：[`src/pages/Study.tsx`](src/pages/Study.tsx)
 
 改动清单：
 1. 新增组件内状态：
@@ -438,7 +438,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-7: 学习会话节奏 — 迷你小结
 
-**修改文件**：[`src/pages/Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx)
+**修改文件**：[`src/pages/Study.tsx`](src/pages/Study.tsx)
 
 改动清单：
 1. 新建内部组件 `SessionMiniSummary`：
@@ -459,7 +459,7 @@ export async function getSummaryInterval(): Promise<number>       // 默认 10
 
 ##### 步骤 A-8: 设置页新增学习偏好区
 
-**修改文件**：[`src/pages/Settings.tsx`](file:///F:/AI/Reciter/src/pages/Settings.tsx)
+**修改文件**：[`src/pages/Settings.tsx`](src/pages/Settings.tsx)
 
 改动清单：
 1. 在「学习设置」Tab 中新增三个控件：
@@ -601,7 +601,7 @@ const SYSTEM_PROMPT = `
 
 ##### 步骤 B-1: AI Prompt 重构为 JSON 结构化输出
 
-**修改文件**：[`src/lib/ai-prompts.ts`](file:///F:/AI/Reciter/src/lib/ai-prompts.ts)
+**修改文件**：[`src/lib/ai-prompts.ts`](src/lib/ai-prompts.ts)
 
 改动清单：
 1. 新增 `AIStrategy` 类型与策略专用 prompt：
@@ -618,7 +618,7 @@ const SYSTEM_PROMPT = `
 
 ##### 步骤 B-2: AI 响应解析层重构
 
-**修改文件**：[`src/lib/ai-adapter.ts`](file:///F:/AI/Reciter/src/lib/ai-adapter.ts) + [`src/lib/ai-parse.ts`](file:///F:/AI/Reciter/src/lib/ai-parse.ts)
+**修改文件**：[`src/lib/ai-adapter.ts`](src/lib/ai-adapter.ts) + [`src/lib/ai-parse.ts`](src/lib/ai-parse.ts)
 
 改动清单：
 1. 在 `ai-parse.ts` 中新增 JSON 安全解析函数：
@@ -671,7 +671,7 @@ export function buildLearnerContext(state: CardState): string {
 
 ##### 步骤 B-4: 弱词追踪 — 数据库查询
 
-**修改文件**：[`src/lib/db.ts`](file:///F:/AI/Reciter/src/lib/db.ts)
+**修改文件**：[`src/lib/db.ts`](src/lib/db.ts)
 
 新增方法：
 ```typescript
@@ -726,7 +726,7 @@ interface Props {
 
 ##### 步骤 B-6: 集成 AIChatPanel 到学习页面
 
-**修改文件**：[`src/pages/Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx)
+**修改文件**：[`src/pages/Study.tsx`](src/pages/Study.tsx)
 
 改动清单：
 1. 移除对 `AIDeepReviewDialog` 的引用（L38, L101, L337-L345, L352-L359）
@@ -754,13 +754,13 @@ interface Props {
 5. 每个弱词行有 「AI 攻克」按钮 → 打开 AIChatPanel（strategy = "deep_drill"）
 6. 批量选择 → 「一键 AI 攻克」 → 依次对选中词进行 deep_drill 会话
 
-**路由注册**：在 [`src/App.tsx`](file:///F:/AI/Reciter/src/App.tsx) 中新增 `/weak-words` 路由
+**路由注册**：在 [`src/App.tsx`](src/App.tsx) 中新增 `/weak-words` 路由
 
-**导航入口**：在 [`Sidebar.tsx`](file:///F:/AI/Reciter/src/components/layout/Sidebar.tsx) 的 `NAV_ITEMS` 中新增 `{ to: "/weak-words", label: "弱词本", icon: AlertTriangle }`
+**导航入口**：在 [`Sidebar.tsx`](src/components/layout/Sidebar.tsx) 的 `NAV_ITEMS` 中新增 `{ to: "/weak-words", label: "弱词本", icon: AlertTriangle }`
 
 ##### 步骤 B-8: Dashboard 弱词提醒
 
-**修改文件**：[`src/pages/Dashboard.tsx`](file:///F:/AI/Reciter/src/pages/Dashboard.tsx)
+**修改文件**：[`src/pages/Dashboard.tsx`](src/pages/Dashboard.tsx)
 
 改动清单：
 1. 在 `useEffect` 中调用 `db.getGlobalWeakCount()` 获取弱词总数
@@ -979,7 +979,7 @@ switch (modeConfig.mode) {
 
 ##### 步骤 C-3: Study.tsx 集成多模式引擎
 
-**修改文件**：[`src/pages/Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx)
+**修改文件**：[`src/pages/Study.tsx`](src/pages/Study.tsx)
 
 改动清单：
 1. 在 `StudySession` 顶部导入 `resolveStudyMode` + `StudyCard`
@@ -1023,9 +1023,9 @@ interface Props {
 
 ##### 步骤 C-5: 词库掌握度全景视图
 
-**修改文件**：[`src/pages/DeckDetail.tsx`](file:///F:/AI/Reciter/src/pages/DeckDetail.tsx)
+**修改文件**：[`src/pages/DeckDetail.tsx`](src/pages/DeckDetail.tsx)
 
-新增数据查询（[`db.ts`](file:///F:/AI/Reciter/src/lib/db.ts) 中新增方法）：
+新增数据查询（[`db.ts`](src/lib/db.ts) 中新增方法）：
 
 ```typescript
 /** 获取词库的掌握度分布 */
@@ -1067,7 +1067,7 @@ WHERE c.deck_id = ?
 
 ##### 步骤 C-6: 路由与导航整理
 
-**修改文件**：[`src/App.tsx`](file:///F:/AI/Reciter/src/App.tsx) + [`src/components/layout/Sidebar.tsx`](file:///F:/AI/Reciter/src/components/layout/Sidebar.tsx)
+**修改文件**：[`src/App.tsx`](src/App.tsx) + [`src/components/layout/Sidebar.tsx`](src/components/layout/Sidebar.tsx)
 
 改动清单：
 1. App.tsx 路由新增：

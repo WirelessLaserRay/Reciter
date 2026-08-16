@@ -1,13 +1,13 @@
 # Reciter 项目方案调研、评析与优化实施方案
 
-> 基于 [IDEA.md](file:///F:/AI/Reciter/IDEA.md) 与 [PLAN.md](file:///F:/AI/Reciter/PLAN.md) 的深度分析  
+> 基于 [IDEA.md](IDEA.md) 与 [PLAN.md](PLAN.md) 的深度分析  
 > 调研日期: 2026-08-14
 
 ---
 
 ## 一、现有方案总览
 
-[PLAN.md](file:///F:/AI/Reciter/PLAN.md) 已确定的技术栈：
+[PLAN.md](PLAN.md) 已确定的技术栈：
 
 | 层 | 选型 | 状态 |
 |---|---|---|
@@ -1032,7 +1032,7 @@ rustup target add i686-linux-android       # x86 模拟器
 rustup target add x86_64-linux-android     # x86_64 模拟器
 
 # ===== Step 5: Tauri Android 初始化 =====
-cd F:\AI\Reciter
+cd <项目根目录>
 npm run tauri android init
 ```
 
@@ -1082,7 +1082,7 @@ pub fn run() { ... }
 
 #### 7.3.4 capabilities 需新增移动端权限文件
 
-现有 [`default.json`](file:///F:/AI/Reciter/src-tauri/capabilities/default.json) 的 `$schema` 引用桌面 schema，需新增移动端 capability：
+现有 [`default.json`](src-tauri/capabilities/default.json) 的 `$schema` 引用桌面 schema，需新增移动端 capability：
 
 ```jsonc
 // src-tauri/capabilities/mobile.json（新建）
@@ -1124,7 +1124,7 @@ pub fn run() { ... }
 
 ### 7.4 代码适配：三个需要改动的模块
 
-#### 7.4.1 文件系统适配 — [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts)
+#### 7.4.1 文件系统适配 — [`backup.ts`](src/lib/backup.ts)
 
 **问题**：桌面端备份使用 `tauri-plugin-dialog` 的 `save()` 选择保存路径 + `invoke("write_text_file")` 写入任意文件路径。Android 沙箱不允许写入任意路径，`save()` 对话框在移动端不可用。
 
@@ -1178,7 +1178,7 @@ tauri-plugin-os = "2"     # 平台检测
 tauri-plugin-fs = "2"     # 移动端文件操作（appDataDir）
 ```
 
-#### 7.4.2 文件导入适配 — [`Import.tsx`](file:///F:/AI/Reciter/src/pages/Import.tsx)
+#### 7.4.2 文件导入适配 — [`Import.tsx`](src/pages/Import.tsx)
 
 **现状**：桌面端导入页使用 HTML5 `<input type="file">` + 拖拽 `onDrop`，通过浏览器 File API 读取文件内容（`FileReader`）。
 
@@ -1188,7 +1188,7 @@ tauri-plugin-fs = "2"     # 移动端文件操作（appDataDir）
 - ⚠️ 拖拽事件在触屏不可用，但导入按钮仍可触发文件选择
 - **改动极小**：仅需确保触控交互可达，无需改底层逻辑
 
-#### 7.4.3 Rust 自定义命令适配 — [`lib.rs`](file:///F:/AI/Reciter/src-tauri/src/lib.rs)
+#### 7.4.3 Rust 自定义命令适配 — [`lib.rs`](src-tauri/src/lib.rs)
 
 **问题**：`write_text_file` / `read_text_file` 使用 `std::fs::write/read_to_string` 写入用户指定的绝对路径，Android 沙箱限制文件访问。
 
@@ -1229,16 +1229,16 @@ tauri-plugin-fs = "2"     # 移动端文件操作（appDataDir）
 
 | 组件 | 改动内容 | 优先级 |
 |---|---|---|
-| [`MainLayout.tsx`](file:///F:/AI/Reciter/src/components/layout/MainLayout.tsx) | 响应式切换：桌面侧边栏 ↔ 移动底部标签栏 | P0 |
-| [`Sidebar.tsx`](file:///F:/AI/Reciter/src/components/layout/Sidebar.tsx) | 桌面保持不变；移动端隐藏，新建 `BottomTabBar` | P0 |
-| [`Header.tsx`](file:///F:/AI/Reciter/src/components/layout/Header.tsx) | 移动端显示页面标题 + 汉堡菜单（可选） | P1 |
-| [`Study.tsx`](file:///F:/AI/Reciter/src/pages/Study.tsx) | 卡片区域全屏化；四档评分按钮改为底部固定条 | P0 |
-| [`Dashboard.tsx`](file:///F:/AI/Reciter/src/pages/Dashboard.tsx) | 网格布局改为单列堆叠 | P1 |
-| [`DeckList.tsx`](file:///F:/AI/Reciter/src/pages/DeckList.tsx) | 卡片网格改为列表 | P1 |
-| [`DeckDetail.tsx`](file:///F:/AI/Reciter/src/pages/DeckDetail.tsx) | 表格改为卡片列表，按钮组紧凑化 | P1 |
-| [`Import.tsx`](file:///F:/AI/Reciter/src/pages/Import.tsx) | 移除拖拽区域交互，保留按钮触发 | P1 |
-| [`Stats.tsx`](file:///F:/AI/Reciter/src/pages/Stats.tsx) | 图表宽度 100%；热力图横向可滚动 | P2 |
-| [`Settings.tsx`](file:///F:/AI/Reciter/src/pages/Settings.tsx) | 表单布局改为全宽单列 | P2 |
+| [`MainLayout.tsx`](src/components/layout/MainLayout.tsx) | 响应式切换：桌面侧边栏 ↔ 移动底部标签栏 | P0 |
+| [`Sidebar.tsx`](src/components/layout/Sidebar.tsx) | 桌面保持不变；移动端隐藏，新建 `BottomTabBar` | P0 |
+| [`Header.tsx`](src/components/layout/Header.tsx) | 移动端显示页面标题 + 汉堡菜单（可选） | P1 |
+| [`Study.tsx`](src/pages/Study.tsx) | 卡片区域全屏化；四档评分按钮改为底部固定条 | P0 |
+| [`Dashboard.tsx`](src/pages/Dashboard.tsx) | 网格布局改为单列堆叠 | P1 |
+| [`DeckList.tsx`](src/pages/DeckList.tsx) | 卡片网格改为列表 | P1 |
+| [`DeckDetail.tsx`](src/pages/DeckDetail.tsx) | 表格改为卡片列表，按钮组紧凑化 | P1 |
+| [`Import.tsx`](src/pages/Import.tsx) | 移除拖拽区域交互，保留按钮触发 | P1 |
+| [`Stats.tsx`](src/pages/Stats.tsx) | 图表宽度 100%；热力图横向可滚动 | P2 |
+| [`Settings.tsx`](src/pages/Settings.tsx) | 表单布局改为全宽单列 | P2 |
 
 #### 7.5.3 响应式策略 — Tailwind 断点
 
@@ -1460,11 +1460,11 @@ Phase D: 测试 + 打包发布 (1~2 天)
 
 | 使用位置 | Tauri API | Android 支持 | 备注 |
 |---|---|---|---|
-| [`db.ts`](file:///F:/AI/Reciter/src/lib/db.ts) | `@tauri-apps/plugin-sql` (Database.load) | ✅ | SQLite 跨平台无差异 |
-| [`ai-client.ts`](file:///F:/AI/Reciter/src/lib/ai-client.ts) | `@tauri-apps/plugin-http` (fetch) | ✅ | HTTP 跨平台无差异 |
-| [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts) | `@tauri-apps/plugin-dialog` (open, save) | ⚠️ | `open()` 可用，`save()` 需适配 |
-| [`backup.ts`](file:///F:/AI/Reciter/src/lib/backup.ts) | `@tauri-apps/api/core` (invoke) | ✅ | 跨平台 IPC 无差异 |
-| [`lib.rs`](file:///F:/AI/Reciter/src-tauri/src/lib.rs) | `std::fs::write/read_to_string` | ⚠️ | 路径需限制在沙箱内 |
+| [`db.ts`](src/lib/db.ts) | `@tauri-apps/plugin-sql` (Database.load) | ✅ | SQLite 跨平台无差异 |
+| [`ai-client.ts`](src/lib/ai-client.ts) | `@tauri-apps/plugin-http` (fetch) | ✅ | HTTP 跨平台无差异 |
+| [`backup.ts`](src/lib/backup.ts) | `@tauri-apps/plugin-dialog` (open, save) | ⚠️ | `open()` 可用，`save()` 需适配 |
+| [`backup.ts`](src/lib/backup.ts) | `@tauri-apps/api/core` (invoke) | ✅ | 跨平台 IPC 无差异 |
+| [`lib.rs`](src-tauri/src/lib.rs) | `std::fs::write/read_to_string` | ⚠️ | 路径需限制在沙箱内 |
 
 ---
 
@@ -1473,7 +1473,7 @@ Phase D: 测试 + 打包发布 (1~2 天)
 移植后项目结构变为双目标共存，无需分仓：
 
 ```
-F:\AI\Reciter
+<项目根目录>
 ├── src/                          # React 前端（共用）
 │   ├── components/layout/
 │   │   ├── Sidebar.tsx           # 桌面端侧边栏

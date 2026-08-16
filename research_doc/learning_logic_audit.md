@@ -28,7 +28,7 @@
 
 ### 2.1 FSRS 算法集成 🟢
 
-**审计发现**（[`fsrs.ts`](file:///F:/AI/Reciter/src/lib/fsrs.ts)）：
+**审计发现**（[`fsrs.ts`](src/lib/fsrs.ts)）：
 
 | 检查项 | 状态 | 说明 |
 |---|---|---|
@@ -54,7 +54,7 @@
 
 ### 2.2 队列排序策略 🟡
 
-**审计发现**（[`db.ts:509`](file:///F:/AI/Reciter/src/lib/db.ts#L509) + [`useStudyStore.ts:84`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L84)）：
+**审计发现**（[`db.ts:509`](src/lib/db.ts#L509) + [`useStudyStore.ts:84`](src/stores/useStudyStore.ts#L84)）：
 
 当前排序逻辑：
 ```sql
@@ -88,7 +88,7 @@ const queue = [...due, ...fresh].map(row => ({ row, shownAt: Date.now() }));
 
 ### 2.3 主动回忆实现 🟢
 
-**审计发现**（[`StudyCard.tsx:224-323`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx#L224) + [`recall-match.ts`](file:///F:/AI/Reciter/src/lib/recall-match.ts)）：
+**审计发现**（[`StudyCard.tsx:224-323`](src/components/study/StudyCard.tsx#L224) + [`recall-match.ts`](src/lib/recall-match.ts)）：
 
 | 检查项 | 状态 | 说明 |
 |---|---|---|
@@ -114,7 +114,7 @@ const queue = [...due, ...fresh].map(row => ({ row, shownAt: Date.now() }));
 
 **审计发现**：
 
-当前队列结构（[`useStudyStore.ts:84`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L84)）：
+当前队列结构（[`useStudyStore.ts:84`](src/stores/useStudyStore.ts#L84)）：
 ```
 [due_1, due_2, ..., due_N, new_1, new_2, ..., new_M]
 ```
@@ -133,7 +133,7 @@ const queue = [...due, ...fresh].map(row => ({ row, shownAt: Date.now() }));
 
 ### 2.5 上下文记忆 🟡
 
-**审计发现**（[`study-mode.ts:41`](file:///F:/AI/Reciter/src/lib/study-mode.ts#L41) + [`MarkdownContext.tsx`](file:///F:/AI/Reciter/src/components/study/MarkdownContext.tsx)）：
+**审计发现**（[`study-mode.ts:41`](src/lib/study-mode.ts#L41) + [`MarkdownContext.tsx`](src/components/study/MarkdownContext.tsx)）：
 
 | 场景 | `showMarkdown` | 是否展示原文语境 |
 |---|---|---|
@@ -157,7 +157,7 @@ const queue = [...due, ...fresh].map(row => ({ row, shownAt: Date.now() }));
 
 ### 2.6 Leech 管理 🟡
 
-**审计发现**（[`study-mode.ts:36`](file:///F:/AI/Reciter/src/lib/study-mode.ts#L36) + [`useStudyStore.ts:138-140`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L138)）：
+**审计发现**（[`study-mode.ts:36`](src/lib/study-mode.ts#L36) + [`useStudyStore.ts:138-140`](src/stores/useStudyStore.ts#L138)）：
 
 当前弱词判定：
 ```typescript
@@ -185,7 +185,7 @@ weakWords: grade === Rating.Again
 
 ### 2.7 新卡教学流程 🟢
 
-**审计发现**（[`StudyCard.tsx:328-425`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx#L328) `NewCardTeachView`）：
+**审计发现**（[`StudyCard.tsx:328-425`](src/components/study/StudyCard.tsx#L328) `NewCardTeachView`）：
 
 教学流程：
 ```
@@ -215,7 +215,7 @@ weakWords: grade === Rating.Again
 
 ### 2.8 快速测试（熟练卡） 🟢
 
-**审计发现**（[`StudyCard.tsx:429-545`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx#L429) `QuickTestView`）：
+**审计发现**（[`StudyCard.tsx:429-545`](src/components/study/StudyCard.tsx#L429) `QuickTestView`）：
 
 ```typescript
 const QUICK_MS = 8000; // 秒答阈值
@@ -234,7 +234,7 @@ const QUICK_MS = 8000; // 秒答阈值
 
 ### 2.9 Learning/Again 重插逻辑
 
-**审计发现**（[`useStudyStore.ts:143-153`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L143)）：
+**审计发现**（[`useStudyStore.ts:143-153`](src/stores/useStudyStore.ts#L143)）：
 
 ```typescript
 const reinsert = newFsrs.state === State.Learning || grade === Rating.Again;
@@ -255,7 +255,7 @@ if (reinsert) {
 
 ### 改进 ① 队列交错：新卡穿插到复习卡中
 
-**涉及文件**：[`useStudyStore.ts`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts)
+**涉及文件**：[`useStudyStore.ts`](src/stores/useStudyStore.ts)
 
 ```typescript
 // 现有：[...due, ...fresh]
@@ -284,7 +284,7 @@ function interleave(due: StudyCardRow[], fresh: StudyCardRow[], ratio = 5): Stud
 
 ### 改进 ② Again 卡按 due 时间插入正确位置
 
-**涉及文件**：[`useStudyStore.ts`](file:///F:/AI/Reciter/src/stores/useStudyStore.ts)
+**涉及文件**：[`useStudyStore.ts`](src/stores/useStudyStore.ts)
 
 ```typescript
 // 现有：queueNext.push(cur); // 插入队尾
@@ -308,7 +308,7 @@ function insertByDue(queue: QueueItem[], item: QueueItem): void {
 
 ### 改进 ③ 复习卡按 retrievability 排序
 
-**涉及文件**：[`db.ts`](file:///F:/AI/Reciter/src/lib/db.ts) — `getDueCards` 方法
+**涉及文件**：[`db.ts`](src/lib/db.ts) — `getDueCards` 方法
 
 ```sql
 -- 现有：ORDER BY cs.due ASC, c.id ASC
@@ -332,7 +332,7 @@ ORDER BY
 
 ### 改进 ④ 主动回忆增加时限提示
 
-**涉及文件**：[`StudyCard.tsx`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx) — `ActiveRecallView`
+**涉及文件**：[`StudyCard.tsx`](src/components/study/StudyCard.tsx) — `ActiveRecallView`
 
 ```typescript
 // 在 "prompt" 阶段启动 10 秒计时器
@@ -358,7 +358,7 @@ useEffect(() => {
 
 ### 改进 ⑤ Leech 阈值提高 + 自动暂停机制
 
-**涉及文件**：[`study-mode.ts`](file:///F:/AI/Reciter/src/lib/study-mode.ts) + [`review.ts`](file:///F:/AI/Reciter/src/lib/review.ts)
+**涉及文件**：[`study-mode.ts`](src/lib/study-mode.ts) + [`review.ts`](src/lib/review.ts)
 
 ```typescript
 // study-mode.ts: 阈值从 2 提高到 4
@@ -383,7 +383,7 @@ export async function applyReview(...) {
 
 ### 改进 ⑥ 复习卡也展示语境（翻转后）
 
-**涉及文件**：[`study-mode.ts`](file:///F:/AI/Reciter/src/lib/study-mode.ts)
+**涉及文件**：[`study-mode.ts`](src/lib/study-mode.ts)
 
 ```typescript
 // 所有模式在评分阶段（已翻转/已回忆后）都可展示 markdown
@@ -407,7 +407,7 @@ export async function applyReview(...) {
 
 ### 改进 ⑦ 新卡首测改为识别题（选择题），非拼写
 
-**涉及文件**：[`StudyCard.tsx`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx) — `NewCardTeachView`
+**涉及文件**：[`StudyCard.tsx`](src/components/study/StudyCard.tsx) — `NewCardTeachView`
 
 ```
 当前：教学 → 根据释义拼写单词（高难度）
@@ -424,7 +424,7 @@ export async function applyReview(...) {
 
 ### 改进 ⑧ 干扰项池扩大
 
-**涉及文件**：[`StudyCard.tsx`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx) — `QuickTestView`
+**涉及文件**：[`StudyCard.tsx`](src/components/study/StudyCard.tsx) — `QuickTestView`
 
 ```typescript
 // 现有：从当前队列取干扰项（可能很少）
@@ -440,7 +440,7 @@ async getRandomCards(deckId: number, exclude: number, count: number): Promise<{b
 
 ### 改进 ⑨ 快速测试秒答阈值调整
 
-**涉及文件**：[`StudyCard.tsx`](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx)
+**涉及文件**：[`StudyCard.tsx`](src/components/study/StudyCard.tsx)
 
 ```typescript
 const QUICK_MS = 5000; // 从 8 秒降为 5 秒
@@ -452,7 +452,7 @@ const QUICK_MS = 5000; // 从 8 秒降为 5 秒
 
 ### 改进 ⑩ recall-match 比对逻辑增强
 
-**涉及文件**：[`recall-match.ts`](file:///F:/AI/Reciter/src/lib/recall-match.ts)
+**涉及文件**：[`recall-match.ts`](src/lib/recall-match.ts)
 
 ```typescript
 // 问题：back = "vt. 放弃; 抛弃; abandon oneself to sth. 沉湎于"
@@ -473,7 +473,7 @@ function splitMeanings(back: string): string[] {
 
 ### 改进 ⑪ 学习步骤可配置
 
-**涉及文件**：[`fsrs.ts`](file:///F:/AI/Reciter/src/lib/fsrs.ts) + [`Settings.tsx`](file:///F:/AI/Reciter/src/pages/Settings.tsx)
+**涉及文件**：[`fsrs.ts`](src/lib/fsrs.ts) + [`Settings.tsx`](src/pages/Settings.tsx)
 
 FSRS 社区建议：**短且少的学习步骤**（如 `1m, 10m`），让 FSRS 从第二天开始接管调度。多日学习步骤（如 `1d`）会干扰 FSRS 的动态调度。
 
@@ -494,7 +494,7 @@ const params = generatorParameters({
 
 ### 改进 ⑫ 目标记忆率场景预设
 
-**涉及文件**：[`Settings.tsx`](file:///F:/AI/Reciter/src/pages/Settings.tsx)
+**涉及文件**：[`Settings.tsx`](src/pages/Settings.tsx)
 
 ```
 当前：手动拖动滑块 0.80 - 0.95

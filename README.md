@@ -96,7 +96,7 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools --exact ^
   --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 
 # 3. 项目依赖
-cd F:\AI\Reciter
+cd <项目根目录>
 npm install
 ```
 
@@ -118,7 +118,7 @@ npm install
 ## 📁 项目结构
 
 ```
-F:\AI\Reciter
+<项目根目录>
 ├── IDEA.md / PLAN.md / ANALYSIS.md   # 需求 / 方案 / 实施方案
 ├── CHANGELOG.md                      # 项目改动跟踪（Keep a Changelog）
 ├── README.md                         # 本文档
