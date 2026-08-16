@@ -22,6 +22,24 @@
 
 ---
 
+## [0.14.2] - 2026-08-15
+
+### Fixed
+
+- **新卡反复出现**：`updateCardState` 白名单遗漏 `learning_steps`，导致 Learning 步骤进度从不入库，每次评分都退回第一步、卡片被反复插入队列；现正确持久化，新卡按 1m → 10m → Review（约 2 天）推进
+- **同族词误判**：词族匹配改为「词干完全相等」判定，移除前缀包含兜底（修复 journey ↔ journal 等误报）
+
+### Changed
+
+- AI 学习助手移除未使用的快捷按钮（帮我讲解 / 换个方式练 / 下一个词），只保留消息输入、发送与 AI 判分
+
+### Verified
+
+- ✅ `npm run build` 通过
+- ✅ `.install/6c-test.ts` 全过，新增：learning_steps 持久化推进、journey/journal 不误判
+
+---
+
 ## [0.14.1] - 2026-08-15
 
 ### Fixed

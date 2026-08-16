@@ -400,7 +400,8 @@ class ReciterDB {
     const params: (string | number | null)[] = [];
     const allowed = [
       "state", "stability", "difficulty", "due", "last_review",
-      "elapsed_days", "scheduled_days", "reps", "lapses", "desired_retention", "algorithm_version",
+      "elapsed_days", "scheduled_days", "learning_steps", "reps", "lapses",
+      "desired_retention", "algorithm_version",
     ] as const;
     for (const key of allowed) {
       const v = (state as Record<string, unknown>)[key];

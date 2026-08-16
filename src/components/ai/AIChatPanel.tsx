@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  RefreshCw,
   Send,
   Sparkles,
 } from "lucide-react";
@@ -62,7 +61,6 @@ interface AIChatPanelProps {
   embedded?: boolean;
   /** AI 判分确认后回调；question/answer 为最近一次判分的题目与用户回答 */
   onGradeDecided?: (grade: 1 | 2 | 3 | 4, question?: string, answer?: string) => void;
-  onNext?: () => void;
   defaultExpanded?: boolean;
 }
 
@@ -80,7 +78,6 @@ export default function AIChatPanel({
   strategyOverride,
   embedded = false,
   onGradeDecided,
-  onNext,
   defaultExpanded = false,
 }: AIChatPanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -234,17 +231,6 @@ export default function AIChatPanel({
       setMessages((prev) => prev.slice(0, -1));
     } finally {
       setBusy(false);
-    }
-  };
-
-  const handleExplain = () => void sendText("请帮我详细讲解这个词");
-  const handleSwitchPractice = () => void sendText("请用另一种方式出题");
-
-  const handleNext = () => {
-    if (onNext) {
-      onNext();
-    } else if (onGradeDecided) {
-      onGradeDecided(3);
     }
   };
 
@@ -435,20 +421,6 @@ export default function AIChatPanel({
                 <BookOpen className="size-4" />
               </Button>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" onClick={handleExplain} disabled={busy || !client?.isReady}>
-              <BookOpen className="size-3.5" />
-              帮我讲解
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleSwitchPractice} disabled={busy || !client?.isReady}>
-              <RefreshCw className="size-3.5" />
-              换个方式练
-            </Button>
-            <Button size="sm" variant="ghost" onClick={handleNext} disabled={busy}>
-              下一个词
-            </Button>
           </div>
         </div>
       )}

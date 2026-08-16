@@ -435,7 +435,6 @@ function StudySession({
       onGradeDecided={(grade, question, answer) =>
         handleAIComplete(grade, question ?? "", answer ?? "")
       }
-      onNext={() => handleAIComplete(3, "", "")}
     />
   );
 
