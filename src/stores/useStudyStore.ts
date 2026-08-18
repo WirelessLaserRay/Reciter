@@ -9,6 +9,8 @@ export interface QueueItem {
   row: StudyCardRow;
   /** 计时起点（本次显示时间，用于 response_time_ms） */
   shownAt: number;
+  /** 新卡已进入延迟突击测试（首次教学后重插的那条）；测试后再评分不再重插，避免队尾反复出现 */
+  tested?: boolean;
 }
 
 /**
@@ -193,12 +195,15 @@ export const useStudyStore = create<StudyState>((set, get) => ({
           : get().stats.weakWords,
     };
 
-    // Learning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）
-    const reinsert = newFsrs.state === State.Learning || grade === Rating.Again;
+    // Learning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）。
+    // 已标记 tested 的卡（新卡突击测试后）即使仍处于 Learning 也不再重插当前会话，避免队尾反复出现。
+    const reinsert =
+      grade === Rating.Again || (newFsrs.state === State.Learning && !item.tested);
     let queueNext = [...get().queue];
     if (reinsert) {
       const updated: QueueItem = {
         ...item,
+        tested: true,
         row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
         shownAt: Date.now(),
       };

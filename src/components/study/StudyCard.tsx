@@ -123,7 +123,10 @@ function RatingButtons({
               <Button
                 variant={r.grade === 1 ? "destructive" : "outline"}
                 className={cn(
-                  "h-auto min-h-24 w-full min-w-0 flex-col gap-1.5 px-2 py-4 disabled:opacity-60"
+                  "h-auto min-h-24 w-full min-w-0 flex-col gap-1.5 px-2 py-4 disabled:opacity-60",
+                  r.grade === 2 && "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20",
+                  r.grade === 3 && "border-green-500/50 bg-green-500/10 text-green-600 hover:bg-green-500/20",
+                  r.grade === 4 && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
                 )}
                 disabled={busy}
                 onClick={() => onRate(r.grade)}

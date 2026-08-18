@@ -563,16 +563,22 @@ export default function QuizSession({
                 <p className="text-xs text-muted-foreground">💡 {item.explanation}</p>
               )}
 
-              {/* 掌握度评价 */}
+              {/* 掌握度评价（红=忘记 / 黄=模糊 / 绿=掌握，掌握恒在最右） */}
               {isFill ? (
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted-foreground">请评价你的掌握度：</p>
                   <div className="grid grid-cols-3 gap-2">
-                    {(Object.keys(MASTERY_META) as Mastery[]).map((m) => (
+                    {(["forgot", "fuzzy", "mastered"] as Mastery[]).map((m) => (
                       <Button
                         key={m}
                         size="sm"
-                        variant={item.mastery === m ? "default" : "outline"}
+                        variant="outline"
+                        className={cn(
+                          m === "forgot" && "border-red-500/50 bg-red-500/10 text-red-600 hover:bg-red-500/20",
+                          m === "fuzzy" && "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20",
+                          m === "mastered" && "border-green-600/60 bg-green-600 text-white hover:bg-green-700",
+                          item.mastery === m && "ring-2 ring-ring/50"
+                        )}
                         onClick={() => confirmMastery(m)}
                         disabled={busy}
                       >
@@ -586,19 +592,27 @@ export default function QuizSession({
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     size="sm"
-                    variant={item.mastery === "mastered" ? "default" : "outline"}
-                    onClick={() => confirmMastery("mastered")}
-                    disabled={busy}
-                  >
-                    掌握 · 继续
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={item.mastery === "forgot" ? "destructive" : "outline"}
+                    variant="outline"
+                    className={cn(
+                      "border-red-500/50 bg-red-500/10 text-red-600 hover:bg-red-500/20",
+                      item.mastery === "forgot" && "ring-2 ring-ring/50"
+                    )}
                     onClick={() => confirmMastery("forgot")}
                     disabled={busy}
                   >
                     忘记 · 继续
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "border-green-600/60 bg-green-600 text-white hover:bg-green-700",
+                      item.mastery === "mastered" && "ring-2 ring-ring/50"
+                    )}
+                    onClick={() => confirmMastery("mastered")}
+                    disabled={busy}
+                  >
+                    掌握 · 继续
                   </Button>
                 </div>
               )}
