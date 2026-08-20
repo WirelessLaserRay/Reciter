@@ -102,6 +102,30 @@ if (await getDeckShuffle(deckId)) {
 SELECT COUNT(DISTINCT card_id) AS cnt FROM review_logs WHERE reviewed_at >= ?
 ```
 
+## 6. 统计数据逻辑错位：将“点击次数”等同于“卡片张数”
+
+在学习结束后的总结页面（`Study.tsx`）以及后台的日志更新（`daily_stats`）中，统计数据的概念出现了明显的混淆：
+
+### 问题分析
+1. **会话统计（Session Stats）的显示谬误**
+   在 `useStudyStore.ts` 的 `rate` 方法中：
+   ```typescript
+   reviewed: get().stats.reviewed + 1,
+   again: get().stats.again + (grade === Rating.Again ? 1 : 0),
+   ```
+   这里的 `reviewed` 实际上统计的是**评分按键的点击次数（Action/Rating Count）**。如果一张卡片由于被选了“忘记（Again）”而在当前会话中被重插并再次展示，那么用户对它的每一次评分都会让 `reviewed` 和 `again` 加 1。
+   然而，在 UI 渲染时，文案是这样的：
+   > `复习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张`
+   由于单位写的是“张”，用户会默认这是**独立卡片数**。这就导致了认知冲突：“我明明只背了 60 张独立词汇，为什么总结说我复习了 150 张？”
+
+2. **长期统计数据（`daily_stats.review_count`）注水**
+   在 `applyReview`（`review.ts`）中，每次评分都会直接在当天日报记录的 `review_count` 上累加 1。这同样使得长期图表或仪表盘上显示的“每日复习量”被严重注水。FSRS 的短期学习步骤（如1分钟、5分钟）越多，这个数据就越夸张。
+
+### 改进建议
+在统计逻辑中，必须在代码命名和 UI 传达上**严格区分“独立卡片数 (Unique Cards)”和“复习次数 (Review Steps/Clicks)”**：
+1. **对于 UI 总结与复习额度限制**：应该通过去重统计（维护一个已学 cardId 的 Set，或者使用 `COUNT(DISTINCT card_id)`）来准确反映用户学了多少**张**独立的词汇。
+2. **对于操作记录与专注度衡量**：可以保留点击次数的统计，但在 UI 上应更名为“交互次数”、“复习步骤”或“次”，以避免误导。
+
 ## 结论
 
-当前的单词学习队列在基础的“拉取 -> 评分 -> 存库”流程上是通顺的，但在**队列内动态重排（Scheduling）**及**配额统计**上存在明显漏洞。建议优先将 `insertByDue` 重构为基于相对偏移量的估算插入，并将复习统计 `countReviewsToday` 改为去重统计，以保证学习流的连贯性和符合记忆曲线设计的初衷。
+当前的单词学习队列在基础的“拉取 -> 评分 -> 存库”流程上是通顺的，但在**队列内动态重排（Scheduling）**及**各项配额和数据的统计**上存在明显漏洞。系统的核心矛盾在于将底层产生多次的“交互动作（Review Logs / Clicks）”与用户认知中的“单词个体（Unique Cards）”混为一谈。建议优先将 `insertByDue` 重构为基于相对偏移量的估算插入，并将核心统计逻辑全部重构为按 `card_id` 去重的计数方式，以保证学习流的连贯性和数据的真实性。

@@ -552,6 +552,24 @@ class ReciterDB {
     return rows[0]?.cnt ?? 0;
   }
 
+  /** 某张卡片今天是否已有复习记录（daily_stats 去重用） */
+  async hasReviewedCardToday(cardId: number, dayStart: string): Promise<boolean> {
+    const rows = await this.requireDb().select<{ id: number }[]>(
+      "SELECT 1 AS id FROM review_logs WHERE card_id = ? AND reviewed_at >= ? LIMIT 1",
+      [cardId, dayStart]
+    );
+    return rows.length > 0;
+  }
+
+  /** 某张卡片今天是否已有「忘记(Again)」记录（daily_stats.again_count 去重用） */
+  async hasAgainCardToday(cardId: number, dayStart: string): Promise<boolean> {
+    const rows = await this.requireDb().select<{ id: number }[]>(
+      "SELECT 1 AS id FROM review_logs WHERE card_id = ? AND reviewed_at >= ? AND grade = 1 LIMIT 1",
+      [cardId, dayStart]
+    );
+    return rows.length > 0;
+  }
+
   /** 全局今日待复习数（due < dayEnd 且已学过） */
   async getGlobalDueCount(before: string): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(

@@ -298,8 +298,9 @@ function ActiveRecallView(props: ModeViewProps) {
     onReveal();
   };
 
+  // 计时提示仅在「知道/不知道」选择前显示；点击后不再提示
   const recallHint =
-    recallPhase !== "result" && elapsed >= RECALL_HINT_SECONDS ? (
+    recallPhase === "prompt" && elapsed >= RECALL_HINT_SECONDS ? (
       <p className="text-xs text-amber-500">
         已思考 {elapsed} 秒 — 超过 10 秒仍想不起来？建议直接点「不确定 / 不知道」，别在一张卡上停留太久。
       </p>
@@ -344,7 +345,6 @@ function ActiveRecallView(props: ModeViewProps) {
               检查
             </Button>
           </div>
-          {recallHint}
           <p className="text-xs text-muted-foreground">系统会模糊比对，不完全一致也没关系</p>
         </div>
       )}
@@ -369,7 +369,13 @@ function ActiveRecallView(props: ModeViewProps) {
             )}
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-            <RevealContext row={row} />
+            {/* 回答后展示用户答案，而不是原文语境 */}
+            <div className="w-full max-w-lg rounded-md border bg-muted/40 p-3 text-left">
+              <p className="text-xs font-medium text-muted-foreground">你的答案</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">
+                {recallInput.trim() || "（未填写）"}
+              </p>
+            </div>
           </div>
           <RatingButtons
             ratingMode={ratingMode}
@@ -387,7 +393,7 @@ function ActiveRecallView(props: ModeViewProps) {
 // ============ 3. 新卡教学（先教，延迟突击测试） ============
 
 function NewCardTeachView(props: ModeViewProps) {
-  const { row, config, busy, distractors, onRate, onRateReadyChange } = props;
+  const { row, busy, distractors, onRate, onRateReadyChange } = props;
 
   // 教学阶段不允许快捷键评分；点击「开始记忆」后按 Good 进入 Learning（1m），
   // 由 FSRS 步骤在稍后队列末尾触发突击测试，而不是当场测试。
@@ -407,14 +413,9 @@ function NewCardTeachView(props: ModeViewProps) {
       <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
         {row.back}
       </div>
-      {config.showMarkdown && (
-        <div className="w-full max-w-lg">
-          <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
-        </div>
-      )}
       <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
       <p className="text-sm text-muted-foreground">
-        先看释义与语境；开始记忆后，稍后会随队列突击测试
+        先看释义，开始记忆后稍后会随队列突击测试
       </p>
       <Button size="lg" onClick={handleStartMemory} disabled={busy}>
         <BookOpen className="size-4" />

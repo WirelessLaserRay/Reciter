@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { fsrsCardToDBState, reviewCard, Rating, State, type FSRSCard, type Grade } from "@/lib/fsrs";
 import { getEffectiveRetention } from "@/lib/settings";
 import { getLearningSteps } from "@/lib/study-prefs";
-import { parseDayStartHour, todayKey } from "@/lib/day";
+import { getDayStartDate, parseDayStartHour, todayKey } from "@/lib/day";
 
 export type ReviewSource = "review" | "quiz" | "ai_test";
 
@@ -38,6 +38,14 @@ export async function applyReview(
   ]);
   const { card } = await reviewCard(state, grade, now, retention, learningSteps);
 
+  // 日报按“独立卡片/独立忘记”去重：同一张卡当天多次评分只计 1 张
+  const hour = parseDayStartHour(await db.getSetting("day_start"));
+  const dayStart = getDayStartDate(hour, now).toISOString();
+  const [alreadyReviewedToday, alreadyAgainToday] = await Promise.all([
+    db.hasReviewedCardToday(cardId, dayStart),
+    db.hasAgainCardToday(cardId, dayStart),
+  ]);
+
   await db.updateCardState(cardId, fsrsCardToDBState(card));
   await db.addReviewLog({
     card_id: cardId,
@@ -48,11 +56,10 @@ export async function applyReview(
     ai_answer: opts.aiAnswer ?? null,
   });
 
-  const hour = parseDayStartHour(await db.getSetting("day_start"));
   await db.updateDailyStats(todayKey(hour, now), {
     new_count: wasNew ? 1 : 0,
-    review_count: 1,
-    again_count: grade === Rating.Again ? 1 : 0,
+    review_count: alreadyReviewedToday ? 0 : 1,
+    again_count: grade === Rating.Again && !alreadyAgainToday ? 1 : 0,
   });
 
   // Leech 自动干预：遗忘次数达到阈值（及每越过一个阈值）时自动标记为重点词
