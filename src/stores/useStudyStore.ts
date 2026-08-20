@@ -14,37 +14,49 @@ export interface QueueItem {
 }
 
 /**
- * 队列交错（P0-①）：每 ratio 张复习卡后插入 1 张新卡，剩余新卡追加到队尾。
- * 交错练习比分块练习的长期记忆保留高约 20-40%（Rohrer & Taylor, 2007）。
+ * 队列交错（P0-①）：每 ratio 张复习卡后插入 1 张新卡。
+ * 复习卡耗尽后，剩余新卡先打乱再追加，避免大段新卡连续堆积在队尾。
  */
 export function interleaveQueue(due: StudyCardRow[], fresh: StudyCardRow[], ratio = 5): StudyCardRow[] {
   if (ratio <= 0 || fresh.length === 0) return [...due, ...fresh];
   const result: StudyCardRow[] = [];
-  let fi = 0;
-  for (let i = 0; i < due.length; i++) {
-    result.push(due[i]);
-    if ((i + 1) % ratio === 0 && fi < fresh.length) {
-      result.push(fresh[fi++]);
+  let i = 0;
+  let j = 0;
+  while (i < due.length && j < fresh.length) {
+    let count = 0;
+    while (count < ratio && i < due.length) {
+      result.push(due[i++]);
+      count++;
     }
+    result.push(fresh[j++]);
   }
-  while (fi < fresh.length) result.push(fresh[fi++]);
+  // 复习卡已用完：剩余新卡打乱后继续（已无复习卡可交错，至少避免顺序单调）
+  if (i >= due.length && j < fresh.length) {
+    result.push(...shuffleRows(fresh.slice(j)));
+  } else {
+    while (i < due.length) result.push(due[i++]);
+  }
   return result;
 }
 
 /**
- * 按 FSRS due 时间二分插入（P0-②）：
- * Learning/Again 卡的短间隔调度（如 1 分钟）不会被"插到队尾"拖成 30 分钟后。
+ * 按“相对时间偏移”估算插入位置（修复学习逻辑分析报告 #1/#4）：
+ * 新 due 距离现在越近，插入位置越靠前（按每张卡约 10 秒估算）。
+ * 不再使用绝对 due 与历史 due 比较——否则短间隔卡会被所有“已到期”卡排挤到队尾。
  */
-export function insertByDue(queue: QueueItem[], item: QueueItem): void {
-  const due = new Date(item.row.due).getTime();
-  let lo = 0;
-  let hi = queue.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (new Date(queue[mid].row.due).getTime() <= due) lo = mid + 1;
-    else hi = mid;
-  }
-  queue.splice(lo, 0, item);
+export const SECONDS_PER_CARD = 10;
+
+export function insertByOffset(
+  queue: QueueItem[],
+  item: QueueItem,
+  currentIndex: number,
+  secondsPerCard = SECONDS_PER_CARD
+): void {
+  const now = Date.now();
+  const deltaSeconds = Math.max(0, (new Date(item.row.due).getTime() - now) / 1000);
+  const cardOffset = Math.max(1, Math.ceil(deltaSeconds / secondsPerCard));
+  const insertIndex = Math.min(queue.length, currentIndex + cardOffset);
+  queue.splice(insertIndex, 0, item);
 }
 
 /** Fisher-Yates 洗牌（词库乱序学习） */
@@ -209,9 +221,14 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       };
       queueNext[index] = updated;
       const [cur] = queueNext.splice(index, 1);
-      insertByDue(queueNext, cur);
+      insertByOffset(queueNext, cur, index);
     } else {
-      queueNext[index] = { ...item, shownAt: Date.now() };
+      // 非重插卡片也要回写最新 FSRS 状态，避免队列里保留过期状态
+      queueNext[index] = {
+        ...item,
+        row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
+        shownAt: Date.now(),
+      };
     }
 
     const nextIndex = index + 1;

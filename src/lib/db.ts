@@ -543,10 +543,10 @@ class ReciterDB {
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 全局今日已复习数（日报复习预算） */
+  /** 全局今日已复习数（日报复习预算）：按独立卡片去重，避免同一张卡多次 Again 提前耗尽额度 */
   async countReviewsToday(dayStart: string): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
-      "SELECT COUNT(*) AS cnt FROM review_logs WHERE reviewed_at >= ?",
+      "SELECT COUNT(DISTINCT card_id) AS cnt FROM review_logs WHERE reviewed_at >= ?",
       [dayStart]
     );
     return rows[0]?.cnt ?? 0;

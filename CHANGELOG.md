@@ -22,6 +22,23 @@
 
 ---
 
+## [0.14.5] - 2026-08-15
+
+> 依据 `research_doc/study_logic_analysis.md` 修复队列调度与配额统计问题。
+
+### Fixed
+
+- **短间隔重排逻辑反了**：`insertByDue` 用绝对 due 与历史“已到期”卡比较，导致 Again/Learning 短间隔卡仍被排到队尾；改为 `insertByOffset` 按“新 due 距当前时间的相对偏移（约 10 秒/张）”估算插入位置，1 分钟后复习会插到约 6 张后而不是几百张后；同时天然兼容乱序队列
+- **交错算法边缘体验**：复习卡很少、新卡很多时，剩余新卡先打乱再追加，不再大段顺序堆积队尾
+- **非重插卡片未回写队列状态**：Good/Hard 评分后同样把最新 FSRS 状态写回 `queue`，避免未来“上一张/小结”读到过期数据
+- **每日复习上限被重复评分提前耗尽**：`countReviewsToday` 改为 `COUNT(DISTINCT card_id)`，同一张卡多次 Again/模糊只计 1 张
+
+### Verified
+
+- ✅ `npm run build` 通过；`.install/6c-test.ts` 全过（新增相对偏移插入、剩余新卡打乱、独立卡片去重统计）
+
+---
+
 ## [0.14.4] - 2026-08-15
 
 ### Fixed
