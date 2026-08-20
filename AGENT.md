@@ -55,6 +55,34 @@
 - 一次提交一个逻辑变更；涉及多文件的同主题改动一起提交
 - 提交信息可写入 `.install/commit-msg.txt` 后用 `git commit -F` 避免引号问题
 
+### 2.5 信息安全与隐私泄露检查（提交/发布前必做）
+
+> 仓库、源码与打包产物中**不得包含**本机工作区路径（如 `F:\AI\Reciter`）、本机用户名（如 `C:\Users\<用户名>`）、邮箱、API Key/Token 等个人信息。
+
+1. **扫描仓库跟踪文件**（提交前）：
+   ```powershell
+   git grep -n -I -E 'F:[\\/]AI[\\/]Reciter|C:[\\/]Users[\\/][^\\]+|your_email@example\.com|sk-[A-Za-z0-9]{12,}|gho_[A-Za-z0-9]{12,}' -- .
+   ```
+   - 若有命中：将本机路径替换为占位符（`<项目根目录>`、`%USERPROFILE%`、`%ProgramFiles%`），或删除敏感值
+2. **扫描源码/文档中的 file:// 绝对路径**：
+   ```powershell
+   git grep -n -I -E 'file:///' -- .
+   ```
+   - 报告中常见的 `file:///F:/AI/Reciter/...` 应改为仓库相对链接（如 `src/lib/fsrs.ts`）
+3. **扫描打包产物（dist/、release exe、安装包）**：
+   ```powershell
+   # 对每个产物读取字节并检索 ASCII 特征串
+   $b=[IO.File]::ReadAllBytes('<文件>'); $s=[Text.Encoding]::ASCII.GetString($b)
+   $s.Contains('C:\Users\') ; $s.Contains('F:\AI\Reciter') ; $s.Contains('<用户名>')
+   ```
+4. **Windows 发布版必须用路径重映射编译**，避免 Rust/Cargo 依赖源码路径内嵌进二进制：
+   ```powershell
+   $env:RUSTFLAGS = '--remap-path-prefix=C:\Users\<用户名>=C:\Users\anonymous --remap-path-prefix=F:\AI\Reciter=F:\project'
+   npm run tauri build
+   ```
+   构建后再次扫描 `src-tauri\target\release\reciter.exe`，确认不含 `ukcwx`/`C:\Users\<用户名>` 等特征
+5. **Release 资产上传前**：确认 tag 指向已净化提交，且安装包/二进制均通过上述扫描
+
 ---
 
 ## 3. 环境事实（Agent 必须知道的硬约束）
@@ -180,3 +208,4 @@ src-tauri/        Rust 壳：plugins(sql/http/dialog) + 命令(write/read_text_f
 8. **disabled 按钮无 hover**：Tooltip 用 span 包裹
 9. **刷新丢滚动**：编辑后刷新用 silent 模式，别切换 loading 占位
 10. **gh/代理**：任何 gh 操作先清代理环境变量
+11. **信息泄露**：本机路径/用户名/邮箱一旦进入仓库或 release 二进制极难撤回；提交前按 2.5 节扫描，发布版必须用 `--remap-path-prefix` 重编译
