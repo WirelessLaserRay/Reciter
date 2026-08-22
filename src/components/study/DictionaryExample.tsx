@@ -18,27 +18,25 @@ export function DictionaryExample({
 }) {
   const [result, setResult] = useState<DictionaryResult | null>(null);
 
+  const hasExisting = !!existingMarkdown?.trim();
+
   useEffect(() => {
     let cancelled = false;
-    if (existingMarkdown?.trim()) {
-      setResult(null);
-      return;
-    }
     fetchExamples(word).then((r) => {
       if (!cancelled) setResult(r);
     });
     return () => {
       cancelled = true;
     };
-  }, [word, existingMarkdown]);
+  }, [word]);
 
-  if (existingMarkdown?.trim() || !result || result.examples.length === 0) return null;
+  if (!result || result.examples.length === 0) return null;
 
   return (
     <div className="w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left">
       <div className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
         <BookOpen className="size-3" />
-        {SOURCE_LABEL[result.source]}
+        {hasExisting ? "补充例句" : SOURCE_LABEL[result.source]}
       </div>
       <ul className="space-y-1 text-sm">
         {result.examples.map((ex, i) => (

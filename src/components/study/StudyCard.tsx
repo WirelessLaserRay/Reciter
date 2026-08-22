@@ -424,6 +424,7 @@ function NewCardTeachView(props: ModeViewProps) {
         {row.back}
       </div>
       <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
+      <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
       <p className="text-sm text-muted-foreground">
         先看释义，开始记忆后稍后会随队列突击测试
       </p>
@@ -583,6 +584,7 @@ function QuickTestView(props: ModeViewProps) {
           <>
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
             <RevealContext row={row} />
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
           </>
         )}
       </div>
@@ -622,6 +624,7 @@ function AiDrillView(props: ModeViewProps) {
             <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
           </div>
         )}
+        <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
         <div className="flex max-w-lg items-start gap-2 rounded-md bg-amber-500/10 p-3 text-left text-sm text-amber-600">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <p>
