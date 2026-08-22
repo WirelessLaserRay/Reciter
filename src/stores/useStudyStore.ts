@@ -9,8 +9,6 @@ export interface QueueItem {
   row: StudyCardRow;
   /** 计时起点（本次显示时间，用于 response_time_ms） */
   shownAt: number;
-  /** 新卡已进入延迟突击测试（首次教学后重插的那条）；测试后再评分不再重插，避免队尾反复出现 */
-  tested?: boolean;
 }
 
 /**
@@ -187,7 +185,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     responseTimeMs?: number,
     opts?: { source?: "review" | "quiz" | "ai_test"; aiQuestion?: string | null; aiAnswer?: string | null }
   ) => {
-    const { queue, index, deckId } = get();
+    const { queue, index, deckId, tagName, keyOnly } = get();
     if (deckId === null || index >= queue.length) return false;
 
     const item = queue[index];
@@ -221,10 +219,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       hardCardIds: isNewHard ? [...prevStats.hardCardIds, cardId] : prevStats.hardCardIds,
     };
 
-    // Learning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）。
-    // 已标记 tested 的卡（新卡突击测试后）即使仍处于 Learning 也不再重插当前会话，避免队尾反复出现。
+    // Learning/Relearning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）。
+    // Learning 步骤未完成时始终重插，直到 FSRS 进入 Review；当前卡保留为历史记录，未来副本唯一，避免重复。
     const reinsert =
-      grade === Rating.Again || (newFsrs.state === State.Learning && !item.tested);
+      grade === Rating.Again ||
+      newFsrs.state === State.Learning ||
+      newFsrs.state === State.Relearning;
     let queueNext = [...get().queue];
 
     // 无论是否重插，都更新当前索引的卡片为最新状态（作为历史记录留在队列中）
@@ -238,7 +238,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       // 需要重插：复制一份插入到未来的队列中
       const futureItem: QueueItem = {
         ...item,
-        tested: true,
         row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
         shownAt: Date.now(),
       };
@@ -246,7 +245,33 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     }
 
     const nextIndex = index + 1;
-    const finished = nextIndex >= queueNext.length;
+    let finished = nextIndex >= queueNext.length;
+
+    // 队列接近末尾时，自动补充“刚刚到期”的卡片，避免越学越空（研究文档 P0 建议 1）
+    if (!finished && queueNext.length - nextIndex <= 3) {
+      try {
+        const ignoredTags = await getIgnoredTags();
+        const existingIds = new Set(queueNext.slice(nextIndex).map((q) => q.row.card_id));
+        const moreDue = await db.getDueCards(
+          deckId,
+          new Date().toISOString(),
+          tagName,
+          keyOnly,
+          20,
+          ignoredTags
+        );
+        const fresh = moreDue
+          .filter((r) => !existingIds.has(r.card_id))
+          .map((row) => ({ row, shownAt: Date.now() }));
+        if (fresh.length > 0) {
+          queueNext.push(...fresh);
+          finished = false;
+        }
+      } catch {
+        // 补充失败不阻塞评分流程
+      }
+    }
+
     set({ queue: queueNext, index: nextIndex, stats, finished });
     return !finished;
   },

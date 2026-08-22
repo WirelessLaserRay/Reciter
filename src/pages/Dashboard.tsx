@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
-import { getDayEndDate, parseDayStartHour } from "@/lib/day";
+import { getDayStartDate, parseDayStartHour } from "@/lib/day";
 import { getLeechThreshold } from "@/lib/settings";
 import {
   AI_TEST_INTERVAL_MS,
@@ -46,21 +46,26 @@ export default function Dashboard() {
     (async () => {
       await refresh();
       const hour = parseDayStartHour(await db.getSetting("day_start"));
-      const dayEnd = getDayEndDate(hour);
+      const now = new Date();
+      const dayStart = getDayStartDate(hour, now);
       const currentDecks = useDeckStore.getState().decks;
       const ignoredTags = await getIgnoredTags();
+      const reviewLimitRaw = await db.getSetting("daily_review_limit");
+      const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
+      const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
+      const remainingLimit = Math.max(0, reviewLimit - todayReviewed);
       const deckDueEntries = await Promise.all(
-        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString(), ignoredTags)] as const)
+        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, now.toISOString(), ignoredTags)] as const)
       );
       const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
       const leech = await getLeechThreshold();
       const [due, fresh, last, weak] = await Promise.all([
-        db.getGlobalDueCount(dayEnd.toISOString(), ignoredTags),
+        db.getGlobalDueCount(now.toISOString(), ignoredTags),
         db.getGlobalNewCount(ignoredTags),
         getLastStudyContext(),
         db.getGlobalWeakCount(leech),
       ]);
-      setDueCount(due);
+      setDueCount(Math.min(due, remainingLimit));
       setNewCount(fresh);
       setLastContext(last);
       setWeakCount(weak);
@@ -110,7 +115,7 @@ export default function Dashboard() {
   const cardTotal = Object.values(cardCounts).reduce((a, b) => a + b, 0);
 
   const STATS = [
-    { label: "今日待复习", value: String(dueCount), icon: CalendarClock, hint: "due 今日 04:00 前" },
+    { label: "今日待复习", value: String(dueCount), icon: CalendarClock, hint: "此刻已到期 · 配额内" },
     { label: "新卡待学", value: String(newCount), icon: GraduationCap, hint: "FSRS state = New" },
     { label: "词库总数", value: String(deckCount), icon: BookOpen, hint: "本地 SQLite" },
     { label: "卡片总数", value: String(cardTotal), icon: GraduationCap, hint: "本地 SQLite" },
