@@ -493,6 +493,14 @@ class ReciterDB {
     return count;
   }
 
+  /** 把词库中已有卡片直接加入弱词本：标记为重点词，并将 lapses 提升到弱词阈值 */
+  async markCardWeak(cardId: number, threshold = 3): Promise<void> {
+    const state = await this.getCardState(cardId);
+    const lapses = Math.max(state?.lapses ?? 0, threshold);
+    await this.updateCardState(cardId, { lapses });
+    await this.updateCard(cardId, { is_key: 1 });
+  }
+
   /** 获取指定卡片最近 N 次评分（按时间倒序） */
   async getRecentGrades(cardId: number, n = 3): Promise<number[]> {
     const rows = await this.requireDb().select<{ grade: number }[]>(

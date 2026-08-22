@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,7 +13,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -44,7 +43,6 @@ export default function DeckDetail() {
   const [editTarget, setEditTarget] = useState<CardType | null>(null);
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
-  const [editMarkdown, setEditMarkdown] = useState("");
   const [editTags, setEditTags] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [editKey, setEditKey] = useState(false);
@@ -102,7 +100,6 @@ export default function DeckDetail() {
     setEditTarget(c);
     setEditFront(c.front);
     setEditBack(c.back);
-    setEditMarkdown(c.markdown_content ?? "");
     setEditTags(tagsOf(c).join("、"));
     setEditKey(c.is_key === 1);
   };
@@ -118,7 +115,6 @@ export default function DeckDetail() {
       await db.updateCard(editTarget.id, {
         front: editFront.trim(),
         back: editBack.trim(),
-        markdown_content: editMarkdown.trim(),
         tags: JSON.stringify(tagArr),
         is_key: editKey ? 1 : 0,
       });
@@ -133,6 +129,17 @@ export default function DeckDetail() {
     if (!window.confirm("删除这张卡片？")) return;
     await db.deleteCard(cardId);
     load(true);
+  };
+
+  const addToWeakBook = async (cardId: number) => {
+    if (!window.confirm("将该单词加入弱词本？")) return;
+    try {
+      const threshold = await getLeechThreshold();
+      await db.markCardWeak(cardId, threshold);
+      load(true);
+    } catch (e) {
+      window.alert(String(e));
+    }
   };
 
   const filtered = cards.filter(
@@ -308,6 +315,15 @@ export default function DeckDetail() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="size-7 text-muted-foreground hover:text-amber-500"
+                            onClick={() => addToWeakBook(c.id)}
+                            title="加入弱词本"
+                          >
+                            <AlertTriangle className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="size-7 text-muted-foreground"
                             onClick={() => openEdit(c)}
                             title="编辑卡片"
@@ -338,7 +354,7 @@ export default function DeckDetail() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>编辑卡片</DialogTitle>
-            <DialogDescription>修改单词、释义、原文语境与标签</DialogDescription>
+            <DialogDescription>修改单词、释义与标签</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -348,16 +364,6 @@ export default function DeckDetail() {
             <div className="space-y-1.5">
               <Label htmlFor="edit-back">释义</Label>
               <Input id="edit-back" value={editBack} onChange={(e) => setEditBack(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-markdown">原文语境 / Markdown（学习时展示）</Label>
-              <Textarea
-                id="edit-markdown"
-                rows={4}
-                placeholder="可选：原文例句、语境或 Markdown 内容"
-                value={editMarkdown}
-                onChange={(e) => setEditMarkdown(e.target.value)}
-              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-tags">标签（用 、 或逗号分隔）</Label>
