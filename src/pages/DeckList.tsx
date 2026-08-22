@@ -30,10 +30,12 @@ export default function DeckList() {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [createFolder, setCreateFolder] = useState("");
   const [creating, setCreating] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<{ id: number; name: string; description: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: number; name: string; description: string; folder: string } | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameDesc, setRenameDesc] = useState("");
+  const [renameFolder, setRenameFolder] = useState("");
   const [renameQuota, setRenameQuota] = useState(20);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -48,9 +50,10 @@ export default function DeckList() {
     if (!name.trim()) return;
     setCreating(true);
     try {
-      await db.createDeck(name.trim(), description.trim());
+      await db.createDeck(name.trim(), description.trim(), undefined, createFolder.trim());
       setName("");
       setDescription("");
+      setCreateFolder("");
       setShowCreate(false);
       refresh();
     } finally {
@@ -58,10 +61,11 @@ export default function DeckList() {
     }
   };
 
-  const openRename = (id: number, name: string, description: string, newPerDay?: number) => {
-    setRenameTarget({ id, name, description });
+  const openRename = (id: number, name: string, description: string, newPerDay?: number, folder = "") => {
+    setRenameTarget({ id, name, description, folder });
     setRenameName(name);
     setRenameDesc(description);
+    setRenameFolder(folder);
     setRenameQuota(newPerDay ?? 20);
     setRenameError(null);
   };
@@ -74,6 +78,7 @@ export default function DeckList() {
       await db.updateDeck(renameTarget.id, {
         name: renameName.trim(),
         description: renameDesc.trim(),
+        folder: renameFolder.trim(),
         new_cards_per_day: renameQuota > 0 ? renameQuota : 20,
       });
       setRenameTarget(null);
@@ -137,6 +142,16 @@ export default function DeckList() {
                 />
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="deck-folder">文件夹（可选，支持多级如 考试/四级）</Label>
+              <Input
+                id="deck-folder"
+                placeholder="留空为根目录"
+                value={createFolder}
+                onChange={(e) => setCreateFolder(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createDeck()}
+              />
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>
                 取消
@@ -182,52 +197,66 @@ export default function DeckList() {
       )}
 
       {decks.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {decks.map((d) => (
-            <Card key={d.id} className="group relative">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="truncate">{d.name}</CardTitle>
-                  <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      onClick={() => openRename(d.id, d.name, d.description, d.new_cards_per_day)}
-                      title="重命名词库"
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => setDeleteTarget({ id: d.id, name: d.name, cards: cardCounts[d.id] ?? 0 })}
-                      title="删除词库"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
+        <div className="space-y-6">
+          {[...new Set(decks.map((d) => d.folder || ""))]
+            .sort()
+            .map((folder) => (
+              <div key={folder}>
+                <h3 className="mb-2 text-sm font-semibold text-muted-foreground">
+                  {folder ? folder : "根目录"}
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {decks
+                    .filter((d) => (d.folder || "") === folder)
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((d) => (
+                      <Card key={d.id} className="group relative">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <CardTitle className="truncate">{d.name}</CardTitle>
+                            <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground"
+                                onClick={() => openRename(d.id, d.name, d.description, d.new_cards_per_day, d.folder)}
+                                title="重命名词库"
+                              >
+                                <Pencil className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => setDeleteTarget({ id: d.id, name: d.name, cards: cardCounts[d.id] ?? 0 })}
+                                title="删除词库"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                          <CardDescription className="line-clamp-2 min-h-8">
+                            {d.description || "暂无描述"}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">{cardCounts[d.id] ?? 0} 张卡片</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                每日新卡 {d.new_cards_per_day}
+                              </span>
+                            </div>
+                            <Button asChild size="sm" variant="outline">
+                              <Link to={"/decks/" + d.id}>查看</Link>
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                 </div>
-                <CardDescription className="line-clamp-2 min-h-8">
-                  {d.description || "暂无描述"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{cardCounts[d.id] ?? 0} 张卡片</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      每日新卡 {d.new_cards_per_day}
-                    </span>
-                  </div>
-                  <Button asChild size="sm" variant="outline">
-                    <Link to={"/decks/" + d.id}>查看</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            ))}
         </div>
       )}
 
@@ -268,7 +297,7 @@ export default function DeckList() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>重命名词库</DialogTitle>
-            <DialogDescription>修改名称与描述（名称在词库内唯一）</DialogDescription>
+            <DialogDescription>修改名称、描述与所属文件夹（名称在同一文件夹内唯一）</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -286,6 +315,16 @@ export default function DeckList() {
                 id="rename-desc"
                 value={renameDesc}
                 onChange={(e) => setRenameDesc(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveRename()}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-folder">文件夹（可选）</Label>
+              <Input
+                id="rename-folder"
+                placeholder="留空为根目录"
+                value={renameFolder}
+                onChange={(e) => setRenameFolder(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && saveRename()}
               />
             </div>

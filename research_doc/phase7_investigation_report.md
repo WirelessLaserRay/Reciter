@@ -14,7 +14,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [backup.ts](file:///F:/AI/Reciter/src/lib/backup.ts#L112-L114) |
+| 文件 | [backup.ts](src/lib/backup.ts#L112-L114) |
 | 类别 | 性能 / 数据库 |
 | 影响 | 恢复数千张卡片时每张独立 IPC + SQLite 自动提交，导致分钟级 UI 冻结 |
 
@@ -24,7 +24,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [Import.tsx](file:///F:/AI/Reciter/src/pages/Import.tsx#L177-L191) |
+| 文件 | [Import.tsx](src/pages/Import.tsx#L177-L191) |
 | 类别 | 性能 / 数据库 |
 | 影响 | 大型 Markdown/CSV 文件导入时数千条未批处理的同步 SQL 查询导致 UI 冻结 |
 
@@ -38,7 +38,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [Study.tsx](file:///F:/AI/Reciter/src/pages/Study.tsx#L234-L243) |
+| 文件 | [Study.tsx](src/pages/Study.tsx#L234-L243) |
 | 类别 | 性能 / 内存 |
 | 影响 | `db.getCardsByDeck(deckId)` 将整个词库（可能数万张）全部载入 React 状态，仅用于提取 front/back 字符串 |
 
@@ -48,7 +48,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [StudyCard.tsx](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx#L440-L466) |
+| 文件 | [StudyCard.tsx](src/components/study/StudyCard.tsx#L440-L466) |
 | 类别 | 性能 |
 | 影响 | `pickSimilarWords` 在渲染期间同步计算全量干扰项的 Levenshtein 距离，大词库时每张卡片切换都卡顿 |
 
@@ -58,7 +58,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [review.ts](file:///F:/AI/Reciter/src/lib/review.ts#L53) |
+| 文件 | [review.ts](src/lib/review.ts#L53) |
 | 类别 | 数据完整性 |
 | 影响 | 用户挂机/切后台时 `responseTimeMs` 可达数小时，永久污染 FSRS 算法的优化数据 |
 
@@ -68,7 +68,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | [recall-match.ts](file:///F:/AI/Reciter/src/lib/recall-match.ts#L22) |
+| 文件 | [recall-match.ts](src/lib/recall-match.ts#L22) |
 | 类别 | 逻辑 Bug |
 | 影响 | `splitMeanings` 过滤掉无中文字符的片段，英英/西英等非中文释义词库的主动回忆模式永远 0 分 |
 
@@ -80,13 +80,13 @@
 
 | # | 文件 | 问题 | 修复方向 |
 |---|---|---|---|
-| M-1 | [db.ts#L221-L255](file:///F:/AI/Reciter/src/lib/db.ts#L221-L255) | 标签查询全量 `JSON.parse` 循环 | 改用 SQLite `json_each()` 原生函数 |
-| M-2 | [Dashboard.tsx#L39-L42](file:///F:/AI/Reciter/src/pages/Dashboard.tsx#L39-L42) | Dashboard N+1 查询（逐词库查 due 数） | 改为调用已有的 `getDeckDueCounts()` 单次查询 |
-| M-3 | [useStudyStore.ts#L204-L220](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L204-L220) | 去重追踪用 `Array.includes()` O(N²) | 改用 `Set<number>` 实现 O(1) 查找 |
-| M-4 | [db.ts#L72-L76](file:///F:/AI/Reciter/src/lib/db.ts#L72-L76) | 标签过滤用 LIKE 模糊匹配不可靠 | 改用 `json_each(c.tags)` 精确匹配 |
-| M-5 | [day.ts#L22](file:///F:/AI/Reciter/src/lib/day.ts#L22) | `setDate(d-1)` 在 DST 切换时错位 | 改用 `d.setTime(d.getTime() - 86400000)` |
-| M-6 | [useStudyStore.ts#L35](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L35) | `push(...arr)` 超大数组溢出栈 | 改用 `result.concat()` |
-| M-7 | [useStudyStore.ts#L59](file:///F:/AI/Reciter/src/stores/useStudyStore.ts#L59) | `insertByOffset` 直接 splice 突变数组 | 在 `rate()` 中已做 `[...queue]` 浅拷贝，但建议改为不可变操作以防未来遗漏 |
+| M-1 | [db.ts#L221-L255](src/lib/db.ts#L221-L255) | 标签查询全量 `JSON.parse` 循环 | 改用 SQLite `json_each()` 原生函数 |
+| M-2 | [Dashboard.tsx#L39-L42](src/pages/Dashboard.tsx#L39-L42) | Dashboard N+1 查询（逐词库查 due 数） | 改为调用已有的 `getDeckDueCounts()` 单次查询 |
+| M-3 | [useStudyStore.ts#L204-L220](src/stores/useStudyStore.ts#L204-L220) | 去重追踪用 `Array.includes()` O(N²) | 改用 `Set<number>` 实现 O(1) 查找 |
+| M-4 | [db.ts#L72-L76](src/lib/db.ts#L72-L76) | 标签过滤用 LIKE 模糊匹配不可靠 | 改用 `json_each(c.tags)` 精确匹配 |
+| M-5 | [day.ts#L22](src/lib/day.ts#L22) | `setDate(d-1)` 在 DST 切换时错位 | 改用 `d.setTime(d.getTime() - 86400000)` |
+| M-6 | [useStudyStore.ts#L35](src/stores/useStudyStore.ts#L35) | `push(...arr)` 超大数组溢出栈 | 改用 `result.concat()` |
+| M-7 | [useStudyStore.ts#L59](src/stores/useStudyStore.ts#L59) | `insertByOffset` 直接 splice 突变数组 | 在 `rate()` 中已做 `[...queue]` 浅拷贝，但建议改为不可变操作以防未来遗漏 |
 
 ---
 
@@ -94,10 +94,10 @@
 
 | # | 文件 | 问题 |
 |---|---|---|
-| L-1 | [StudyCard.tsx#L485](file:///F:/AI/Reciter/src/components/study/StudyCard.tsx#L485) | 自动评分 setTimeout 未在手动评分时清除，可能双重评分 |
-| L-2 | [study-prefs.ts#L104-L111](file:///F:/AI/Reciter/src/lib/study-prefs.ts#L104-L111) | 删除词库时关联的 `deck_shuffle_${id}` 设置成为孤儿数据 |
-| L-3 | [fsrs.ts#L29-L37](file:///F:/AI/Reciter/src/lib/fsrs.ts#L29-L37) | 无效学习步骤输入静默回退默认值，无用户反馈 |
-| L-4 | [DeckDetail.tsx#L132-L136](file:///F:/AI/Reciter/src/pages/DeckDetail.tsx#L132-L136) | 大词库搜索过滤未做防抖/useMemo |
+| L-1 | [StudyCard.tsx#L485](src/components/study/StudyCard.tsx#L485) | 自动评分 setTimeout 未在手动评分时清除，可能双重评分 |
+| L-2 | [study-prefs.ts#L104-L111](src/lib/study-prefs.ts#L104-L111) | 删除词库时关联的 `deck_shuffle_${id}` 设置成为孤儿数据 |
+| L-3 | [fsrs.ts#L29-L37](src/lib/fsrs.ts#L29-L37) | 无效学习步骤输入静默回退默认值，无用户反馈 |
+| L-4 | [DeckDetail.tsx#L132-L136](src/pages/DeckDetail.tsx#L132-L136) | 大词库搜索过滤未做防抖/useMemo |
 
 ---
 

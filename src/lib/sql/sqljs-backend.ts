@@ -62,6 +62,20 @@ export class SqlJsBackend implements SQLBackend {
     }
   }
 
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.db) throw new Error("backend not initialized");
+    this.db.run("BEGIN");
+    try {
+      const result = await fn();
+      this.db.run("COMMIT");
+      this.scheduleSave();
+      return result;
+    } catch (e) {
+      this.db.run("ROLLBACK");
+      throw e;
+    }
+  }
+
   /** 写入后 300ms 去重保存到 IndexedDB */
   private scheduleSave(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);

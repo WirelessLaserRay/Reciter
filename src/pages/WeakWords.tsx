@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, Loader2, Plus, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,9 +53,11 @@ function parseWeakImportLine(line: string): { front: string; back: string } | nu
 function WeakRow({
   weak,
   onAttack,
+  onDelete,
 }: {
   weak: WeakCard;
   onAttack: (w: WeakCard) => void;
+  onDelete: (w: WeakCard) => void;
 }) {
   const [retrievability, setRetrievability] = useState<number | null>(null);
 
@@ -88,10 +90,16 @@ function WeakRow({
           {retrievability !== null && ` · 可检索度 ${(retrievability * 100).toFixed(0)}%`}
         </p>
       </div>
-      <Button size="sm" variant="outline" onClick={() => onAttack(weak)}>
-        <Sparkles className="size-3.5" />
-        AI 攻克
-      </Button>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => onDelete(weak)}>
+          <Trash2 className="size-3.5" />
+          移出
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onAttack(weak)}>
+          <Sparkles className="size-3.5" />
+          AI 攻克
+        </Button>
+      </div>
     </div>
   );
 }
@@ -112,6 +120,7 @@ export default function WeakWords() {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ title: string; description?: string; destructive?: boolean } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WeakCard | null>(null);
 
   const load = useCallback(async (deckId: string) => {
     setLoading(true);
@@ -197,6 +206,18 @@ export default function WeakWords() {
     }
   };
 
+  const confirmDeleteWeak = async () => {
+    if (!deleteTarget) return;
+    try {
+      await db.dismissWeakWord(deleteTarget.card_id);
+      setDeleteTarget(null);
+      void load(deckFilter);
+    } catch (e) {
+      setDeleteTarget(null);
+      setNotice({ title: "操作失败", description: String(e), destructive: true });
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
@@ -270,7 +291,7 @@ export default function WeakWords() {
           ) : (
             <div className="space-y-2">
               {weakCards.map((w) => (
-                <WeakRow key={w.card_id} weak={w} onAttack={handleAttack} />
+                <WeakRow key={w.card_id} weak={w} onAttack={handleAttack} onDelete={setDeleteTarget} />
               ))}
             </div>
           )}
@@ -348,6 +369,19 @@ export default function WeakWords() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 移出弱词本确认 */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="移出弱词本"
+        description={deleteTarget ? `确定将「${deleteTarget.front}」从弱词本移除吗？卡片本身与复习进度不受影响。` : ""}
+        destructive
+        confirmLabel="移出"
+        cancelLabel="取消"
+        onConfirm={confirmDeleteWeak}
+        onCancel={() => setDeleteTarget(null)}
+      />
 
       {/* 统一提示框 */}
       <ConfirmDialog

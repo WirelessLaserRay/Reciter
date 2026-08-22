@@ -28,7 +28,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
-import { exportToJSON, importFromJSON } from "@/lib/backup";
+import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
@@ -85,6 +85,7 @@ export default function Settings() {
   const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [confirmImportOpen, setConfirmImportOpen] = useState(false);
+  const [backupPreview, setBackupPreview] = useState<{ decks: number; cards: number; reviews: number } | null>(null);
 
   // 加载设置
   useEffect(() => {
@@ -277,12 +278,24 @@ export default function Settings() {
     setBackupMsg({ ok: r.ok, text: r.message });
   };
 
-  const handleImport = () => {
-    setConfirmImportOpen(true);
+  const handleImport = async () => {
+    try {
+      const data = await readBackupFile();
+      if (!data) return;
+      setBackupPreview({
+        decks: data.decks.length,
+        cards: data.cards.length,
+        reviews: data.reviewLogs?.length ?? 0,
+      });
+      setConfirmImportOpen(true);
+    } catch (e) {
+      setBackupMsg({ ok: false, text: String(e) });
+    }
   };
 
   const confirmImport = async () => {
     setConfirmImportOpen(false);
+    setBackupPreview(null);
     setBackupBusy(true);
     const r = await importFromJSON();
     setBackupBusy(false);
@@ -821,7 +834,11 @@ export default function Settings() {
         open={confirmImportOpen}
         onOpenChange={setConfirmImportOpen}
         title="导入恢复"
-        description="导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！"
+        description={
+          backupPreview
+            ? `备份内容：${backupPreview.decks} 词库 / ${backupPreview.cards} 卡片 / ${backupPreview.reviews} 复习记录。导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！`
+            : "导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！"
+        }
         destructive
         confirmLabel="确认导入"
         cancelLabel="取消"

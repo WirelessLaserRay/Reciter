@@ -5,6 +5,7 @@
 /** 词库 */
 export interface Deck {
   id: number;
+  folder: string;
   name: string;
   description: string;
   new_cards_per_day: number;
@@ -23,6 +24,7 @@ export interface Card {
   tags: string; // JSON 数组字符串（如 '["熟词生义"]'），使用前需 JSON.parse
   is_key: number; // 1=重点词（Markdown 黑体释义识别），0=普通
   weak_source: string; // ''=自动(遗忘阈值收录)，'manual'=手动加入弱词本
+  weak_dismissed: number; // 1=已从弱词本移除，0=正常
   created_at: string;
   updated_at: string;
 }

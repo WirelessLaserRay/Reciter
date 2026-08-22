@@ -1,6 +1,6 @@
 import { parseMarkdown, type ParsedCard, type ParseResult } from "./markdown-parser";
 
-export type ImportFormat = "markdown" | "csv" | "json";
+export type ImportFormat = "markdown" | "csv" | "json" | "txt";
 
 export interface ImportFileResult extends ParseResult {
   fileName: string;
@@ -150,6 +150,71 @@ export function parseJSON(content: string): ParseResult {
   return { bookTitle: "", cards, warnings, duplicates };
 }
 
+/** 解析 TXT：每行一个词条，支持 Tab/竖线/逗号/破折号分隔；# 开头为词库名 */
+export function parseTXT(content: string, defaultDeck = "手动导入"): ParseResult {
+  const cards: ParsedCard[] = [];
+  const warnings: string[] = [];
+  const duplicates: string[] = [];
+  const seen = new Set<string>();
+  let deckName = defaultDeck;
+  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const name = line.replace(/^#+\s*/, "").trim();
+      if (name) deckName = name;
+      continue;
+    }
+    const tab = line.indexOf("\t");
+    const pipe = line.indexOf("|");
+    const comma = line.search(/[,，]/);
+    const dash = line.search(/\s+[-—–]\s+/);
+    const seps = [tab, pipe, comma, dash].filter((i) => i >= 0);
+    let front = line;
+    let back = "";
+    if (seps.length > 0) {
+      const idx = Math.min(...seps);
+      front = line.slice(0, idx).trim();
+      back = line.slice(idx + 1).replace(/^\s*[-—–|,，]?\s*/, "").trim();
+    }
+    if (!front) continue;
+    if (!back) back = front;
+    const key = deckName + "\u0000" + front;
+    if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
+    seen.add(key);
+    cards.push({ front, back, markdown: "", deckName, tags: [], highlights: [], isKey: false });
+  }
+  return { bookTitle: "", cards, warnings, duplicates };
+}
+
+/** 手动输入解析：按格式解析，auto 时自动识别 */
+export function parseTextInput(content: string, format: ImportFormat | "auto" = "auto"): ImportFileResult {
+  const trimmed = content.trim();
+  let fmt: ImportFormat;
+  if (format !== "auto") {
+    fmt = format;
+  } else if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    fmt = "json";
+  } else {
+    const nonEmptyLines = trimmed.split(/\r?\n/).filter(Boolean);
+    const first = nonEmptyLines[0] ?? "";
+    if (nonEmptyLines.length > 1 && /[,，]/.test(first)) fmt = "csv";
+    else if (/^#+\s/m.test(trimmed) || /-\s+\*\*/.test(trimmed)) fmt = "markdown";
+    else fmt = "txt";
+  }
+  switch (fmt) {
+    case "csv":
+      return { fileName: "pasted.csv", format: "csv", ...parseCSV(content) };
+    case "json":
+      return { fileName: "pasted.json", format: "json", ...parseJSON(content) };
+    case "markdown":
+      return { fileName: "pasted.md", format: "markdown", ...parseMarkdown(content) };
+    default:
+      return { fileName: "pasted.txt", format: "txt", ...parseTXT(content) };
+  }
+}
+
 /** 按文件扩展名自动选择解析器 */
 export function parseImportFile(fileName: string, content: string): ImportFileResult {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
@@ -158,6 +223,9 @@ export function parseImportFile(fileName: string, content: string): ImportFileRe
   }
   if (ext === "json") {
     return { fileName, format: "json", ...parseJSON(content) };
+  }
+  if (ext === "txt") {
+    return { fileName, format: "txt", ...parseTXT(content) };
   }
   return { fileName, format: "markdown", ...parseMarkdown(content) };
 }

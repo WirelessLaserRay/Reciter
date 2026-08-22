@@ -138,6 +138,11 @@ class ReciterDB {
     }
   }
 
+  /** 在单个事务中执行回调（后端实现 BEGIN/COMMIT/ROLLBACK） */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.requireDb().transaction(fn);
+  }
+
   private requireDb(): SQLBackend {
     if (!this.backend) throw new Error("数据库未初始化，请先调用 db.init()");
     return this.backend;
@@ -154,13 +159,34 @@ class ReciterDB {
     return rows[0] ?? null;
   }
 
-  async getDeckIdByName(name: string): Promise<number | null> {
-    const rows = await this.requireDb().select<{ id: number }[]>("SELECT id FROM decks WHERE name = ?", [name]);
+  async getDeckIdByName(name: string, folder = ""): Promise<number | null> {
+    const rows = await this.requireDb().select<{ id: number }[]>(
+      "SELECT id FROM decks WHERE folder = ? AND name = ?",
+      [folder, name]
+    );
     return rows[0]?.id ?? null;
   }
 
-  /** 创建词库；已存在同名则直接返回其 id；新建时应用全局默认每日新卡配额设置 */
-  async createDeck(name: string, description = "", newPerDay?: number): Promise<number> {
+  /** 返回所有同名词库（跨文件夹，供重名冲突选择） */
+  async getDecksByName(name: string): Promise<Deck[]> {
+    return this.requireDb().select<Deck[]>("SELECT * FROM decks WHERE name = ? ORDER BY folder ASC, id ASC", [name]);
+  }
+
+  /** 在指定文件夹内生成不重名的词库名：已存在则追加 _1/_2 */
+  async getUniqueDeckName(name: string, folder = ""): Promise<string> {
+    const existing = await this.requireDb().select<{ name: string }[]>(
+      "SELECT name FROM decks WHERE folder = ? AND name = ? OR folder = ? AND name LIKE ?",
+      [folder, name, folder, name + "\_%"]
+    );
+    const names = new Set(existing.map((r) => r.name));
+    if (!names.has(name)) return name;
+    let i = 1;
+    while (names.has(`${name}_${i}`)) i++;
+    return `${name}_${i}`;
+  }
+
+  /** 创建词库；已存在同名（同文件夹）则直接返回其 id；新建时应用全局默认每日新卡配额设置 */
+  async createDeck(name: string, description = "", newPerDay?: number, folder = ""): Promise<number> {
     const db = this.requireDb();
     let quota = newPerDay;
     if (quota === undefined) {
@@ -169,22 +195,26 @@ class ReciterDB {
       quota = Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
     }
     await db.execute(
-      "INSERT OR IGNORE INTO decks (name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-      [name, description, quota, nowIso(), nowIso()]
+      "INSERT OR IGNORE INTO decks (folder, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [folder, name, description, quota, nowIso(), nowIso()]
     );
-    const rows = await db.select<{ id: number }[]>("SELECT id FROM decks WHERE name = ?", [name]);
+    const rows = await db.select<{ id: number }[]>(
+      "SELECT id FROM decks WHERE folder = ? AND name = ?",
+      [folder, name]
+    );
     return rows[0].id;
   }
 
   async updateDeck(
     id: number,
-    data: Partial<Pick<Deck, "name" | "description" | "new_cards_per_day">>
+    data: Partial<Pick<Deck, "name" | "description" | "new_cards_per_day" | "folder">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
     if (data.name !== undefined) { sets.push("name = ?"); params.push(data.name); }
     if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
     if (data.new_cards_per_day !== undefined) { sets.push("new_cards_per_day = ?"); params.push(data.new_cards_per_day); }
+    if (data.folder !== undefined) { sets.push("folder = ?"); params.push(data.folder); }
     if (sets.length === 0) return;
     params.push(nowIso());
     sets.push("updated_at = ?");
@@ -294,7 +324,7 @@ class ReciterDB {
     return this.requireDb().select<DeckWeakWord[]>(
       `SELECT c.front, c.weak_source, cs.lapses, cs.stability
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.lapses >= ?
+       WHERE c.deck_id = ? AND cs.lapses >= ? AND c.weak_dismissed = 0
        ORDER BY cs.lapses DESC, cs.stability ASC
        LIMIT ?`,
       [deckId, threshold, limit]
@@ -356,7 +386,7 @@ class ReciterDB {
   /** 编辑卡片（front/back/tags/weak_source） */
   async updateCard(
     id: number,
-    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key" | "weak_source">>
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key" | "weak_source" | "weak_dismissed">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
@@ -366,6 +396,7 @@ class ReciterDB {
     if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
     if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
     if (data.weak_source !== undefined) { sets.push("weak_source = ?"); params.push(data.weak_source); }
+    if (data.weak_dismissed !== undefined) { sets.push("weak_dismissed = ?"); params.push(data.weak_dismissed); }
     if (sets.length === 0) return;
     params.push(nowIso());
     sets.push("updated_at = ?");
@@ -458,22 +489,24 @@ class ReciterDB {
   async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
-              c.weak_source, c.created_at, c.updated_at,
+              c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.lapses >= ?
+       WHERE c.deck_id = ? AND cs.lapses >= ? AND c.weak_dismissed = 0
        ORDER BY cs.lapses DESC, cs.stability ASC
        LIMIT ?`,
       [deckId, threshold, limit]
     );
   }
 
-  /** 全局弱词计数（默认阈值 3） */
+  /** 全局弱词计数（默认阈值 3；不含已从弱词本移除的卡片） */
   async getGlobalWeakCount(threshold = 3): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
-      "SELECT COUNT(*) AS cnt FROM card_states WHERE lapses >= ?",
+      `SELECT COUNT(*) AS cnt FROM card_states cs
+       JOIN cards c ON c.id = cs.card_id
+       WHERE cs.lapses >= ? AND c.weak_dismissed = 0`,
       [threshold]
     );
     return rows[0]?.cnt ?? 0;
@@ -511,7 +544,12 @@ class ReciterDB {
     const state = await this.getCardState(cardId);
     const lapses = Math.max(state?.lapses ?? 0, threshold);
     await this.updateCardState(cardId, { lapses });
-    await this.updateCard(cardId, { is_key: 1, weak_source: "manual" });
+    await this.updateCard(cardId, { is_key: 1, weak_source: "manual", weak_dismissed: 0 });
+  }
+
+  /** 从弱词本移除：标记 dismissed，不再出现在弱词列表 */
+  async dismissWeakWord(cardId: number): Promise<void> {
+    await this.updateCard(cardId, { weak_dismissed: 1, weak_source: "" });
   }
 
   /** 获取指定卡片最近 N 次评分（按时间倒序） */
@@ -708,7 +746,7 @@ class ReciterDB {
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
-              c.weak_source, c.created_at, c.updated_at,
+              c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -759,8 +797,8 @@ class ReciterDB {
 
   async restoreDeck(d: Deck): Promise<void> {
     await this.requireDb().execute(
-      "INSERT INTO decks (id, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [d.id, d.name, d.description ?? "", d.new_cards_per_day, d.created_at, d.updated_at]
+      "INSERT INTO decks (id, folder, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [d.id, d.folder ?? "", d.name, d.description ?? "", d.new_cards_per_day, d.created_at, d.updated_at]
     );
   }
 
@@ -772,9 +810,9 @@ class ReciterDB {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
-      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.created_at, c.updated_at]
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, weak_dismissed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,

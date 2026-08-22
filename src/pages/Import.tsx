@@ -18,14 +18,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { db } from "@/lib/db";
 import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
-import { parseImportFile } from "@/lib/importer";
+import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -60,14 +69,27 @@ export default function Import() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [manualFormat, setManualFormat] = useState<ImportFormat | "auto">("auto");
+  const [manualText, setManualText] = useState("");
+  const [deckTargets, setDeckTargets] = useState<
+    Record<
+      string,
+      {
+        deckId: number | null;
+        label: string;
+        folder: string;
+        name: string;
+        options: { deckId: number | null; label: string; folder: string; name: string }[];
+      }
+    >
+  >({});
   const refreshDecks = useDeckStore((s) => s.refresh);
 
-  /** 解析文本 → 冲突检测（DB 匹配）→ 预览 */
-  const handleText = async (name: string, text: string) => {
+  /** 解析结果 → 冲突检测（DB 匹配）→ 预览 */
+  const handleParsed = async (name: string, parsed: ImportFileResult) => {
     setStage("preview");
     setFileName(name);
     setWarnings([]);
-    const parsed = parseImportFile(name, text);
 
     // 按词库分组做冲突检测（每词库一次查询）
     const deckGroups = new Map<string, typeof parsed.cards>();
@@ -79,26 +101,67 @@ export default function Import() {
     const duplicateSet = new Set(parsed.duplicates);
     const rowsOut: PreviewRow[] = [];
     for (const [deckName, cards] of deckGroups) {
-      const deckId = await db.getDeckIdByName(deckName);
+      const matches = await db.getDecksByName(deckName);
+      const deckId = matches[0]?.id ?? null;
       const existing = deckId ? await db.getExistingFronts(deckId) : new Set<string>();
       for (const c of cards) {
         const dup = duplicateSet.has(deckName + "\u0000" + c.front);
+        const rowStatus = dup ? "duplicate" : existing.has(c.front) ? "exists" : "new";
         rowsOut.push({
           key: deckName + "\u0000" + c.front,
           deckName,
           front: c.front,
           back: c.back,
           markdown: c.markdown,
-          sourceType: parsed.format,
+          sourceType: parsed.format === "txt" ? "manual" : parsed.format,
           tags: c.tags,
           isKey: c.isKey,
-          status: dup ? "duplicate" : existing.has(c.front) ? "exists" : "new",
-          checked: !dup,
+          status: rowStatus,
+          checked: dup ? false : parsed.format === "json" ? rowStatus === "new" : true,
         });
       }
     }
+    const targets: Record<
+      string,
+      {
+        deckId: number | null;
+        label: string;
+        folder: string;
+        name: string;
+        options: { deckId: number | null; label: string; folder: string; name: string }[];
+      }
+    > = {};
+    for (const deckName of deckGroups.keys()) {
+      const matches = await db.getDecksByName(deckName);
+      const options: { deckId: number | null; label: string; folder: string; name: string }[] = matches.map((m) => ({
+        deckId: m.id,
+        label: `${m.folder || "根目录"}/${m.name}`,
+        folder: m.folder,
+        name: m.name,
+      }));
+      if (matches.length > 0) {
+        const unique = await db.getUniqueDeckName(deckName, "");
+        options.push({ deckId: null, label: `新建 ${unique}`, folder: "", name: unique });
+      } else {
+        options.push({ deckId: null, label: deckName, folder: "", name: deckName });
+      }
+      const first = options[0];
+      if (first) targets[deckName] = { ...first, options };
+    }
+    setDeckTargets(targets);
     setRows(rowsOut);
     setWarnings(parsed.warnings);
+  };
+
+  /** 解析文件文本 → 预览 */
+  const handleText = async (name: string, text: string) => {
+    await handleParsed(name, parseImportFile(name, text));
+  };
+
+  /** 手动输入文本 → 预览 */
+  const handleManualText = async () => {
+    if (!manualText.trim()) return;
+    await handleParsed("手动输入", parseTextInput(manualText, manualFormat));
   };
 
   /** Web/选择器：读取 File → 解析预览 */
@@ -155,6 +218,18 @@ export default function Import() {
     setRows((rs) => rs.map((r) => (r.status === "duplicate" ? r : { ...r, checked: !allChecked })));
   };
 
+  const selectDeckTarget = (deckName: string, value: string) => {
+    setDeckTargets((prev) => {
+      const t = prev[deckName];
+      if (!t) return prev;
+      const opt = t.options.find((o) =>
+        (o.deckId !== null ? `id:${o.deckId}` : `new:${o.name}`) === value
+      ) ?? t.options[0];
+      if (!opt) return prev;
+      return { ...prev, [deckName]: { ...t, deckId: opt.deckId, label: opt.label, folder: opt.folder, name: opt.name } };
+    });
+  };
+
   const confirmImport = async () => {
     setStage("importing");
     const selected = rows.filter((r) => r.checked);
@@ -164,18 +239,30 @@ export default function Import() {
     const decksTouched = new Set<string>();
 
     for (const r of selected) {
-      let existing = knownExistingByDeck.get(r.deckName);
+      const target = deckTargets[r.deckName] ?? {
+        deckId: null,
+        label: r.deckName,
+        folder: "",
+        name: r.deckName,
+      };
+      const targetKey = target.deckId !== null ? String(target.deckId) : `new:${target.folder}\u0000${target.name}`;
+      let existing = knownExistingByDeck.get(targetKey);
       if (!existing) {
         existing = new Set<string>();
-        const deckId = await db.getDeckIdByName(r.deckName);
-        if (deckId) {
-          const fronts = await db.getExistingFronts(deckId);
+        if (target.deckId !== null) {
+          const fronts = await db.getExistingFronts(target.deckId);
           fronts.forEach((f) => existing!.add(f));
         }
-        knownExistingByDeck.set(r.deckName, existing);
+        knownExistingByDeck.set(targetKey, existing);
       }
-      const deckId = await db.createDeck(r.deckName, "");
-      decksTouched.add(r.deckName);
+      let deckId: number;
+      if (target.deckId !== null) {
+        deckId = target.deckId;
+      } else {
+        const uniqueName = await db.getUniqueDeckName(target.name, target.folder);
+        deckId = await db.createDeck(uniqueName, "", undefined, target.folder);
+      }
+      decksTouched.add(target.label);
       const res = await db.upsertCard(
         {
           deckId,
@@ -202,6 +289,7 @@ export default function Import() {
     setRows([]);
     setResult(null);
     setFileName("");
+    setDeckTargets({});
   };
 
   const selectableCount = rows.filter((r) => r.status !== "duplicate").length;
@@ -254,6 +342,42 @@ export default function Import() {
 
           <Card>
             <CardHeader>
+              <CardTitle>手动输入</CardTitle>
+              <CardDescription>粘贴 Markdown / CSV / JSON / TXT 内容，自动识别后预览导入</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Label className="shrink-0">格式</Label>
+                <Select
+                  value={manualFormat}
+                  onValueChange={(v) => setManualFormat(v as ImportFormat | "auto")}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动识别</SelectItem>
+                    <SelectItem value="markdown">Markdown</SelectItem>
+                    <SelectItem value="csv">CSV</SelectItem>
+                    <SelectItem value="json">JSON</SelectItem>
+                    <SelectItem value="txt">TXT</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleManualText} disabled={!manualText.trim()}>
+                  解析预览
+                </Button>
+              </div>
+              <Textarea
+                rows={6}
+                placeholder={"每行一个词条，例如：\nabandon\t放弃\n# 四级词汇\nabandon, 放弃"}
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>支持的格式</CardTitle>
               <CardDescription>解析规则（对齐 templates 样式与 PLAN 规范）</CardDescription>
             </CardHeader>
@@ -293,6 +417,42 @@ export default function Import() {
 
       {stage === "preview" && (
         <div className="space-y-4">
+          {Object.values(deckTargets).some((t) => t.options.length > 1) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>词库冲突处理</CardTitle>
+                <CardDescription>检测到重名词库，请选择导入目标；选择「新建」会生成 *_1 词库</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {Object.entries(deckTargets)
+                  .filter(([, t]) => t.options.length > 1)
+                  .map(([deckName, t]) => (
+                    <div key={deckName} className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{deckName}</span>
+                      <Select
+                        value={t.deckId !== null ? `id:${t.deckId}` : `new:${t.name}`}
+                        onValueChange={(v) => selectDeckTarget(deckName, v)}
+                      >
+                        <SelectTrigger className="w-64">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {t.options.map((opt) => (
+                            <SelectItem
+                              key={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
+                              value={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
+                            >
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div>

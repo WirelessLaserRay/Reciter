@@ -40,6 +40,37 @@ export const MIGRATIONS: MigrationDef[] = [
       return cols.some((c) => c.name === "weak_source");
     },
   },
+  {
+    version: 7,
+    description: "add deck folder and allow duplicate names across folders",
+    sql: `CREATE TABLE decks_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folder TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      new_cards_per_day INTEGER DEFAULT 20,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(folder, name)
+    );
+    INSERT INTO decks_new (id, folder, name, description, new_cards_per_day, created_at, updated_at)
+      SELECT id, '', name, description, new_cards_per_day, created_at, updated_at FROM decks;
+    DROP TABLE decks;
+    ALTER TABLE decks_new RENAME TO decks;`,
+    alreadyApplied: async (backend) => {
+      const cols = await backend.select<{ name: string }[]>("PRAGMA table_info(decks)");
+      return cols.some((c) => c.name === "folder");
+    },
+  },
+  {
+    version: 8,
+    description: "add weak_dismissed to cards",
+    sql: "ALTER TABLE cards ADD COLUMN weak_dismissed INTEGER NOT NULL DEFAULT 0;",
+    alreadyApplied: async (backend) => {
+      const cols = await backend.select<{ name: string }[]>("PRAGMA table_info(cards)");
+      return cols.some((c) => c.name === "weak_dismissed");
+    },
+  },
 ];
 
 const META_TABLE = "_reciter_migrations";

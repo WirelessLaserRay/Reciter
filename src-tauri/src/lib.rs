@@ -45,6 +45,24 @@ pub fn run() {
             sql: include_str!("../migrations/005_study_prefs.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "add weak_source to cards",
+            sql: include_str!("../migrations/006_weak_source.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "add deck folder and allow duplicate names across folders",
+            sql: include_str!("../migrations/007_deck_folder.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 8,
+            description: "add weak_dismissed to cards",
+            sql: include_str!("../migrations/008_weak_dismissed.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

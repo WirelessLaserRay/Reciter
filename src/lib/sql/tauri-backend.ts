@@ -28,4 +28,17 @@ export class TauriBackend implements SQLBackend {
     const [s, p] = buildTauriParamsSafe(sql, params);
     return this.db.select<T>(s, p as never[]);
   }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.db) throw new Error("backend not initialized");
+    await this.db.execute("BEGIN");
+    try {
+      const result = await fn();
+      await this.db.execute("COMMIT");
+      return result;
+    } catch (e) {
+      await this.db.execute("ROLLBACK").catch(() => {});
+      throw e;
+    }
+  }
 }

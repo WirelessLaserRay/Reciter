@@ -225,6 +225,7 @@ export default function QuizSession({
             tags: c.tags,
             is_key: c.is_key,
             weak_source: c.weak_source,
+            weak_dismissed: c.weak_dismissed,
             created_at: c.created_at,
             updated_at: c.updated_at,
           }));

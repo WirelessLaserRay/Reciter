@@ -14,7 +14,7 @@ Dashboard 显示"今日待复习"数量还有很多（比如 80 张），但进�
 
 | 对比项 | Dashboard 显示 | loadQueue 实际加载 |
 |---|---|---|
-| 查询函数 | [`getDueCountByDeck()`](file:///F:/AI/Reciter/src/lib/db.ts#L605-L614) | [`getDueCards()`](file:///F:/AI/Reciter/src/lib/db.ts#L500-L516) |
+| 查询函数 | [`getDueCountByDeck()`](src/lib/db.ts#L605-L614) | [`getDueCards()`](src/lib/db.ts#L500-L516) |
 | 时间参数 | `dayEnd`（今日学习日终点，约明天 04:00） | `now`（当前时刻） |
 | 条件 | `cs.due < dayEnd`（宽松：含今天所有到期的） | `cs.due <= now`（严格：只取此刻已到期的） |
 
