@@ -21,6 +21,7 @@ import type { StudyCardRow } from "@/lib/db";
 import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
 import { speak } from "@/lib/tts";
+import { DictionaryExample } from "./DictionaryExample";
 import { findRelatedWords } from "@/lib/word-family";
 import { pickSimilarWords } from "@/lib/similar-words";
 import type { StudyModeConfig } from "@/lib/study-mode";
@@ -257,6 +258,7 @@ function ClassicFlipView(props: ModeViewProps) {
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
             <RevealContext row={row} />
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
             <p className="text-xs text-muted-foreground">背面 · 释义</p>
           </div>
         </div>
@@ -383,6 +385,7 @@ function ActiveRecallView(props: ModeViewProps) {
                 {recallInput.trim() || "（未填写）"}
               </p>
             </div>
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
           </div>
           <RatingButtons
             ratingMode={ratingMode}

@@ -115,7 +115,7 @@ export default function Sidebar({
         </Button>
         <div className="sidebar-collapse-text mt-2 justify-center">
           <div className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground">
-            Reciter v0.15.1 · Phase 7
+            Reciter v0.15.2 · Phase 7
           </div>
         </div>
       </div>

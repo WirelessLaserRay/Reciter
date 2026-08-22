@@ -14,6 +14,22 @@
 
 ---
 
+## [0.15.2] - 2026-08-22
+
+### Added
+
+- **词典例句自动展示**：学习卡/主动回忆答题后自动展示例句
+- **例句数据源降级**：Free Dictionary → Tatoeba → AI 依次降级兜底
+- **AI 闪卡共用例句管线**：AI 生成的卡片若没有例句，也会走同一套词典例句展示
+
+### Verified
+
+- ✅ `npm run build` 通过
+- ✅ `.install/phase7-test.ts` 全过
+- ✅ `.install/6c-test.ts` 全过
+
+---
+
 ## [0.15.1] - 2026-08-22
 
 ### Changed
