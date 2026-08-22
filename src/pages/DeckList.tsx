@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, BookOpen, Download, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, Download, Loader2, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { db } from "@/lib/db";
 import { exportDecksToJSON } from "@/lib/backup";
+import { cn } from "@/lib/utils";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
 
@@ -250,13 +251,24 @@ export default function DeckList() {
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="truncate">{d.name}</CardTitle>
                             <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                              <input
-                                type="checkbox"
-                                className="mr-1 size-4 accent-primary"
-                                checked={selectedDeckIds.has(d.id)}
-                                onChange={() => toggleSelectDeck(d.id)}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                  "size-7",
+                                  selectedDeckIds.has(d.id)
+                                    ? "text-primary"
+                                    : "text-muted-foreground"
+                                )}
+                                onClick={() => toggleSelectDeck(d.id)}
                                 title="选择导出"
-                              />
+                              >
+                                {selectedDeckIds.has(d.id) ? (
+                                  <Check className="size-3.5" />
+                                ) : (
+                                  <Square className="size-3.5" />
+                                )}
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"

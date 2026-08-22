@@ -131,6 +131,10 @@ export function parseJSON(content: string): ParseResult {
     const obj = item as Record<string, unknown>;
     const front = String(obj.front ?? obj.word ?? "").trim();
     const back = String(obj.back ?? obj.meaning ?? "").trim();
+    const pos = String(obj.pos ?? obj.partOfSpeech ?? "").trim();
+    const example = String(obj.example ?? "").trim();
+    const finalBack = pos ? `${pos} ${back}` : back;
+    const markdown = example;
     const deckName = String(obj.deck ?? obj.deckName ?? "JSON 导入").trim() || "JSON 导入";
     const folder = String(obj.folder ?? "").trim();
     const rawTags = obj.tags;
@@ -147,7 +151,7 @@ export function parseJSON(content: string): ParseResult {
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, folder, tags, highlights: [], isKey });
+    cards.push({ front, back: finalBack, markdown, deckName, folder, tags, highlights: [], isKey });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }

@@ -15,6 +15,7 @@ import {
   Sparkles,
   Star,
   Tag,
+  Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,7 @@ import {
   saveDeckShuffle,
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
+import { speak } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
@@ -502,8 +504,18 @@ function StudySession({
               />
             ) : (
               modeConfig && (
-                <StudyCard
-                  key={item.row.card_id}
+                <>
+                  <div className="flex items-center justify-between">
+                    {item.row.phonetic ? (
+                      <span className="text-sm text-muted-foreground">{item.row.phonetic}</span>
+                    ) : <span />}
+                    <Button variant="ghost" size="sm" onClick={() => speak(item.row.front)}>
+                      <Volume2 className="size-4" />
+                      发音
+                    </Button>
+                  </div>
+                  <StudyCard
+                    key={item.row.card_id}
                   row={item.row}
                   config={modeConfig}
                   ratingMode={ratingMode}
@@ -515,7 +527,8 @@ function StudySession({
                   onReveal={() => void handleReveal()}
                   onRate={(grade) => void handleRate(grade)}
                   onRateReadyChange={setRateReady}
-                />
+                  />
+                </>
               )
             )}
 
