@@ -45,8 +45,8 @@ export interface ReviewLogInsert {
 
 /** 词库掌握度分布（Phase 6C 掌握度全景；四类互斥，合计 = total） */
 export interface MasteryDistribution {
-  mastered: number;  // 已掌握：stability >= 15 且 lapses < threshold
-  learning: number;  // 学习中：0 < stability < 15 且 lapses < threshold
+  mastered: number;  // 已掌握：stability >= 7 且 lapses < threshold
+  learning: number;  // 学习中：0 < stability < 7 且 lapses < threshold
   weak: number;      // 弱词：lapses >= threshold
   unlearned: number; // 未学习：state = 0 且 lapses < threshold
   total: number;
@@ -307,8 +307,8 @@ class ReciterDB {
       `SELECT
          COALESCE(SUM(CASE WHEN cs.lapses >= ? THEN 1 ELSE 0 END), 0) AS weak,
          COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
-         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability >= 15 THEN 1 ELSE 0 END), 0) AS mastered,
-         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability < 15 THEN 1 ELSE 0 END), 0) AS learning,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability >= 7 THEN 1 ELSE 0 END), 0) AS mastered,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability < 7 THEN 1 ELSE 0 END), 0) AS learning,
          COUNT(*) AS total
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ?`,
