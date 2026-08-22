@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -158,9 +158,10 @@ export default function DeckDetail() {
     }
   };
 
+  const deferredSearch = useDeferredValue(search);
   const filtered = cards.filter(
     (c) =>
-      (!search || c.front.toLowerCase().includes(search.toLowerCase()) || c.back.includes(search)) &&
+      (!deferredSearch || c.front.toLowerCase().includes(deferredSearch.toLowerCase()) || c.back.includes(deferredSearch)) &&
       (!keyFilter || c.is_key === 1)
   );
 

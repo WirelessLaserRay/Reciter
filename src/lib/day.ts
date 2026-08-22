@@ -19,7 +19,7 @@ export function parseDayStartHour(value: string | null | undefined): number {
 export function getDayStartDate(hour: number, ref: Date = new Date()): Date {
   const d = new Date(ref);
   d.setHours(hour, 0, 0, 0);
-  if (d.getTime() > ref.getTime()) d.setDate(d.getDate() - 1);
+  if (d.getTime() > ref.getTime()) d.setTime(d.getTime() - 86400000);
   return d;
 }
 

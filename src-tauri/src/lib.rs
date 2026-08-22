@@ -63,6 +63,12 @@ pub fn run() {
             sql: include_str!("../migrations/008_weak_dismissed.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "add phonetic to cards",
+            sql: include_str!("../migrations/009_phonetic.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

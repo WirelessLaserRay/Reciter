@@ -47,10 +47,11 @@ export async function applyReview(
   ]);
 
   await db.updateCardState(cardId, fsrsCardToDBState(card));
+  const cappedResponseTime = opts.responseTimeMs != null ? Math.min(opts.responseTimeMs, 60_000) : null;
   await db.addReviewLog({
     card_id: cardId,
     grade: grade as 1 | 2 | 3 | 4,
-    response_time_ms: opts.responseTimeMs ?? null,
+    response_time_ms: cappedResponseTime,
     source: opts.source ?? "review",
     ai_question: opts.aiQuestion ?? null,
     ai_answer: opts.aiAnswer ?? null,

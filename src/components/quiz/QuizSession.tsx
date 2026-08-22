@@ -221,6 +221,7 @@ export default function QuizSession({
             front: c.front,
             back: c.back,
             markdown_content: c.markdown_content,
+            phonetic: c.phonetic,
             source_type: c.source_type,
             tags: c.tags,
             is_key: c.is_key,

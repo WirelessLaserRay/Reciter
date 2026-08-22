@@ -24,6 +24,7 @@ import {
   type LastStudyContext,
 } from "@/lib/study-prefs";
 import { getDailyQuote } from "@/lib/daily-quotes";
+import { getDailyNewTarget, getDaysUntilExam, getExamConfig } from "@/lib/exam-planner";
 import type { Deck } from "@/types";
 
 export default function Dashboard() {
@@ -40,6 +41,7 @@ export default function Dashboard() {
   const [aiTestDue, setAiTestDue] = useState(true);
   const [nextAiTestLabel, setNextAiTestLabel] = useState("");
   const [quote, setQuote] = useState(() => getDailyQuote());
+  const [examInfo, setExamInfo] = useState<{ date: string; days: number; dailyTarget: number | null } | null>(null);
 
   useEffect(() => {
     if (!dbReady) return;
@@ -54,10 +56,7 @@ export default function Dashboard() {
       const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
       const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
       const remainingLimit = Math.max(0, reviewLimit - todayReviewed);
-      const deckDueEntries = await Promise.all(
-        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, now.toISOString(), ignoredTags)] as const)
-      );
-      const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
+      const deckDue = await db.getDeckDueCounts(now.toISOString(), ignoredTags);
       const leech = await getLeechThreshold();
       const [due, fresh, last, weak] = await Promise.all([
         db.getGlobalDueCount(now.toISOString(), ignoredTags),
@@ -71,6 +70,17 @@ export default function Dashboard() {
       setWeakCount(weak);
       setDueByDeck(deckDue);
       setQuote(getDailyQuote());
+
+      const examCfg = await getExamConfig();
+      if (examCfg.date) {
+        setExamInfo({
+          date: examCfg.date,
+          days: getDaysUntilExam(examCfg.date),
+          dailyTarget: await getDailyNewTarget(),
+        });
+      } else {
+        setExamInfo(null);
+      }
 
       const lastAiTest = await getLastAiTestAt();
       const aiDue = lastAiTest === 0 || Date.now() - lastAiTest >= AI_TEST_INTERVAL_MS;
@@ -160,6 +170,22 @@ export default function Dashboard() {
           <p className="mt-1 text-xs text-muted-foreground">— {quote.author}</p>
         </CardContent>
       </Card>
+
+      {/* 考试倒计时 */}
+      {examInfo && (
+        <Card className="border-blue-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GraduationCap className="size-4 text-blue-500" />
+              考试倒计时
+            </CardTitle>
+            <CardDescription>
+              目标日期 {examInfo.date} · 剩余 {examInfo.days} 天
+              {examInfo.dailyTarget !== null && ` · 建议每日新学 ${examInfo.dailyTarget} 张`}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* AI 智能测试 */}
       <Card className={aiTestDue ? "border-purple-500/40 bg-purple-500/5" : ""}>

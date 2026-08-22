@@ -235,10 +235,10 @@ function StudySession({
   useEffect(() => {
     if (deckId === null) return;
     let cancelled = false;
-    db.getCardsByDeck(deckId)
+    db.getRandomDistractors(deckId, 0, 50)
       .then((cards) => {
         if (cancelled) return;
-        setDeckDistractors(cards.map((c) => ({ front: c.front, back: c.back })));
+        setDeckDistractors(cards);
       })
       .catch(() => {});
     return () => {

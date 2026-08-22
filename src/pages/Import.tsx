@@ -6,6 +6,7 @@ import {
   FileUp,
   Loader2,
   RefreshCw,
+  Sparkles,
   Star,
   Upload,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { db } from "@/lib/db";
 import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
+import { generateCardsFromText } from "@/lib/ai-generate";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -72,6 +74,9 @@ export default function Import() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [manualFormat, setManualFormat] = useState<ImportFormat | "auto">("auto");
   const [manualText, setManualText] = useState("");
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [deckTargets, setDeckTargets] = useState<
     Record<
       string,
@@ -165,6 +170,21 @@ export default function Import() {
   const handleManualText = async () => {
     if (!manualText.trim()) return;
     await handleParsed("手动输入", parseTextInput(manualText, manualFormat));
+  };
+
+  /** AI 从文章/笔记生成闪卡 → 预览 */
+  const handleAIGenerate = async () => {
+    if (!aiText.trim()) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const json = await generateCardsFromText(aiText);
+      await handleParsed("AI 生成", parseTextInput(json, "json"));
+    } catch (e) {
+      setAiError(String(e));
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   /** Web/选择器：读取 File → 解析预览 */
@@ -376,6 +396,26 @@ export default function Import() {
                 value={manualText}
                 onChange={(e) => setManualText(e.target.value)}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI 智能生成</CardTitle>
+              <CardDescription>粘贴文章/笔记，AI 自动提取单词并生成闪卡</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                rows={6}
+                placeholder="粘贴英文文章或笔记内容…"
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+              />
+              {aiError && <p className="text-xs text-red-600">{aiError}</p>}
+              <Button onClick={handleAIGenerate} disabled={aiBusy || !aiText.trim()}>
+                {aiBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                生成闪卡并预览
+              </Button>
             </CardContent>
           </Card>
 

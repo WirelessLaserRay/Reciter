@@ -17,6 +17,7 @@ export interface StudyCardRow {
   front: string;
   back: string;
   markdown_content: string;
+  phonetic: string;
   tags: string;
   is_key: number;
   state: number;
@@ -223,7 +224,11 @@ class ReciterDB {
   }
 
   async deleteDeck(id: number): Promise<void> {
-    await this.requireDb().execute("DELETE FROM decks WHERE id = ?", [id]);
+    const db = this.requireDb();
+    await db.execute("DELETE FROM settings WHERE key = ?", [`deck_shuffle_${id}`]);
+    const last = await this.getSetting("last_study_deck_id");
+    if (last === String(id)) await this.setSetting("last_study_deck_id", "");
+    await db.execute("DELETE FROM decks WHERE id = ?", [id]);
   }
 
   /** 各词库卡片数 { deck_id: count } */
@@ -250,47 +255,41 @@ class ReciterDB {
     );
   }
 
+  /** 随机取样干扰项（避免全量词库载入内存） */
+  async getRandomDistractors(
+    deckId: number,
+    excludeCardId: number,
+    limit = 50
+  ): Promise<{ front: string; back: string }[]> {
+    return this.requireDb().select(
+      "SELECT front, back FROM cards WHERE deck_id = ? AND id != ? ORDER BY RANDOM() LIMIT ?",
+      [deckId, excludeCardId, limit]
+    );
+  }
+
   async getCard(id: number): Promise<Card | null> {
     const rows = await this.requireDb().select<Card[]>("SELECT * FROM cards WHERE id = ?", [id]);
     return rows[0] ?? null;
   }
 
-  /** 词库内全部标签（去重，用于按标签筛选学习） */
+  /** 词库内全部标签（去重，用于按标签筛选学习；使用 json_each 精确解析） */
   async getDeckTags(deckId: number): Promise<string[]> {
-    const rows = await this.requireDb().select<{ tags: string }[]>(
-      "SELECT tags FROM cards WHERE deck_id = ? AND tags != '[]'",
+    const rows = await this.requireDb().select<{ tag: string }[]>(
+      `SELECT DISTINCT j.value AS tag FROM cards c, json_each(c.tags) j
+       WHERE c.deck_id = ? ORDER BY tag`,
       [deckId]
     );
-    const set = new Set<string>();
-    for (const r of rows) {
-      try {
-        const arr = JSON.parse(r.tags);
-        if (Array.isArray(arr)) arr.forEach((t) => set.add(String(t)));
-      } catch {
-        // 忽略损坏标签
-      }
-    }
-    return [...set].sort();
+    return rows.map((r) => r.tag).filter(Boolean);
   }
 
-  /** 词库内各标签卡片数（按标签学习入口用） */
+  /** 词库内各标签卡片数（按标签学习入口用；使用 json_each 精确解析） */
   async getDeckTagsWithCount(deckId: number): Promise<{ tag: string; count: number }[]> {
-    const rows = await this.requireDb().select<{ tags: string }[]>(
-      "SELECT tags FROM cards WHERE deck_id = ? AND tags != '[]'",
+    const rows = await this.requireDb().select<{ tag: string; count: number }[]>(
+      `SELECT j.value AS tag, COUNT(*) AS count FROM cards c, json_each(c.tags) j
+       WHERE c.deck_id = ? GROUP BY j.value ORDER BY tag`,
       [deckId]
     );
-    const map = new Map<string, number>();
-    for (const r of rows) {
-      try {
-        const arr = JSON.parse(r.tags);
-        if (Array.isArray(arr)) for (const t of arr) map.set(String(t), (map.get(String(t)) ?? 0) + 1);
-      } catch {
-        // 忽略损坏标签
-      }
-    }
-    return [...map.entries()]
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => a.tag.localeCompare(b.tag, "zh-CN"));
+    return rows;
   }
 
   /** 词库内重点词数量 */
@@ -488,7 +487,7 @@ class ReciterDB {
   /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 3） */
   async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
               c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
@@ -601,7 +600,7 @@ class ReciterDB {
     const limitSql = limit !== undefined ? " LIMIT ?" : "";
     if (limit !== undefined) params.push(limit);
     return this.requireDb().select<StudyCardRow[]>(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.tags, c.is_key,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -631,7 +630,7 @@ class ReciterDB {
       limit,
     ];
     return this.requireDb().select<StudyCardRow[]>(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.tags, c.is_key,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -745,7 +744,7 @@ class ReciterDB {
   /** 导出：全部卡片（含 FSRS 状态） */
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
               c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
@@ -810,9 +809,9 @@ class ReciterDB {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
-      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, weak_dismissed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.created_at, c.updated_at]
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, weak_dismissed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.phonetic ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,

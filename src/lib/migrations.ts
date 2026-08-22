@@ -71,6 +71,15 @@ export const MIGRATIONS: MigrationDef[] = [
       return cols.some((c) => c.name === "weak_dismissed");
     },
   },
+  {
+    version: 9,
+    description: "add phonetic to cards",
+    sql: "ALTER TABLE cards ADD COLUMN phonetic TEXT DEFAULT '';",
+    alreadyApplied: async (backend) => {
+      const cols = await backend.select<{ name: string }[]>("PRAGMA table_info(cards)");
+      return cols.some((c) => c.name === "phonetic");
+    },
+  },
 ];
 
 const META_TABLE = "_reciter_migrations";

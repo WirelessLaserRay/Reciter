@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Sparkles,
   Star,
+  Volume2,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { StudyCardRow } from "@/lib/db";
 import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
+import { speak } from "@/lib/tts";
 import { findRelatedWords } from "@/lib/word-family";
 import { pickSimilarWords } from "@/lib/similar-words";
 import type { StudyModeConfig } from "@/lib/study-mode";
@@ -235,6 +237,11 @@ function ClassicFlipView(props: ModeViewProps) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
             <CardMetaBadges row={row} />
             <div className="text-center text-4xl font-bold break-words">{row.front}</div>
+            {row.phonetic && <div className="text-sm text-muted-foreground">{row.phonetic}</div>}
+            <Button variant="ghost" size="sm" onClick={() => speak(row.front)}>
+              <Volume2 className="size-4" />
+              发音
+            </Button>
             {!flipped && (
               <Button onClick={showAnswer} size="lg">
                 显示答案
@@ -477,6 +484,7 @@ function QuickTestView(props: ModeViewProps) {
   }, [checked, autoGood, busy, onRateReadyChange]);
 
   const finish = (correct: boolean) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
     const fast = Date.now() - startRef.current <= quickMs;
     setChecked(correct);
     onReveal();

@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
@@ -65,6 +66,7 @@ export default function Settings() {
   const [learningSteps, setLearningSteps] = useState("1m,10m");
   const [leechThreshold, setLeechThreshold] = useState(3);
   const [ignoredTags, setIgnoredTags] = useState("");
+  const [easyDaysEnabled, setEasyDaysEnabled] = useState(false);
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -91,7 +93,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -105,6 +107,7 @@ export default function Settings() {
         getLearningSteps(),
         db.getSetting("leech_threshold"),
         getIgnoredTags(),
+        getEasyDaysConfig(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -122,6 +125,7 @@ export default function Settings() {
       const ltN = lt ? parseInt(lt, 10) : 3;
       if (Number.isFinite(ltN) && ltN > 0) setLeechThreshold(ltN);
       setIgnoredTags(ig.join("、"));
+      setEasyDaysEnabled(ed.enabled);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -177,6 +181,19 @@ export default function Settings() {
       .map((s) => s.trim())
       .filter(Boolean);
     await saveIgnoredTags(tags);
+    flashSaved();
+  };
+
+  const saveEasyDays = async (enabled: boolean) => {
+    setEasyDaysEnabled(enabled);
+    if (!dbReady) return;
+    const cfg = await getEasyDaysConfig();
+    cfg.enabled = enabled;
+    if (enabled && cfg.weekdays[0] === 1 && cfg.weekdays[6] === 1) {
+      cfg.weekdays[0] = 0.5;
+      cfg.weekdays[6] = 0.5;
+    }
+    await saveEasyDaysConfig(cfg);
     flashSaved();
   };
 
@@ -561,10 +578,13 @@ export default function Settings() {
                 <div className="space-y-0.5">
                   <Label>Easy Days 负载均衡</Label>
                   <p className="text-xs text-muted-foreground">
-                    避免周末复习堆积（规划中）
+                    开启后周末复习量默认减半，可避免堆积
                   </p>
                 </div>
-                <Switch disabled />
+                <Switch
+                  checked={easyDaysEnabled}
+                  onCheckedChange={(v) => void saveEasyDays(v)}
+                />
               </div>
 
               <div className="border-t pt-4">

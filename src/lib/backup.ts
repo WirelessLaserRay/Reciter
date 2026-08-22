@@ -31,7 +31,7 @@ export async function buildBackup(): Promise<BackupData> {
   return {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    appVersion: "0.14.6",
+    appVersion: "0.15.0",
     deckCount: decks.length,
     cardCount: cards.length,
     reviewCount: reviewLogs.length,

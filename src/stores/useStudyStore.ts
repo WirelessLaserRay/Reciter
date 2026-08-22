@@ -4,6 +4,7 @@ import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
 import { getDeckShuffle, getIgnoredTags, getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
+import { getEasyDaysConfig, getEasyDaysFactor } from "@/lib/easy-days";
 
 export interface QueueItem {
   row: StudyCardRow;
@@ -17,7 +18,7 @@ export interface QueueItem {
  */
 export function interleaveQueue(due: StudyCardRow[], fresh: StudyCardRow[], ratio = 5): StudyCardRow[] {
   if (ratio <= 0 || fresh.length === 0) return [...due, ...fresh];
-  const result: StudyCardRow[] = [];
+  let result: StudyCardRow[] = [];
   let i = 0;
   let j = 0;
   while (i < due.length && j < fresh.length) {
@@ -30,7 +31,7 @@ export function interleaveQueue(due: StudyCardRow[], fresh: StudyCardRow[], rati
   }
   // 复习卡已用完：剩余新卡打乱后继续（已无复习卡可交错，至少避免顺序单调）
   if (i >= due.length && j < fresh.length) {
-    result.push(...shuffleRows(fresh.slice(j)));
+    result = result.concat(shuffleRows(fresh.slice(j)));
   } else {
     while (i < due.length) result.push(due[i++]);
   }
@@ -87,9 +88,9 @@ interface StudyState {
     actions: number;
     sessionStartTime: number;
     weakWords: string[];
-    reviewedCardIds: number[];
-    againCardIds: number[];
-    hardCardIds: number[];
+    reviewedCardIds: Set<number>;
+    againCardIds: Set<number>;
+    hardCardIds: Set<number>;
   };
   finished: boolean;
 
@@ -113,7 +114,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   index: 0,
   loading: false,
   error: null,
-  stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: [], againCardIds: [], hardCardIds: [] },
+  stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() },
   finished: false,
 
   /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤） */
@@ -134,7 +135,10 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const reviewLimitRaw = await db.getSetting("daily_review_limit");
       const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
       const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
-      const dueLimit = Math.max(0, reviewLimit - todayReviewed);
+      const easyConfig = await getEasyDaysConfig();
+      const easyFactor = getEasyDaysFactor(now, easyConfig);
+      const adjustedLimit = Math.round(reviewLimit * easyFactor);
+      const dueLimit = Math.max(0, adjustedLimit - todayReviewed);
       const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
@@ -159,7 +163,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
         keyOnly,
         queue,
         index: 0,
-        stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: Date.now(), weakWords: [], reviewedCardIds: [], againCardIds: [], hardCardIds: [] },
+        stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: Date.now(), weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() },
         loading: false,
         finished: queue.length === 0,
       });
@@ -200,9 +204,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     // 会话统计：reviewed/again/hard 均为独立卡片数（去重），actions 为总评分次数
     const prevStats = get().stats;
     const cardId = item.row.card_id;
-    const isNewReview = !prevStats.reviewedCardIds.includes(cardId);
-    const isNewAgain = grade === Rating.Again && !prevStats.againCardIds.includes(cardId);
-    const isNewHard = grade === Rating.Hard && !prevStats.hardCardIds.includes(cardId);
+    const isNewReview = !prevStats.reviewedCardIds.has(cardId);
+    const isNewAgain = grade === Rating.Again && !prevStats.againCardIds.has(cardId);
+    const isNewHard = grade === Rating.Hard && !prevStats.hardCardIds.has(cardId);
     const stats = {
       reviewed: prevStats.reviewed + (isNewReview ? 1 : 0),
       newDone: prevStats.newDone + (wasNew && isNewReview ? 1 : 0),
@@ -214,9 +218,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
         grade === Rating.Again
           ? [...prevStats.weakWords, item.row.front]
           : prevStats.weakWords,
-      reviewedCardIds: isNewReview ? [...prevStats.reviewedCardIds, cardId] : prevStats.reviewedCardIds,
-      againCardIds: isNewAgain ? [...prevStats.againCardIds, cardId] : prevStats.againCardIds,
-      hardCardIds: isNewHard ? [...prevStats.hardCardIds, cardId] : prevStats.hardCardIds,
+      reviewedCardIds: isNewReview ? new Set(prevStats.reviewedCardIds).add(cardId) : prevStats.reviewedCardIds,
+      againCardIds: isNewAgain ? new Set(prevStats.againCardIds).add(cardId) : prevStats.againCardIds,
+      hardCardIds: isNewHard ? new Set(prevStats.hardCardIds).add(cardId) : prevStats.hardCardIds,
     };
 
     // Learning/Relearning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）。
@@ -277,6 +281,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   reset: () => {
-    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: [], againCardIds: [], hardCardIds: [] } });
+    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() } });
   },
 }));
