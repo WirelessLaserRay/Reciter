@@ -1,7 +1,14 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { SQLBackend } from "./backend";
 
-/** Windows/Tauri 后端：tauri-plugin-sql（原有行为，完全不变） */
+function buildTauriParamsSafe(sql: string, params: unknown[]): [string, unknown[]] {
+  if (params.length === 0) return [sql, params];
+  let counter = 1;
+  const newSql = sql.replace(/\?/g, () => "$" + (counter++));
+  return [newSql, params];
+}
+
+/** Windows/Tauri 后端：tauri-plugin-sql（原有行为，修复 ? 占位符） */
 export class TauriBackend implements SQLBackend {
   readonly kind = "tauri" as const;
   private db: Database | null = null;
@@ -12,11 +19,13 @@ export class TauriBackend implements SQLBackend {
 
   async execute(sql: string, params: unknown[] = []): Promise<void> {
     if (!this.db) throw new Error("backend not initialized");
-    await this.db.execute(sql, params as never[]);
+    const [s, p] = buildTauriParamsSafe(sql, params);
+    await this.db.execute(s, p as never[]);
   }
 
   async select<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
     if (!this.db) throw new Error("backend not initialized");
-    return this.db.select<T>(sql, params as never[]);
+    const [s, p] = buildTauriParamsSafe(sql, params);
+    return this.db.select<T>(s, p as never[]);
   }
 }

@@ -60,6 +60,7 @@ export default function Settings() {
   const [interleaveRatio, setInterleaveRatio] = useState(5);
   const [quickTestSeconds, setQuickTestSeconds] = useState(5);
   const [learningSteps, setLearningSteps] = useState("1m,10m");
+  const [leechThreshold, setLeechThreshold] = useState(3);
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -84,7 +85,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -96,6 +97,7 @@ export default function Settings() {
         getInterleaveRatio(),
         getQuickTestMs(),
         getLearningSteps(),
+        db.getSetting("leech_threshold"),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -110,6 +112,8 @@ export default function Settings() {
       setInterleaveRatio(ir);
       setQuickTestSeconds(Math.round(qt / 1000));
       setLearningSteps(ls);
+      const ltN = lt ? parseInt(lt, 10) : 3;
+      if (Number.isFinite(ltN) && ltN > 0) setLeechThreshold(ltN);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -147,6 +151,13 @@ export default function Settings() {
     setDailyReviewLimit(v);
     if (!dbReady || v <= 0) return;
     await db.setSetting("daily_review_limit", String(v));
+    flashSaved();
+  };
+
+  const saveLeechThreshold = async (v: number) => {
+    setLeechThreshold(v);
+    if (!dbReady || v <= 0) return;
+    await db.setSetting("leech_threshold", String(v));
     flashSaved();
   };
 
@@ -428,6 +439,24 @@ export default function Settings() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   全局复习预算，超出部分留到次日
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="leech-threshold">弱词收录阈值（遗忘次数）</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="leech-threshold"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={leechThreshold}
+                    onChange={(e) => saveLeechThreshold(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">次</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  达到该遗忘次数自动进入弱词本；默认 3，下调可更早收录
                 </p>
               </div>
 

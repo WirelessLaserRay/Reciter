@@ -13,3 +13,10 @@ export async function getDayStartHourSetting(): Promise<number> {
   const raw = await db.getSetting("day_start");
   return parseDayStartHour(raw);
 }
+
+/** 弱词阈值配置（达到几次遗忘标记为弱词，默认3） */
+export async function getLeechThreshold(): Promise<number> {
+  const raw = await db.getSetting("leech_threshold");
+  const v = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : 3;
+}

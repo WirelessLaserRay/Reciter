@@ -44,10 +44,10 @@ export interface ReviewLogInsert {
 
 /** 词库掌握度分布（Phase 6C 掌握度全景；四类互斥，合计 = total） */
 export interface MasteryDistribution {
-  mastered: number;  // 已掌握：stability >= 15 且 lapses < 4
-  learning: number;  // 学习中：0 < stability < 15 且 lapses < 4
-  weak: number;      // 弱词：lapses >= 4
-  unlearned: number; // 未学习：state = 0 且 lapses < 4
+  mastered: number;  // 已掌握：stability >= 15 且 lapses < threshold
+  learning: number;  // 学习中：0 < stability < 15 且 lapses < threshold
+  weak: number;      // 弱词：lapses >= threshold
+  unlearned: number; // 未学习：state = 0 且 lapses < threshold
   total: number;
 }
 
@@ -263,32 +263,32 @@ class ReciterDB {
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 词库掌握度分布（Phase 6C）：四类互斥，合计 = total */
-  async getDeckMasteryDistribution(deckId: number): Promise<MasteryDistribution> {
+  /** 词库掌握度分布（Phase 6C）：四类互斥，合计 = total；threshold 为弱词阈值（默认 3） */
+  async getDeckMasteryDistribution(deckId: number, threshold = 3): Promise<MasteryDistribution> {
     const rows = await this.requireDb().select<MasteryDistribution[]>(
       `SELECT
-         COALESCE(SUM(CASE WHEN cs.lapses >= 4 THEN 1 ELSE 0 END), 0) AS weak,
-         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
-         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state != 0 AND cs.stability >= 15 THEN 1 ELSE 0 END), 0) AS mastered,
-         COALESCE(SUM(CASE WHEN cs.lapses < 4 AND cs.state != 0 AND cs.stability < 15 THEN 1 ELSE 0 END), 0) AS learning,
+         COALESCE(SUM(CASE WHEN cs.lapses >= ? THEN 1 ELSE 0 END), 0) AS weak,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability >= 15 THEN 1 ELSE 0 END), 0) AS mastered,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability < 15 THEN 1 ELSE 0 END), 0) AS learning,
          COUNT(*) AS total
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ?`,
-      [deckId]
+      [threshold, threshold, threshold, threshold, deckId]
     );
     const r = rows[0];
     return r ?? { mastered: 0, learning: 0, weak: 0, unlearned: 0, total: 0 };
   }
 
-  /** 词库 TOP N 弱词（按遗忘次数降序、稳定性升序） */
-  async getDeckTopWeakWords(deckId: number, limit = 5): Promise<DeckWeakWord[]> {
+  /** 词库 TOP N 弱词（按遗忘次数降序、稳定性升序；threshold 默认 3） */
+  async getDeckTopWeakWords(deckId: number, threshold = 3, limit = 5): Promise<DeckWeakWord[]> {
     return this.requireDb().select<DeckWeakWord[]>(
       `SELECT c.front, cs.lapses, cs.stability
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.lapses >= 4
+       WHERE c.deck_id = ? AND cs.lapses >= ?
        ORDER BY cs.lapses DESC, cs.stability ASC
        LIMIT ?`,
-      [deckId, limit]
+      [deckId, threshold, limit]
     );
   }
 
@@ -442,8 +442,8 @@ class ReciterDB {
 
   // ==================== 弱词追踪（Phase 6B） ====================
 
-  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 4，P1-⑤） */
-  async getWeakCards(deckId: number, threshold = 4, limit = 50): Promise<(Card & CardState)[]> {
+  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 3） */
+  async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
               c.created_at, c.updated_at,
@@ -458,13 +458,39 @@ class ReciterDB {
     );
   }
 
-  /** 全局弱词计数（默认阈值 4） */
-  async getGlobalWeakCount(threshold = 4): Promise<number> {
+  /** 全局弱词计数（默认阈值 3） */
+  async getGlobalWeakCount(threshold = 3): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       "SELECT COUNT(*) AS cnt FROM card_states WHERE lapses >= ?",
       [threshold]
     );
     return rows[0]?.cnt ?? 0;
+  }
+
+  /** 弱词本自主导入：把用户提供的词条加入指定词库，并至少达到弱词阈值（默认 3） */
+  async importWeakWords(
+    deckId: number,
+    entries: { front: string; back?: string }[],
+    threshold = 3
+  ): Promise<number> {
+    let count = 0;
+    for (const entry of entries) {
+      const front = entry.front.trim();
+      if (!front) continue;
+      const back = (entry.back ?? "").trim() || front;
+      const { cardId } = await this.upsertCard({
+        deckId,
+        front,
+        back,
+        sourceType: "manual",
+        isKey: 1,
+      });
+      const state = await this.getCardState(cardId);
+      const lapses = Math.max(state?.lapses ?? 0, threshold);
+      await this.updateCardState(cardId, { lapses });
+      count++;
+    }
+    return count;
   }
 
   /** 获取指定卡片最近 N 次评分（按时间倒序） */

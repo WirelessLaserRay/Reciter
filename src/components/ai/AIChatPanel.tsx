@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AIClient, getAIConfig, type AIGradeResult } from "@/lib/ai-client";
 import { getAIStrategy, buildLearnerContext, type AIStrategy } from "@/lib/ai-strategy";
+import { getLeechThreshold } from "@/lib/settings";
 import { getStrategyPrompt } from "@/lib/ai-prompts";
 import type { CardState } from "@/types";
 import AISetupWizard from "./AISetupWizard";
@@ -126,6 +127,8 @@ export default function AIChatPanel({
       if (cancelled) return;
       const c = new AIClient(cfg);
       setClient(c);
+      const leech = await getLeechThreshold();
+      if (cancelled) return;
 
       if (cached) {
         if (!c.isReady) setError("未配置 AI 接口，请先完成 AI 设置。");
@@ -137,7 +140,7 @@ export default function AIChatPanel({
         return;
       }
 
-      const s = strategyOverride ?? getAIStrategy(cardState);
+      const s = strategyOverride ?? getAIStrategy(cardState, leech);
       setStrategy(s);
       const strategyPrompt = await getStrategyPrompt(s);
       if (cancelled) return;

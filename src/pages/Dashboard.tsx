@@ -14,6 +14,7 @@ import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { getDayEndDate, parseDayStartHour } from "@/lib/day";
+import { getLeechThreshold } from "@/lib/settings";
 import { getLastStudyContext, type LastStudyContext } from "@/lib/study-prefs";
 import type { Deck } from "@/types";
 
@@ -40,11 +41,12 @@ export default function Dashboard() {
         currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString())] as const)
       );
       const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
+      const leech = await getLeechThreshold();
       const [due, fresh, last, weak] = await Promise.all([
         db.getGlobalDueCount(dayEnd.toISOString()),
         db.getGlobalNewCount(),
         getLastStudyContext(),
-        db.getGlobalWeakCount(),
+        db.getGlobalWeakCount(leech),
       ]);
       setDueCount(due);
       setNewCount(fresh);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Sparkles } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,16 +21,33 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { db } from "@/lib/db";
+import { getLeechThreshold } from "@/lib/settings";
 import { getRetrievability } from "@/lib/fsrs";
 import { applyReview } from "@/lib/review";
 import type { Card as CardType, CardState, Deck } from "@/types";
 import AIChatPanel from "@/components/ai/AIChatPanel";
 
 type WeakCard = CardType & CardState;
+
+function parseWeakImportLine(line: string): { front: string; back: string } | null {
+  const t = line.trim();
+  if (!t) return null;
+  const sepIndex = [t.indexOf("\t"), t.indexOf("|"), t.search(/[,，;；]/)]
+    .filter((i) => i >= 0)
+    .sort((a, b) => a - b)[0];
+  if (sepIndex !== undefined && sepIndex >= 0) {
+    const front = t.slice(0, sepIndex).trim();
+    return { front, back: t.slice(sepIndex + 1).trim() || front };
+  }
+  return { front: t, back: t };
+}
 
 function WeakRow({
   weak,
@@ -83,11 +100,19 @@ export default function WeakWords() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attackTarget, setAttackTarget] = useState<WeakCard | null>(null);
+  const [threshold, setThreshold] = useState(3);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importDeckId, setImportDeckId] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const load = useCallback(async (deckId: string) => {
     setLoading(true);
     setError(null);
     try {
+      const t = await getLeechThreshold();
+      setThreshold(t);
       const allDecks = await db.getDecks();
       setDecks(allDecks);
       // 参数中的词库不存在时回退到「全部词库」
@@ -97,10 +122,10 @@ export default function WeakWords() {
       const targetDeckId = deckId === "all" ? null : parseInt(deckId, 10);
       let cards: WeakCard[] = [];
       if (targetDeckId) {
-        cards = await db.getWeakCards(targetDeckId, 4, 100);
+        cards = await db.getWeakCards(targetDeckId, t, 100);
       } else {
         const perDeck = await Promise.all(
-          allDecks.map((d) => db.getWeakCards(d.id, 4, 100))
+          allDecks.map((d) => db.getWeakCards(d.id, t, 100))
         );
         cards = perDeck.flat().sort((a, b) => b.lapses - a.lapses || a.stability - b.stability);
       }
@@ -137,6 +162,34 @@ export default function WeakWords() {
     void load(deckFilter);
   };
 
+  const handleImport = async () => {
+    const deckId = parseInt(importDeckId, 10);
+    if (!Number.isFinite(deckId)) {
+      setImportError("请先选择要加入的词库");
+      return;
+    }
+    const entries = importText
+      .split(/\r?\n/)
+      .map(parseWeakImportLine)
+      .filter((x): x is { front: string; back: string } => x !== null);
+    if (entries.length === 0) {
+      setImportError("请输入至少一个单词");
+      return;
+    }
+    setImportBusy(true);
+    setImportError(null);
+    try {
+      await db.importWeakWords(deckId, entries, threshold);
+      setImportText("");
+      setImportOpen(false);
+      void load(deckFilter);
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
@@ -160,7 +213,7 @@ export default function WeakWords() {
             <AlertTriangle className="size-4 text-amber-500" />
             弱词列表
           </CardTitle>
-          <CardDescription>lapses ≥ 4 自动收录（达到阈值会自动标记为重点词），按严重程度排序</CardDescription>
+          <CardDescription>lapses ≥ {threshold} 自动收录（达到阈值会自动标记为重点词），也可手动添加；按严重程度排序</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -177,6 +230,18 @@ export default function WeakWords() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setImportDeckId(deckFilter === "all" ? "" : deckFilter);
+                setImportError(null);
+                setImportOpen(true);
+              }}
+            >
+              <Plus className="size-3.5" />
+              手动添加
+            </Button>
             {weakCards.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => handleAttack(weakCards[0])}>
                 <Sparkles className="size-3.5" />
@@ -204,6 +269,57 @@ export default function WeakWords() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={importOpen} onOpenChange={(open) => !open && !importBusy && setImportOpen(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>手动添加弱词</DialogTitle>
+            <DialogDescription>
+              将单词加入指定词库并直接收录到弱词本（lapses ≥ {threshold}）
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>目标词库</Label>
+              <Select value={importDeckId} onValueChange={setImportDeckId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="选择词库" />
+                </SelectTrigger>
+                <SelectContent>
+                  {decks.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="weak-import-text">单词列表</Label>
+              <Textarea
+                id="weak-import-text"
+                rows={6}
+                placeholder={"每行一个单词\n支持：word\t释义 或 word, 释义"}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                多行批量导入；正面与释义可用 Tab、竖线或逗号分隔
+              </p>
+            </div>
+            {importError && <p className="text-xs text-red-600">{importError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)} disabled={importBusy}>
+              取消
+            </Button>
+            <Button onClick={handleImport} disabled={importBusy || !importText.trim()}>
+              {importBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              导入并收录
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={attackTarget !== null} onOpenChange={(open) => !open && setAttackTarget(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">

@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
-import { getEffectiveRetention } from "@/lib/settings";
+import { getEffectiveRetention, getLeechThreshold } from "@/lib/settings";
 import { getAIConfig } from "@/lib/ai-client";
 import {
   getActiveRecallEnabled,
@@ -162,6 +162,8 @@ function StudySession({
   const [showMiniSummary, setShowMiniSummary] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [rateReady, setRateReady] = useState(false);
+  // 弱词阈值（设置页可调，默认 3）
+  const [leechThreshold, setLeechThreshold] = useState(3);
   // P2-⑨：熟练卡秒答阈值（毫秒，可在设置中调整）
   const [quickMs, setQuickMs] = useState(5000);
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
@@ -212,18 +214,20 @@ function StudySession({
   // 加载学习偏好与 AI 配置
   useEffect(() => {
     (async () => {
-      const [rm, ar, si, aiCfg, qms] = await Promise.all([
+      const [rm, ar, si, aiCfg, qms, leech] = await Promise.all([
         getRatingMode(),
         getActiveRecallEnabled(),
         getSummaryInterval(),
         getAIConfig(),
         getQuickTestMs(),
+        getLeechThreshold(),
       ]);
       setRatingMode(rm);
       setActiveRecallEnabled(ar);
       setSummaryInterval(si);
       setAiEnabled(aiCfg.enabled);
       setQuickMs(qms);
+      setLeechThreshold(leech);
     })().catch(() => {});
   }, []);
 
@@ -254,8 +258,8 @@ function StudySession({
 
   /** 当前卡片的统一学习流模式（Phase 6C） */
   const modeConfig = useMemo(
-    () => (item ? resolveStudyMode(rowToState(item.row), aiEnabled, activeRecallEnabled) : null),
-    [item, aiEnabled, activeRecallEnabled]
+    () => (item ? resolveStudyMode(rowToState(item.row), aiEnabled, activeRecallEnabled, leechThreshold) : null),
+    [item, aiEnabled, activeRecallEnabled, leechThreshold]
   );
 
   /** 揭示答案：计算四档间隔预览与记忆可检索度 */

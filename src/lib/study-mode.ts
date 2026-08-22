@@ -30,10 +30,11 @@ export interface StudyModeConfig {
 export function resolveStudyMode(
   state: CardState,
   aiEnabled: boolean,
-  activeRecallEnabled: boolean
+  activeRecallEnabled: boolean,
+  leechThreshold = 3
 ): StudyModeConfig {
   const isNew = state.state === State.New || state.reps === 0;
-  const isWeak = state.lapses >= 4;
+  const isWeak = state.lapses >= leechThreshold;
   const isStable = state.stability >= 10;
 
   if (isNew) {

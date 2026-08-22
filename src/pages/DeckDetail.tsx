@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
+import { getLeechThreshold } from "@/lib/settings";
 import MasteryOverview from "@/components/deck/MasteryOverview";
 import type { Card as CardType, Deck } from "@/types";
 
@@ -42,6 +44,7 @@ export default function DeckDetail() {
   const [editTarget, setEditTarget] = useState<CardType | null>(null);
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
+  const [editMarkdown, setEditMarkdown] = useState("");
   const [editTags, setEditTags] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [editKey, setEditKey] = useState(false);
@@ -54,12 +57,13 @@ export default function DeckDetail() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      const threshold = await getLeechThreshold();
       const [d, cs, pg, dist, weak] = await Promise.all([
         db.getDeck(deckId),
         db.getCardsByDeck(deckId),
         db.getDeckProgress(deckId),
-        db.getDeckMasteryDistribution(deckId),
-        db.getDeckTopWeakWords(deckId, 5),
+        db.getDeckMasteryDistribution(deckId, threshold),
+        db.getDeckTopWeakWords(deckId, threshold, 5),
       ]);
       setDeck(d);
       setCards(cs);
@@ -98,6 +102,7 @@ export default function DeckDetail() {
     setEditTarget(c);
     setEditFront(c.front);
     setEditBack(c.back);
+    setEditMarkdown(c.markdown_content ?? "");
     setEditTags(tagsOf(c).join("、"));
     setEditKey(c.is_key === 1);
   };
@@ -113,6 +118,7 @@ export default function DeckDetail() {
       await db.updateCard(editTarget.id, {
         front: editFront.trim(),
         back: editBack.trim(),
+        markdown_content: editMarkdown.trim(),
         tags: JSON.stringify(tagArr),
         is_key: editKey ? 1 : 0,
       });
@@ -332,7 +338,7 @@ export default function DeckDetail() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>编辑卡片</DialogTitle>
-            <DialogDescription>修改单词、释义与标签</DialogDescription>
+            <DialogDescription>修改单词、释义、原文语境与标签</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -342,6 +348,16 @@ export default function DeckDetail() {
             <div className="space-y-1.5">
               <Label htmlFor="edit-back">释义</Label>
               <Input id="edit-back" value={editBack} onChange={(e) => setEditBack(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-markdown">原文语境 / Markdown（学习时展示）</Label>
+              <Textarea
+                id="edit-markdown"
+                rows={4}
+                placeholder="可选：原文例句、语境或 Markdown 内容"
+                value={editMarkdown}
+                onChange={(e) => setEditMarkdown(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-tags">标签（用 、 或逗号分隔）</Label>

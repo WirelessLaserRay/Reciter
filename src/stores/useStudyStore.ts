@@ -225,23 +225,23 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     const reinsert =
       grade === Rating.Again || (newFsrs.state === State.Learning && !item.tested);
     let queueNext = [...get().queue];
+
+    // 无论是否重插，都更新当前索引的卡片为最新状态（作为历史记录留在队列中）
+    queueNext[index] = {
+      ...item,
+      row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
+      shownAt: Date.now(),
+    };
+
     if (reinsert) {
-      const updated: QueueItem = {
+      // 需要重插：复制一份插入到未来的队列中
+      const futureItem: QueueItem = {
         ...item,
         tested: true,
         row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
         shownAt: Date.now(),
       };
-      queueNext[index] = updated;
-      const [cur] = queueNext.splice(index, 1);
-      insertByOffset(queueNext, cur, index);
-    } else {
-      // 非重插卡片也要回写最新 FSRS 状态，避免队列里保留过期状态
-      queueNext[index] = {
-        ...item,
-        row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
-        shownAt: Date.now(),
-      };
+      insertByOffset(queueNext, futureItem, index);
     }
 
     const nextIndex = index + 1;

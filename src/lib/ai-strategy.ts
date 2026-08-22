@@ -2,10 +2,10 @@ import type { CardState } from "@/types";
 
 export type AIStrategy = "teach" | "recognition" | "production" | "deep_drill";
 
-/** 根据 FSRS 状态决定 AI 出题策略（P1-⑤：顽固词阈值与 Leech 阈值统一为 4） */
-export function getAIStrategy(state: CardState): AIStrategy {
+/** 根据 FSRS 状态决定 AI 出题策略（P1-⑤：顽固词阈值与 Leech 阈值统一，默认 3） */
+export function getAIStrategy(state: CardState, leechThreshold = 3): AIStrategy {
   if (state.state === 0 || state.reps === 0) return "teach";
-  if (state.lapses >= 4) return "deep_drill";
+  if (state.lapses >= leechThreshold) return "deep_drill";
   if (state.stability > 30) return "production";
   return "recognition";
 }
