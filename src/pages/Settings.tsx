@@ -32,12 +32,14 @@ import { exportToJSON, importFromJSON } from "@/lib/backup";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
+  getIgnoredTags,
   getInterleaveRatio,
   getLearningSteps,
   getQuickTestMs,
   getRatingMode,
   getSummaryInterval,
   saveActiveRecallEnabled,
+  saveIgnoredTags,
   saveInterleaveRatio,
   saveLearningSteps,
   saveQuickTestMs,
@@ -62,6 +64,7 @@ export default function Settings() {
   const [quickTestSeconds, setQuickTestSeconds] = useState(5);
   const [learningSteps, setLearningSteps] = useState("1m,10m");
   const [leechThreshold, setLeechThreshold] = useState(3);
+  const [ignoredTags, setIgnoredTags] = useState("");
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -87,7 +90,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -100,6 +103,7 @@ export default function Settings() {
         getQuickTestMs(),
         getLearningSteps(),
         db.getSetting("leech_threshold"),
+        getIgnoredTags(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -116,6 +120,7 @@ export default function Settings() {
       setLearningSteps(ls);
       const ltN = lt ? parseInt(lt, 10) : 3;
       if (Number.isFinite(ltN) && ltN > 0) setLeechThreshold(ltN);
+      setIgnoredTags(ig.join("、"));
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -160,6 +165,17 @@ export default function Settings() {
     setLeechThreshold(v);
     if (!dbReady || v <= 0) return;
     await db.setSetting("leech_threshold", String(v));
+    flashSaved();
+  };
+
+  const saveIgnoredTagsSetting = async (v: string) => {
+    setIgnoredTags(v);
+    if (!dbReady) return;
+    const tags = v
+      .split(/[,，、;；]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await saveIgnoredTags(tags);
     flashSaved();
   };
 
@@ -462,6 +478,19 @@ export default function Settings() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   达到该遗忘次数自动进入弱词本；默认 3，下调可更早收录
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ignored-tags">学习忽略标签</Label>
+                <Input
+                  id="ignored-tags"
+                  placeholder="如：词组、熟词生义（用 、 或逗号分隔）"
+                  value={ignoredTags}
+                  onChange={(e) => saveIgnoredTagsSetting(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  带这些标签的卡片不会进入主页「今日学习」默认队列
                 </p>
               </div>
 

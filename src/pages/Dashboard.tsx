@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { BookOpen, CalendarClock, FileUp, GraduationCap, PlayCircle, RotateCcw } from "lucide-react";
+import { BookOpen, CalendarClock, FileUp, GraduationCap, PlayCircle, Quote, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,7 +15,15 @@ import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { getDayEndDate, parseDayStartHour } from "@/lib/day";
 import { getLeechThreshold } from "@/lib/settings";
-import { getLastStudyContext, type LastStudyContext } from "@/lib/study-prefs";
+import {
+  AI_TEST_INTERVAL_MS,
+  getIgnoredTags,
+  getLastAiTestAt,
+  getLastStudyContext,
+  saveLastAiTestAt,
+  type LastStudyContext,
+} from "@/lib/study-prefs";
+import { getDailyQuote } from "@/lib/daily-quotes";
 import type { Deck } from "@/types";
 
 export default function Dashboard() {
@@ -29,6 +37,9 @@ export default function Dashboard() {
   const [dueByDeck, setDueByDeck] = useState<Record<number, number>>({});
   const [recommendedDeck, setRecommendedDeck] = useState<Deck | null>(null);
   const [weakCount, setWeakCount] = useState(0);
+  const [aiTestDue, setAiTestDue] = useState(true);
+  const [nextAiTestLabel, setNextAiTestLabel] = useState("");
+  const [quote, setQuote] = useState(() => getDailyQuote());
 
   useEffect(() => {
     if (!dbReady) return;
@@ -37,14 +48,15 @@ export default function Dashboard() {
       const hour = parseDayStartHour(await db.getSetting("day_start"));
       const dayEnd = getDayEndDate(hour);
       const currentDecks = useDeckStore.getState().decks;
+      const ignoredTags = await getIgnoredTags();
       const deckDueEntries = await Promise.all(
-        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString())] as const)
+        currentDecks.map(async (d) => [d.id, await db.getDueCountByDeck(d.id, dayEnd.toISOString(), ignoredTags)] as const)
       );
       const deckDue = Object.fromEntries(deckDueEntries) as Record<number, number>;
       const leech = await getLeechThreshold();
       const [due, fresh, last, weak] = await Promise.all([
-        db.getGlobalDueCount(dayEnd.toISOString()),
-        db.getGlobalNewCount(),
+        db.getGlobalDueCount(dayEnd.toISOString(), ignoredTags),
+        db.getGlobalNewCount(ignoredTags),
         getLastStudyContext(),
         db.getGlobalWeakCount(leech),
       ]);
@@ -53,6 +65,15 @@ export default function Dashboard() {
       setLastContext(last);
       setWeakCount(weak);
       setDueByDeck(deckDue);
+      setQuote(getDailyQuote());
+
+      const lastAiTest = await getLastAiTestAt();
+      const aiDue = lastAiTest === 0 || Date.now() - lastAiTest >= AI_TEST_INTERVAL_MS;
+      setAiTestDue(aiDue);
+      if (!aiDue) {
+        const next = new Date(lastAiTest + AI_TEST_INTERVAL_MS);
+        setNextAiTestLabel(next.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }));
+      }
 
       const top = currentDecks
         .filter((d) => (deckDue[d.id] ?? 0) > 0)
@@ -64,6 +85,13 @@ export default function Dashboard() {
   const startStudy = async (deckId: number, tag?: string, keyOnly?: boolean) => {
     await loadQueue(deckId, tag, keyOnly);
     navigate("/study");
+  };
+
+  const aiTestDeck = recommendedDeck ?? decks.find((d) => (cardCounts[d.id] ?? 0) > 0) ?? null;
+  const startAiTest = () => {
+    if (!aiTestDeck) return;
+    void saveLastAiTestAt(Date.now());
+    navigate(`/study?quiz=${aiTestDeck.id}&ai=1&smart=1`);
   };
 
   const lastDeck = lastContext ? decks.find((d) => d.id === lastContext.deckId) ?? null : null;
@@ -112,6 +140,42 @@ export default function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {/* 每日一句 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Quote className="size-4 text-primary" />
+            每日一句
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
+          <p className="mt-2 text-sm text-muted-foreground">— {quote.author}</p>
+        </CardContent>
+      </Card>
+
+      {/* AI 智能测试 */}
+      <Card className={aiTestDue ? "border-purple-500/40 bg-purple-500/5" : ""}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="size-4 text-purple-500" />
+            AI 智能测试
+          </CardTitle>
+          <CardDescription>
+            {aiTestDue
+              ? "该测试了：AI 根据学习内容和掌握情况出题"
+              : `下次测试约 ${nextAiTestLabel}`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">覆盖到期与薄弱词，AI 生成语境题和选择题</p>
+          <Button onClick={startAiTest} disabled={!aiTestDeck}>
+            <Sparkles className="size-4" />
+            开始 AI 测试
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* 智能推荐：到期最多的词库一键开始 */}
       {recommendedDeck ? (

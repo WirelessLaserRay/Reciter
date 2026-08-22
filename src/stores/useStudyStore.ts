@@ -3,7 +3,7 @@ import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
-import { getDeckShuffle, getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
+import { getDeckShuffle, getIgnoredTags, getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
 
 export interface QueueItem {
   row: StudyCardRow;
@@ -130,18 +130,19 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const now = new Date();
       const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
       const dayStart = getDayStartDate(dayStartHour, now);
+      const ignoredTags = await getIgnoredTags();
 
       // 1. 到期卡片（Learning/Review/Relearning，可按标签/重点过滤，受每日复习上限约束）
       const reviewLimitRaw = await db.getSetting("daily_review_limit");
       const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
       const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
       const dueLimit = Math.max(0, reviewLimit - todayReviewed);
-      const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit) : [];
+      const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
       const newLimit = Math.max(0, deck.new_cards_per_day - learnedToday);
-      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly) : [];
+      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly, ignoredTags) : [];
 
       // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）
       const interleaveRatio = await getInterleaveRatio();

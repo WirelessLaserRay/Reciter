@@ -109,3 +109,36 @@ export async function getDeckShuffle(deckId: number): Promise<boolean> {
 export async function saveDeckShuffle(deckId: number, enabled: boolean): Promise<void> {
   await db.setSetting(`deck_shuffle_${deckId}`, enabled ? "true" : "false");
 }
+
+/** 学习忽略标签：这些标签的卡片不会进入默认学习队列 */
+export async function getIgnoredTags(): Promise<string[]> {
+  const raw = await db.getSetting("ignored_tags");
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  } catch {
+    return raw
+      .split(/[,，、;；]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+}
+
+export async function saveIgnoredTags(tags: string[]): Promise<void> {
+  await db.setSetting("ignored_tags", JSON.stringify(tags.map((t) => t.trim()).filter(Boolean)));
+}
+
+/** AI 测试提醒间隔（默认 6 小时） */
+export const AI_TEST_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/** 上次 AI 测试时间戳（0 = 从未测试，立即提醒） */
+export async function getLastAiTestAt(): Promise<number> {
+  const raw = await db.getSetting("last_ai_test_at");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export async function saveLastAiTestAt(ts: number): Promise<void> {
+  await db.setSetting("last_ai_test_at", String(ts));
+}

@@ -77,6 +77,14 @@ function tagParam(tag?: string): string[] {
   return tag ? ['%"' + tag + '"%'] : [];
 }
 
+/** 忽略标签 SQL 片段：排除带这些标签的卡片 */
+function ignoredTagsWhere(tags: string[]): string {
+  return tags.map(() => " AND c.tags NOT LIKE ?").join("");
+}
+function ignoredTagsParams(tags: string[]): string[] {
+  return tags.map((t) => '%"' + t + '"%');
+}
+
 class ReciterDB {
   private backend: SQLBackend | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -535,9 +543,23 @@ class ReciterDB {
 
   // ==================== 学习队列查询（Phase 3） ====================
 
-  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤 */
-  async getDueCards(deckId: number, before: string, tag?: string, keyOnly = false, limit?: number): Promise<StudyCardRow[]> {
-    const params: (string | number)[] = [deckId, before, ...tagParam(tag), keyOnly ? 1 : 0, keyOnly ? 1 : 0];
+  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤、忽略标签 */
+  async getDueCards(
+    deckId: number,
+    before: string,
+    tag?: string,
+    keyOnly = false,
+    limit?: number,
+    ignoreTags: string[] = []
+  ): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [
+      deckId,
+      before,
+      ...tagParam(tag),
+      keyOnly ? 1 : 0,
+      keyOnly ? 1 : 0,
+      ...ignoredTagsParams(ignoreTags),
+    ];
     const limitSql = limit !== undefined ? " LIMIT ?" : "";
     if (limit !== undefined) params.push(limit);
     return this.requireDb().select<StudyCardRow[]>(
@@ -546,7 +568,7 @@ class ReciterDB {
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
+       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
        ORDER BY
           CASE WHEN cs.state IN (1, 3) THEN 0 ELSE 1 END,
           cs.due ASC, c.id ASC${limitSql}`,
@@ -554,16 +576,29 @@ class ReciterDB {
     );
   }
 
-  /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤 */
-  async getNewCards(deckId: number, limit: number, tag?: string, keyOnly = false): Promise<StudyCardRow[]> {
-    const params: (string | number)[] = [deckId, ...tagParam(tag), keyOnly ? 1 : 0, keyOnly ? 1 : 0, limit];
+  /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤、忽略标签 */
+  async getNewCards(
+    deckId: number,
+    limit: number,
+    tag?: string,
+    keyOnly = false,
+    ignoreTags: string[] = []
+  ): Promise<StudyCardRow[]> {
+    const params: (string | number)[] = [
+      deckId,
+      ...tagParam(tag),
+      keyOnly ? 1 : 0,
+      keyOnly ? 1 : 0,
+      ...ignoredTagsParams(ignoreTags),
+      limit,
+    ];
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.tags, c.is_key,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}
+       WHERE c.deck_id = ? AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
        ORDER BY c.id ASC
        LIMIT ?`,
       params
@@ -609,45 +644,50 @@ class ReciterDB {
     return rows.length > 0;
   }
 
-  /** 全局今日待复习数（due < dayEnd 且已学过） */
-  async getGlobalDueCount(before: string): Promise<number> {
+  /** 全局今日待复习数（due < dayEnd 且已学过；可忽略标签） */
+  async getGlobalDueCount(before: string, ignoreTags: string[] = []): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
-      "SELECT COUNT(*) AS cnt FROM card_states WHERE reps > 0 AND due < ?",
-      [before]
+      `SELECT COUNT(*) AS cnt FROM card_states cs
+       JOIN cards c ON c.id = cs.card_id
+       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}`,
+      [before, ...ignoredTagsParams(ignoreTags)]
     );
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 全局新卡片数（state = 0） */
-  async getGlobalNewCount(): Promise<number> {
+  /** 全局新卡片数（state = 0；可忽略标签） */
+  async getGlobalNewCount(ignoreTags: string[] = []): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(
-      "SELECT COUNT(*) AS cnt FROM card_states WHERE state = 0"
+      `SELECT COUNT(*) AS cnt FROM card_states cs
+       JOIN cards c ON c.id = cs.card_id
+       WHERE cs.state = 0${ignoredTagsWhere(ignoreTags)}`,
+      [...ignoredTagsParams(ignoreTags)]
     );
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 各词库今日待复习数 */
-  async getDeckDueCounts(before: string): Promise<Record<number, number>> {
+  /** 各词库今日待复习数（可忽略标签） */
+  async getDeckDueCounts(before: string, ignoreTags: string[] = []): Promise<Record<number, number>> {
     const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(
       `SELECT c.deck_id, COUNT(*) AS cnt FROM cards c
        JOIN card_states cs ON cs.card_id = c.id
-       WHERE cs.reps > 0 AND cs.due < ?
+       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}
        GROUP BY c.deck_id`,
-      [before]
+      [before, ...ignoredTagsParams(ignoreTags)]
     );
     const map: Record<number, number> = {};
     for (const r of rows) map[r.deck_id] = r.cnt;
     return map;
   }
 
-  /** 单个词库今日待复习数 */
-  async getDueCountByDeck(deckId: number, before?: string): Promise<number> {
+  /** 单个词库今日待复习数（可忽略标签） */
+  async getDueCountByDeck(deckId: number, before?: string, ignoreTags: string[] = []): Promise<number> {
     const b = before ?? new Date().toISOString();
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       `SELECT COUNT(*) AS cnt FROM cards c
        JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.reps > 0 AND cs.due < ?`,
-      [deckId, b]
+       WHERE c.deck_id = ? AND cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}`,
+      [deckId, b, ...ignoredTagsParams(ignoreTags)]
     );
     return rows[0]?.cnt ?? 0;
   }

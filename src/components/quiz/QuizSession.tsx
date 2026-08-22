@@ -146,18 +146,24 @@ export default function QuizSession({
   deckId,
   deckName,
   presetTag,
+  defaultUseAI,
+  smart,
   onExit,
 }: {
   deckId: number;
   deckName: string;
   /** 预设考察标签（标签学习完成后的针对性测试入口） */
   presetTag?: string;
+  /** 默认开启 AI 出题（主页 AI 智能测试入口） */
+  defaultUseAI?: boolean;
+  /** 智能测试：优先选取到期/薄弱/重点卡片 */
+  smart?: boolean;
   onExit: () => void;
 }) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
   const [configCount, setConfigCount] = useState("10");
   const [tagFilter, setTagFilter] = useState(presetTag ?? "all");
-  const [useAI, setUseAI] = useState(false);
+  const [useAI, setUseAI] = useState(defaultUseAI ?? false);
   const [aiReady, setAiReady] = useState(false);
   const [cards, setCards] = useState<CardType[]>([]);
   const [phase, setPhase] = useState<"setup" | "running" | "done">("setup");
@@ -187,13 +193,40 @@ export default function QuizSession({
   // 加载词库卡片 + AI 配置状态
   useEffect(() => {
     (async () => {
-      const [cs, cfg] = await Promise.all([db.getCardsByDeck(deckId), getAIConfig()]);
+      const cfg = await getAIConfig();
+      let cs: CardType[];
+      if (smart) {
+        // 智能测试：优先选取遗忘多、到期早、重点词，新卡靠后
+        const all = await db.getAllCardsWithState();
+        cs = all
+          .filter((c) => c.deck_id === deckId)
+          .sort((a, b) => {
+            if ((b.lapses ?? 0) !== (a.lapses ?? 0)) return (b.lapses ?? 0) - (a.lapses ?? 0);
+            if (a.due !== b.due) return a.due < b.due ? -1 : 1;
+            return (b.is_key ?? 0) - (a.is_key ?? 0);
+          })
+          .map((c) => ({
+            id: c.card_id,
+            deck_id: c.deck_id,
+            front: c.front,
+            back: c.back,
+            markdown_content: c.markdown_content,
+            source_type: c.source_type,
+            tags: c.tags,
+            is_key: c.is_key,
+            weak_source: c.weak_source,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+          }));
+      } else {
+        cs = await db.getCardsByDeck(deckId);
+      }
       setCards(cs);
       const client = new AIClient(cfg);
       aiClientRef.current = client;
       setAiReady(client.isReady);
     })().catch(() => {});
-  }, [deckId]);
+  }, [deckId, smart]);
 
   const item = items[index];
 
@@ -303,9 +336,10 @@ export default function QuizSession({
 
         <Card>
           <CardHeader>
-            <CardTitle>测试模式</CardTitle>
+            <CardTitle>测试模式{smart ? " · 智能优先" : ""}</CardTitle>
             <CardDescription>
               填空与选择题，掌握度回填 FSRS
+              {smart ? " · 优先到期/薄弱/重点词" : ""}
               {presetTag && ` · 当前范围：${presetTag}`}
             </CardDescription>
           </CardHeader>

@@ -740,11 +740,13 @@ function TagPicker({
 
 export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
-  const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string } | null>(null);
+  const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string; ai?: boolean; smart?: boolean } | null>(null);
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
   const tagParam = searchParams.get("tag");
+  const aiParam = searchParams.get("ai");
+  const smartParam = searchParams.get("smart");
 
   // 测试入口：/study?quiz=<deckId>（词库详情页）；/study?quiz=<deckId>&tag=<tag>（标签巩固测试）
   useEffect(() => {
@@ -757,7 +759,7 @@ export default function Study() {
       if (!store.decks.some((d) => d.id === id)) await store.refresh();
       if (cancelled) return;
       const d = useDeckStore.getState().decks.find((x) => x.id === id);
-      if (d) setQuizDeck({ id: d.id, name: d.name, tag: tagParam ?? undefined });
+      if (d) setQuizDeck({ id: d.id, name: d.name, tag: tagParam ?? undefined, ai: aiParam === "1", smart: smartParam === "1" });
     })().catch(() => {});
     return () => {
       cancelled = true;
@@ -770,6 +772,8 @@ export default function Study() {
         deckId={quizDeck.id}
         deckName={quizDeck.name}
         presetTag={quizDeck.tag}
+        defaultUseAI={quizDeck.ai ?? false}
+        smart={quizDeck.smart ?? false}
         onExit={() => {
           const taggedQuiz = !!quizDeck.tag;
           setQuizDeck(null);
