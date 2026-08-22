@@ -129,8 +129,8 @@ export async function saveIgnoredTags(tags: string[]): Promise<void> {
   await db.setSetting("ignored_tags", JSON.stringify(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-/** AI 测试提醒间隔（默认 6 小时） */
-export const AI_TEST_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** AI 测试提醒间隔（默认 5 天） */
+export const AI_TEST_INTERVAL_MS = 5 * 24 * 60 * 60 * 1000;
 
 /** 上次 AI 测试时间戳（0 = 从未测试，立即提醒） */
 export async function getLastAiTestAt(): Promise<number> {

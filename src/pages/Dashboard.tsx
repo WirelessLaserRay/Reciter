@@ -72,7 +72,7 @@ export default function Dashboard() {
       setAiTestDue(aiDue);
       if (!aiDue) {
         const next = new Date(lastAiTest + AI_TEST_INTERVAL_MS);
-        setNextAiTestLabel(next.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }));
+        setNextAiTestLabel(next.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }));
       }
 
       const top = currentDecks
@@ -151,7 +151,8 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
-          <p className="mt-2 text-sm text-muted-foreground">— {quote.author}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{quote.translation}</p>
+          <p className="mt-1 text-xs text-muted-foreground">— {quote.author}</p>
         </CardContent>
       </Card>
 

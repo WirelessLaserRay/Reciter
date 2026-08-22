@@ -162,10 +162,11 @@ export default function QuizSession({
 }) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
   const [configCount, setConfigCount] = useState("10");
-  const [tagFilter, setTagFilter] = useState(presetTag ?? "all");
+  const [tagFilter, setTagFilter] = useState(presetTag ?? (smart ? "__learned__" : "all"));
   const [useAI, setUseAI] = useState(defaultUseAI ?? false);
   const [aiReady, setAiReady] = useState(false);
   const [cards, setCards] = useState<CardType[]>([]);
+  const [learnedCardIds, setLearnedCardIds] = useState<Set<number>>(new Set());
   const [phase, setPhase] = useState<"setup" | "running" | "done">("setup");
   const [items, setItems] = useState<QuizItem[]>([]);
   const [index, setIndex] = useState(0);
@@ -185,21 +186,30 @@ export default function QuizSession({
   /** 按标签/重点过滤后的卡片池 */
   const pool = useMemo(() => {
     if (tagFilter === "__key__") return cards.filter((c) => c.is_key === 1);
+    if (tagFilter === "__learned__") return cards.filter((c) => learnedCardIds.has(c.id));
     return tagFilter === "all" ? cards : cards.filter((c) => tagsOf(c.tags).includes(tagFilter));
-  }, [cards, tagFilter]);
+  }, [cards, tagFilter, learnedCardIds]);
 
   const keyCount = useMemo(() => cards.filter((c) => c.is_key === 1).length, [cards]);
+  const learnedCount = useMemo(() => cards.filter((c) => learnedCardIds.has(c.id)).length, [cards, learnedCardIds]);
 
   // 加载词库卡片 + AI 配置状态
   useEffect(() => {
     (async () => {
       const cfg = await getAIConfig();
+      const all = await db.getAllCardsWithState();
+      const deckStates = all.filter((c) => c.deck_id === deckId);
+      setLearnedCardIds(
+        new Set(
+          deckStates
+            .filter((c) => (c.reps ?? 0) > 0 || (c.state ?? 0) !== 0)
+            .map((c) => c.card_id)
+        )
+      );
       let cs: CardType[];
       if (smart) {
         // 智能测试：优先选取遗忘多、到期早、重点词，新卡靠后
-        const all = await db.getAllCardsWithState();
-        cs = all
-          .filter((c) => c.deck_id === deckId)
+        cs = deckStates
           .sort((a, b) => {
             if ((b.lapses ?? 0) !== (a.lapses ?? 0)) return (b.lapses ?? 0) - (a.lapses ?? 0);
             if (a.due !== b.due) return a.due < b.due ? -1 : 1;
@@ -339,7 +349,7 @@ export default function QuizSession({
             <CardTitle>测试模式{smart ? " · 智能优先" : ""}</CardTitle>
             <CardDescription>
               填空与选择题，掌握度回填 FSRS
-              {smart ? " · 优先到期/薄弱/重点词" : ""}
+              {smart ? " · 默认已学词，优先到期/薄弱/重点词" : ""}
               {presetTag && ` · 当前范围：${presetTag}`}
             </CardDescription>
           </CardHeader>
@@ -367,6 +377,7 @@ export default function QuizSession({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">全部卡片（{cards.length} 张）</SelectItem>
+                  {learnedCount > 0 && <SelectItem value="__learned__">已学词（{learnedCount} 张）</SelectItem>}
                   {keyCount > 0 && <SelectItem value="__key__">重点词 / 词组（{keyCount} 张）</SelectItem>}
                   {allTags.map((t) => (
                     <SelectItem key={t} value={t}>
