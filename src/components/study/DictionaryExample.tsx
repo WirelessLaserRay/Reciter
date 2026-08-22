@@ -38,9 +38,12 @@ export function DictionaryExample({
         <BookOpen className="size-3" />
         {hasExisting ? "补充例句" : SOURCE_LABEL[result.source]}
       </div>
-      <ul className="space-y-1 text-sm">
+      <ul className="space-y-2 text-sm">
         {result.examples.map((ex, i) => (
-          <li key={i}>“{ex}”</li>
+          <li key={i}>
+            <p>“{ex.text}”</p>
+            {ex.translation && <p className="text-xs text-muted-foreground">{ex.translation}</p>}
+          </li>
         ))}
       </ul>
     </div>

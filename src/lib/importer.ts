@@ -133,8 +133,9 @@ export function parseJSON(content: string): ParseResult {
     const back = String(obj.back ?? obj.meaning ?? "").trim();
     const pos = String(obj.pos ?? obj.partOfSpeech ?? "").trim();
     const example = String(obj.example ?? "").trim();
+    const exampleCn = String(obj.example_cn ?? "").trim();
     const finalBack = pos ? `${pos} ${back}` : back;
-    const markdown = example;
+    const markdown = example ? (exampleCn ? `${example}\n\n${exampleCn}` : example) : exampleCn;
     const deckName = String(obj.deck ?? obj.deckName ?? "JSON 导入").trim() || "JSON 导入";
     const folder = String(obj.folder ?? "").trim();
     const rawTags = obj.tags;
