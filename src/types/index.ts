@@ -22,6 +22,7 @@ export interface Card {
   source_type: "markdown" | "csv" | "json" | "manual";
   tags: string; // JSON 数组字符串（如 '["熟词生义"]'），使用前需 JSON.parse
   is_key: number; // 1=重点词（Markdown 黑体释义识别），0=普通
+  weak_source: string; // ''=自动(遗忘阈值收录)，'manual'=手动加入弱词本
   created_at: string;
   updated_at: string;
 }

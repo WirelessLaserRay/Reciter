@@ -56,6 +56,7 @@ export interface DeckWeakWord {
   front: string;
   lapses: number;
   stability: number;
+  weak_source: string;
 }
 
 /**
@@ -283,7 +284,7 @@ class ReciterDB {
   /** 词库 TOP N 弱词（按遗忘次数降序、稳定性升序；threshold 默认 3） */
   async getDeckTopWeakWords(deckId: number, threshold = 3, limit = 5): Promise<DeckWeakWord[]> {
     return this.requireDb().select<DeckWeakWord[]>(
-      `SELECT c.front, cs.lapses, cs.stability
+      `SELECT c.front, c.weak_source, cs.lapses, cs.stability
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
        WHERE c.deck_id = ? AND cs.lapses >= ?
        ORDER BY cs.lapses DESC, cs.stability ASC
@@ -314,6 +315,7 @@ class ReciterDB {
       sourceType?: "markdown" | "csv" | "json" | "manual";
       tags?: string[];
       isKey?: number;
+      weakSource?: string;
     },
     knownExisting?: Set<string>
   ): Promise<UpsertResult> {
@@ -321,17 +323,18 @@ class ReciterDB {
     const wasKnown = knownExisting ? knownExisting.has(opts.front) : false;
     const tags = JSON.stringify(opts.tags ?? []);
     const rows = await db.select<{ id: number }[]>(
-      `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, is_key, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(deck_id, front) DO UPDATE SET
          back = excluded.back,
          markdown_content = excluded.markdown_content,
          source_type = excluded.source_type,
          tags = excluded.tags,
          is_key = excluded.is_key,
+         weak_source = excluded.weak_source,
          updated_at = excluded.updated_at
        RETURNING id`,
-      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, nowIso(), nowIso()]
+      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, opts.weakSource ?? "", nowIso(), nowIso()]
     );
     const cardId = rows[0].id;
     if (knownExisting && !wasKnown) knownExisting.add(opts.front);
@@ -342,10 +345,10 @@ class ReciterDB {
     return { cardId, created: !wasKnown };
   }
 
-  /** 编辑卡片（front/back/tags） */
+  /** 编辑卡片（front/back/tags/weak_source） */
   async updateCard(
     id: number,
-    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key">>
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key" | "weak_source">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
@@ -354,6 +357,7 @@ class ReciterDB {
     if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); }
     if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
     if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
+    if (data.weak_source !== undefined) { sets.push("weak_source = ?"); params.push(data.weak_source); }
     if (sets.length === 0) return;
     params.push(nowIso());
     sets.push("updated_at = ?");
@@ -446,7 +450,7 @@ class ReciterDB {
   async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
-              c.created_at, c.updated_at,
+              c.weak_source, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -484,6 +488,7 @@ class ReciterDB {
         back,
         sourceType: "manual",
         isKey: 1,
+        weakSource: "manual",
       });
       const state = await this.getCardState(cardId);
       const lapses = Math.max(state?.lapses ?? 0, threshold);
@@ -498,7 +503,7 @@ class ReciterDB {
     const state = await this.getCardState(cardId);
     const lapses = Math.max(state?.lapses ?? 0, threshold);
     await this.updateCardState(cardId, { lapses });
-    await this.updateCard(cardId, { is_key: 1 });
+    await this.updateCard(cardId, { is_key: 1, weak_source: "manual" });
   }
 
   /** 获取指定卡片最近 N 次评分（按时间倒序） */
@@ -663,7 +668,7 @@ class ReciterDB {
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.source_type, c.tags, c.is_key,
-              c.created_at, c.updated_at,
+              c.weak_source, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -727,9 +732,9 @@ class ReciterDB {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
-      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.created_at, c.updated_at]
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,

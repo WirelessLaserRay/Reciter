@@ -75,7 +75,11 @@ function WeakRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium">{weak.front}</span>
-          <Badge variant="destructive">遗忘 {weak.lapses} 次</Badge>
+          {weak.weak_source === "manual" ? (
+            <Badge variant="secondary">手动添加</Badge>
+          ) : (
+            <Badge variant="destructive">遗忘 {weak.lapses} 次</Badge>
+          )}
         </div>
         <p className="truncate text-xs text-muted-foreground">{weak.back}</p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -182,6 +186,7 @@ export default function WeakWords() {
       await db.importWeakWords(deckId, entries, threshold);
       setImportText("");
       setImportOpen(false);
+      window.alert(`已添加 ${entries.length} 个单词到弱词本`);
       void load(deckFilter);
     } catch (e) {
       setImportError(String(e));
@@ -213,7 +218,7 @@ export default function WeakWords() {
             <AlertTriangle className="size-4 text-amber-500" />
             弱词列表
           </CardTitle>
-          <CardDescription>lapses ≥ {threshold} 自动收录（达到阈值会自动标记为重点词），也可手动添加；按严重程度排序</CardDescription>
+          <CardDescription>lapses ≥ {threshold} 自动收录，或手动添加；手动添加与自动收录会分别标注</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between gap-3">

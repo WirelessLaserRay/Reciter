@@ -137,6 +137,7 @@ export default function DeckDetail() {
       const threshold = await getLeechThreshold();
       await db.markCardWeak(cardId, threshold);
       load(true);
+      window.alert("已加入弱词本");
     } catch (e) {
       window.alert(String(e));
     }

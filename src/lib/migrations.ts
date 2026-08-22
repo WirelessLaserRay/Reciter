@@ -31,6 +31,15 @@ export const MIGRATIONS: MigrationDef[] = [
     description: "add study preference defaults",
     sql: "INSERT OR IGNORE INTO settings (key, value) VALUES ('rating_mode', '3'), ('active_recall_enabled', 'true'), ('session_summary_interval', '10');",
   },
+  {
+    version: 6,
+    description: "add weak_source to cards",
+    sql: "ALTER TABLE cards ADD COLUMN weak_source TEXT NOT NULL DEFAULT '';",
+    alreadyApplied: async (backend) => {
+      const cols = await backend.select<{ name: string }[]>("PRAGMA table_info(cards)");
+      return cols.some((c) => c.name === "weak_source");
+    },
+  },
 ];
 
 const META_TABLE = "_reciter_migrations";
