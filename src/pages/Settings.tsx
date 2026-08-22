@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
@@ -80,6 +81,7 @@ export default function Settings() {
   // 危险区
   const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
+  const [confirmImportOpen, setConfirmImportOpen] = useState(false);
 
   // 加载设置
   useEffect(() => {
@@ -259,9 +261,12 @@ export default function Settings() {
     setBackupMsg({ ok: r.ok, text: r.message });
   };
 
-  const handleImport = async () => {
-    const confirm = window.confirm("导入将清空现有数据并恢复为备份内容，确定继续？");
-    if (!confirm) return;
+  const handleImport = () => {
+    setConfirmImportOpen(true);
+  };
+
+  const confirmImport = async () => {
+    setConfirmImportOpen(false);
     setBackupBusy(true);
     const r = await importFromJSON();
     setBackupBusy(false);
@@ -781,6 +786,19 @@ export default function Settings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 导入恢复确认 */}
+      <ConfirmDialog
+        open={confirmImportOpen}
+        onOpenChange={setConfirmImportOpen}
+        title="导入恢复"
+        description="导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！"
+        destructive
+        confirmLabel="确认导入"
+        cancelLabel="取消"
+        onConfirm={confirmImport}
+        onCancel={() => setConfirmImportOpen(false)}
+      />
 
       <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />
     </div>

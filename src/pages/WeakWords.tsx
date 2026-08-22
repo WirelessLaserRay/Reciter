@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { db } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
 import { getRetrievability } from "@/lib/fsrs";
@@ -110,6 +111,7 @@ export default function WeakWords() {
   const [importText, setImportText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ title: string; description?: string; destructive?: boolean } | null>(null);
 
   const load = useCallback(async (deckId: string) => {
     setLoading(true);
@@ -186,7 +188,7 @@ export default function WeakWords() {
       await db.importWeakWords(deckId, entries, threshold);
       setImportText("");
       setImportOpen(false);
-      window.alert(`已添加 ${entries.length} 个单词到弱词本`);
+      setNotice({ title: "导入成功", description: `已添加 ${entries.length} 个单词到弱词本。` });
       void load(deckFilter);
     } catch (e) {
       setImportError(String(e));
@@ -346,6 +348,17 @@ export default function WeakWords() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 统一提示框 */}
+      <ConfirmDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        title={notice?.title ?? ""}
+        description={notice?.description}
+        confirmLabel="知道了"
+        destructive={notice?.destructive}
+        onConfirm={() => setNotice(null)}
+      />
     </div>
   );
 }

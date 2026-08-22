@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Sparkles, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -88,12 +89,17 @@ export default function MasteryOverview({ distribution, weakWords, deckId }: Mas
             <ol className="space-y-1.5">
               {weakWords.map((w, i) => (
                 <li key={w.front} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate">
-                    <span className="mr-2 text-xs text-muted-foreground">{i + 1}.</span>
-                    {w.front}
+                  <span className="flex min-w-0 items-center gap-1.5 truncate">
+                    <span className="mr-1 shrink-0 text-xs text-muted-foreground">{i + 1}.</span>
+                    <span className="truncate">{w.front}</span>
+                    {w.weak_source === "manual" && (
+                      <Badge variant="secondary" className="shrink-0 text-[10px]">
+                        手动
+                      </Badge>
+                    )}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    遗忘 {w.lapses} 次 · 稳定 {w.stability.toFixed(1)} 天
+                    {w.weak_source === "manual" ? "手动添加" : `遗忘 ${w.lapses} 次`} · 稳定 {w.stability.toFixed(1)} 天
                   </span>
                 </li>
               ))}

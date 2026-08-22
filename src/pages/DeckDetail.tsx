@@ -24,6 +24,7 @@ import {
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
 import MasteryOverview from "@/components/deck/MasteryOverview";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Card as CardType, Deck } from "@/types";
 
 export default function DeckDetail() {
@@ -46,6 +47,9 @@ export default function DeckDetail() {
   const [editTags, setEditTags] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [editKey, setEditKey] = useState(false);
+  const [notice, setNotice] = useState<{ title: string; description?: string; destructive?: boolean } | null>(null);
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<CardType | null>(null);
+  const [confirmWeakTarget, setConfirmWeakTarget] = useState<CardType | null>(null);
   const [keyFilter, setKeyFilter] = useState(false);
 
   /**
@@ -87,7 +91,7 @@ export default function DeckDetail() {
         back: back.trim(),
         sourceType: "manual",
       });
-      if (!res.created) window.alert("该单词已存在于词库中，已更新其释义。");
+      if (!res.created) setNotice({ title: "提示", description: "该单词已存在于词库中，已更新其释义。" });
       setFront("");
       setBack("");
       load(true);
@@ -125,21 +129,32 @@ export default function DeckDetail() {
     }
   };
 
-  const deleteCard = async (cardId: number) => {
-    if (!window.confirm("删除这张卡片？")) return;
-    await db.deleteCard(cardId);
+  const deleteCard = (card: CardType) => {
+    setConfirmDeleteTarget(card);
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmDeleteTarget) return;
+    await db.deleteCard(confirmDeleteTarget.id);
+    setConfirmDeleteTarget(null);
     load(true);
   };
 
-  const addToWeakBook = async (cardId: number) => {
-    if (!window.confirm("将该单词加入弱词本？")) return;
+  const addToWeakBook = (card: CardType) => {
+    setConfirmWeakTarget(card);
+  };
+
+  const confirmAddWeak = async () => {
+    if (!confirmWeakTarget) return;
     try {
       const threshold = await getLeechThreshold();
-      await db.markCardWeak(cardId, threshold);
+      await db.markCardWeak(confirmWeakTarget.id, threshold);
+      setConfirmWeakTarget(null);
       load(true);
-      window.alert("已加入弱词本");
+      setNotice({ title: "已加入弱词本", description: `「${confirmWeakTarget.front}」已收录到弱词本。` });
     } catch (e) {
-      window.alert(String(e));
+      setConfirmWeakTarget(null);
+      setNotice({ title: "操作失败", description: String(e), destructive: true });
     }
   };
 
@@ -317,7 +332,7 @@ export default function DeckDetail() {
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-amber-500"
-                            onClick={() => addToWeakBook(c.id)}
+                            onClick={() => addToWeakBook(c)}
                             title="加入弱词本"
                           >
                             <AlertTriangle className="size-3.5" />
@@ -335,7 +350,7 @@ export default function DeckDetail() {
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => deleteCard(c.id)}
+                            onClick={() => deleteCard(c)}
                             title="删除卡片"
                           >
                             <Trash2 className="size-3.5" />
@@ -402,6 +417,42 @@ export default function DeckDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 统一提示框 */}
+      <ConfirmDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        title={notice?.title ?? ""}
+        description={notice?.description}
+        confirmLabel="知道了"
+        destructive={notice?.destructive}
+        onConfirm={() => setNotice(null)}
+      />
+
+      {/* 删除卡片确认 */}
+      <ConfirmDialog
+        open={confirmDeleteTarget !== null}
+        onOpenChange={(open) => !open && setConfirmDeleteTarget(null)}
+        title="删除卡片"
+        description={confirmDeleteTarget ? `确定要删除「${confirmDeleteTarget.front}」吗？此操作不可撤销。` : ""}
+        destructive
+        confirmLabel="确认删除"
+        cancelLabel="取消"
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmDeleteTarget(null)}
+      />
+
+      {/* 加入弱词本确认 */}
+      <ConfirmDialog
+        open={confirmWeakTarget !== null}
+        onOpenChange={(open) => !open && setConfirmWeakTarget(null)}
+        title="加入弱词本"
+        description={confirmWeakTarget ? `确定将「${confirmWeakTarget.front}」加入弱词本吗？将标记为重点词并提升遗忘次数。` : ""}
+        confirmLabel="加入"
+        cancelLabel="取消"
+        onConfirm={confirmAddWeak}
+        onCancel={() => setConfirmWeakTarget(null)}
+      />
     </div>
   );
 }
