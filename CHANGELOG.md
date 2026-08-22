@@ -51,6 +51,11 @@
 
 - **词库编辑卡片时移除「原文语境 / Markdown」编辑框**：卡片编辑保持单词、释义、标签、重点词
 
+### Verified
+
+- ✅ `npm run build` 通过
+- ✅ `.install/6c-test.ts` 全过（Phase 7A-E 后回归验证）
+
 ### Planned
 
 - 后续方向：Easy Days 负载均衡、更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
