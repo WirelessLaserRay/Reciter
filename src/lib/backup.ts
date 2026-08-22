@@ -118,6 +118,61 @@ export async function readBackupFile(): Promise<BackupData | null> {
   }
 }
 
+/** 批量导出指定词库为可再次导入的 JSON（保留标签、重点标记、文件夹） */
+export async function exportDecksToJSON(deckIds: number[]): Promise<BackupResult> {
+  try {
+    const decks = await db.getDecks();
+    const selected = decks.filter((d) => deckIds.includes(d.id));
+    const items: unknown[] = [];
+    for (const d of selected) {
+      const cards = await db.getCardsByDeck(d.id);
+      for (const c of cards) {
+        let tags: string[] = [];
+        try {
+          const parsed = JSON.parse(c.tags);
+          tags = Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+          tags = [];
+        }
+        items.push({
+          folder: d.folder ?? "",
+          deck: d.name,
+          front: c.front,
+          back: c.back,
+          markdown: c.markdown_content,
+          tags,
+          is_key: c.is_key === 1,
+          weak_source: c.weak_source,
+          weak_dismissed: c.weak_dismissed,
+        });
+      }
+    }
+    const json = JSON.stringify(items, null, 2);
+    if (isTauri()) {
+      const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+      const path = await save({
+        defaultPath: "reciter-decks-" + stamp + ".json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!path) return { ok: false, message: "已取消导出" };
+      await invoke("write_text_file", { path, content: json });
+      return { ok: true, message: "导出成功：" + path, decks: selected.length, cards: items.length };
+    }
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "reciter-decks-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { ok: true, message: "已下载词库 JSON", decks: selected.length, cards: items.length };
+  } catch (e) {
+    return { ok: false, message: String(e) };
+  }
+}
+
 /** 从 JSON 文件恢复（清空现有数据后整体恢复） */
 export async function importFromJSON(): Promise<BackupResult> {
   try {

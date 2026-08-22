@@ -105,7 +105,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, tags, highlights: [], isKey });
+    cards.push({ front, back, markdown: "", deckName, folder: "", tags, highlights: [], isKey });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
@@ -131,13 +131,15 @@ export function parseJSON(content: string): ParseResult {
     const obj = item as Record<string, unknown>;
     const front = String(obj.front ?? obj.word ?? "").trim();
     const back = String(obj.back ?? obj.meaning ?? "").trim();
-    const deckName = String(obj.deck ?? "JSON 导入").trim() || "JSON 导入";
+    const deckName = String(obj.deck ?? obj.deckName ?? "JSON 导入").trim() || "JSON 导入";
+    const folder = String(obj.folder ?? "").trim();
     const rawTags = obj.tags;
     const tags = Array.isArray(rawTags)
       ? rawTags.map(String)
       : typeof rawTags === "string"
         ? rawTags.split(/[;；|]/).map((t) => t.trim()).filter(Boolean)
         : [];
+    const isKey = /^(1|true|yes|是|true)$/i.test(String(obj.isKey ?? obj.is_key ?? obj.key ?? ""));
     if (!front || !back) {
       if (front || back) warnings.push(`JSON 条目缺少字段: "${front || back}".slice(0, 60)`);
       continue;
@@ -145,7 +147,7 @@ export function parseJSON(content: string): ParseResult {
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, tags, highlights: [], isKey: false });
+    cards.push({ front, back, markdown: "", deckName, folder, tags, highlights: [], isKey });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
@@ -183,7 +185,7 @@ export function parseTXT(content: string, defaultDeck = "手动导入"): ParseRe
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", deckName, tags: [], highlights: [], isKey: false });
+    cards.push({ front, back, markdown: "", deckName, folder: "", tags: [], highlights: [], isKey: false });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }

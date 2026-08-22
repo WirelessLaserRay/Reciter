@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, BookOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, Download, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { db } from "@/lib/db";
+import { exportDecksToJSON } from "@/lib/backup";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
 
@@ -41,6 +42,9 @@ export default function DeckList() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; cards: number } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectedDeckIds, setSelectedDeckIds] = useState<Set<number>>(new Set());
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (dbReady) refresh();
@@ -102,6 +106,25 @@ export default function DeckList() {
     }
   };
 
+  const toggleSelectDeck = (id: number) => {
+    setSelectedDeckIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleExportDecks = async () => {
+    if (selectedDeckIds.size === 0) return;
+    setExportBusy(true);
+    setExportMsg(null);
+    const r = await exportDecksToJSON([...selectedDeckIds]);
+    setExportBusy(false);
+    setExportMsg(r.message);
+    if (r.ok) setSelectedDeckIds(new Set());
+  };
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="flex items-center justify-between">
@@ -111,11 +134,23 @@ export default function DeckList() {
             共 {decks.length} 个词库 · {Object.values(cardCounts).reduce((a, b) => a + b, 0)} 张卡片
           </p>
         </div>
-        <Button onClick={() => setShowCreate((v) => !v)}>
-          <Plus className="size-4" />
-          新建词库
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedDeckIds.size > 0 && (
+            <Button variant="outline" size="sm" onClick={handleExportDecks} disabled={exportBusy}>
+              {exportBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              导出所选（{selectedDeckIds.size}）
+            </Button>
+          )}
+          <Button onClick={() => setShowCreate((v) => !v)}>
+            <Plus className="size-4" />
+            新建词库
+          </Button>
+        </div>
       </div>
+
+      {exportMsg && (
+        <p className="text-xs text-muted-foreground">{exportMsg}</p>
+      )}
 
       {showCreate && (
         <Card>
@@ -215,6 +250,13 @@ export default function DeckList() {
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="truncate">{d.name}</CardTitle>
                             <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                              <input
+                                type="checkbox"
+                                className="mr-1 size-4 accent-primary"
+                                checked={selectedDeckIds.has(d.id)}
+                                onChange={() => toggleSelectDeck(d.id)}
+                                title="选择导出"
+                              />
                               <Button
                                 variant="ghost"
                                 size="icon"

@@ -10,6 +10,7 @@ export interface ParsedCard {
   back: string;
   markdown: string; // 原始 Markdown 片段
   deckName: string;
+  folder: string;
   tags: string[];
   highlights: string[]; // ==xx== 挖空素材
   /** 重点标记：列表项以 **黑体** 开头（如 - **word n. 释义**），识别为重点词/词组 */
@@ -160,6 +161,7 @@ export function parseMarkdown(content: string): ParseResult {
       back,
       markdown: raw.trim(),
       deckName,
+      folder: "",
       tags: currentSection ? [currentSection] : [],
       highlights,
       isKey,

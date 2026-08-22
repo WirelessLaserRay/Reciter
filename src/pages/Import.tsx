@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 interface PreviewRow {
   key: string;
   deckName: string;
+  folder: string;
   front: string;
   back: string;
   markdown: string;
@@ -110,6 +111,7 @@ export default function Import() {
         rowsOut.push({
           key: deckName + "\u0000" + c.front,
           deckName,
+          folder: c.folder,
           front: c.front,
           back: c.back,
           markdown: c.markdown,
@@ -139,11 +141,12 @@ export default function Import() {
         folder: m.folder,
         name: m.name,
       }));
+      const newFolder = deckGroups.get(deckName)?.[0]?.folder ?? "";
       if (matches.length > 0) {
-        const unique = await db.getUniqueDeckName(deckName, "");
-        options.push({ deckId: null, label: `新建 ${unique}`, folder: "", name: unique });
+        const unique = await db.getUniqueDeckName(deckName, newFolder);
+        options.push({ deckId: null, label: `新建 ${unique}`, folder: newFolder, name: unique });
       } else {
-        options.push({ deckId: null, label: deckName, folder: "", name: deckName });
+        options.push({ deckId: null, label: deckName, folder: newFolder, name: deckName });
       }
       const first = options[0];
       if (first) targets[deckName] = { ...first, options };
