@@ -142,11 +142,15 @@ export async function getDeepLApiUrl(): Promise<string> {
   return raw?.trim() || "https://api-free.deepl.com/v2/translate";
 }
 
-/** DeepL 翻译（en → zh-CN）；需要 API Key */
+export async function getDeepLCorsProxy(): Promise<string> {
+  return (await db.getSetting("deepl_cors_proxy"))?.trim() ?? "";
+}
+
+/** DeepL 翻译（en → zh-CN）；需要 API Key；网页端优先使用 CORS 代理 */
 async function translateWithDeepL(text: string): Promise<string> {
   const key = await getDeepLApiKey();
   if (!key) return "";
-  const url = await getDeepLApiUrl();
+  const url = isTauri() ? await getDeepLApiUrl() : (await getDeepLCorsProxy()) || (await getDeepLApiUrl());
   try {
     const res = await httpFetch(url, {
       method: "POST",

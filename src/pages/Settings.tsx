@@ -36,6 +36,7 @@ import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
 import { isTauri } from "@/lib/env";
 import {
+  getDeepLCorsProxy,
   getDeepLApiKey,
   getDeepLApiUrl,
   getTranslationProvider,
@@ -86,6 +87,7 @@ export default function Settings() {
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider>("deepl");
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [deeplApiUrl, setDeeplApiUrl] = useState("");
+  const [deeplCorsProxy, setDeeplCorsProxy] = useState("");
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -112,7 +114,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -131,6 +133,7 @@ export default function Settings() {
         getTranslationProvider(),
         getDeepLApiKey(),
         getDeepLApiUrl(),
+        getDeepLCorsProxy(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -153,6 +156,7 @@ export default function Settings() {
       setTranslationProvider(tr);
       setDeeplApiKey(dlk);
       setDeeplApiUrl(dlu);
+      setDeeplCorsProxy(dcp);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -249,6 +253,13 @@ export default function Settings() {
     setDeeplApiUrl(v);
     if (!dbReady) return;
     await db.setSetting("deepl_api_url", v.trim());
+    flashSaved();
+  };
+
+  const saveDeeplCorsProxy = async (v: string) => {
+    setDeeplCorsProxy(v);
+    if (!dbReady) return;
+    await db.setSetting("deepl_cors_proxy", v.trim());
     flashSaved();
   };
 
@@ -709,6 +720,18 @@ export default function Settings() {
                         ⚠️ 网页版 DeepL 需配置 CORS 代理才能生效；否则会自动回退到现有方案
                       </p>
                     )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-cors-proxy">CORS 代理地址（网页端）</Label>
+                    <Input
+                      id="deepl-cors-proxy"
+                      placeholder="https://your-worker.example.workers.dev/translate"
+                      value={deeplCorsProxy}
+                      onChange={(e) => saveDeeplCorsProxy(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      网页端翻译 DeepL 时优先使用该代理地址；桌面端可留空
+                    </p>
                   </div>
                 </>
               )}
