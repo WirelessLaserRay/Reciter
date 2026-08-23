@@ -16,10 +16,27 @@ const cache = new Map<string, Promise<DictionaryResult>>();
 const phoneticCache = new Map<string, Promise<string>>();
 const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
 
+/**
+ * 规范化用于查音标的单词：
+ * - 忽略括号及括号内容
+ * - 内容含空格不解析（词组不显示音标）
+ * - 内容含斜杠时只取斜杠前内容
+ */
+export function normalizeWordForPhonetic(raw: string): string {
+  const noParen = raw
+    .replace(/[（(][^（）()]*[）)]/g, "")
+    .trim();
+  if (!noParen) return "";
+  const slash = noParen.indexOf("/");
+  const candidate = (slash >= 0 ? noParen.slice(0, slash) : noParen).trim();
+  if (!candidate || candidate.includes(" ")) return "";
+  return candidate.toLowerCase();
+}
+
 /** 获取单词音标（仅单词，词组返回空）；Free Dictionary 音标字段 */
 export function fetchPhonetic(word: string): Promise<string> {
-  const key = word.trim().toLowerCase();
-  if (!key || key.includes(" ")) return Promise.resolve("");
+  const key = normalizeWordForPhonetic(word);
+  if (!key) return Promise.resolve("");
   const cached = phoneticCache.get(key);
   if (cached) return cached;
   const p = (async () => {

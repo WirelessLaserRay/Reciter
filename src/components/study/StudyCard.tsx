@@ -185,13 +185,19 @@ function RetrievabilityLine({ value }: { value: number | null }) {
   );
 }
 
-/** 单词 + 音标（下方）+ 发音按钮（旁边） */
+/** 单词（居中）+ 音标（下方）+ 发音按钮（单词旁边） */
 function WordBlock({ word, phonetic }: { word: string; phonetic?: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="flex items-center justify-center gap-2">
+      <div className="relative inline-flex items-center justify-center">
         <span className="text-4xl font-bold break-words">{word}</span>
-        <Button variant="ghost" size="icon" className="size-8" onClick={() => speak(word)} title="发音">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute left-full ml-1 size-8"
+          onClick={() => speak(word)}
+          title="发音"
+        >
           <Volume2 className="size-4" />
         </Button>
       </div>
