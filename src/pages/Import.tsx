@@ -37,6 +37,7 @@ import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
 import { generateCardsFromText } from "@/lib/ai-generate";
+import { fetchPhonetic } from "@/lib/dictionary";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -295,12 +296,20 @@ export default function Import() {
         }
       }
       decksTouched.add(target.label);
+      let phonetic = r.phonetic;
+      if (!phonetic) {
+        try {
+          phonetic = await fetchPhonetic(r.front);
+        } catch {
+          phonetic = "";
+        }
+      }
       const res = await db.upsertCard(
         {
           deckId,
           front: r.front,
           back: r.back,
-          phonetic: r.phonetic,
+          phonetic,
           markdown: r.markdown,
           sourceType: r.sourceType,
           tags: r.tags,

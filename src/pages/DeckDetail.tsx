@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dialog";
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
+import { fetchPhonetic } from "@/lib/dictionary";
+import { speak } from "@/lib/tts";
 import MasteryOverview from "@/components/deck/MasteryOverview";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Card as CardType, Deck } from "@/types";
@@ -50,6 +52,7 @@ export default function DeckDetail() {
   const [notice, setNotice] = useState<{ title: string; description?: string; destructive?: boolean } | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<CardType | null>(null);
   const [confirmWeakTarget, setConfirmWeakTarget] = useState<CardType | null>(null);
+  const [phoneticBusy, setPhoneticBusy] = useState(false);
   const [keyFilter, setKeyFilter] = useState(false);
 
   /**
@@ -158,6 +161,25 @@ export default function DeckDetail() {
     }
   };
 
+  const fillMissingPhonetics = async () => {
+    if (phoneticBusy) return;
+    setPhoneticBusy(true);
+    try {
+      for (const c of cards) {
+        if (c.phonetic) continue;
+        const p = await fetchPhonetic(c.front);
+        if (p) await db.updateCard(c.id, { phonetic: p });
+      }
+      await load(true);
+      setNotice({ title: "音标补齐完成", description: "已尝试为缺少音标的单词自动补齐。" });
+    } catch (e) {
+      setNotice({ title: "操作失败", description: String(e), destructive: true });
+    } finally {
+      setPhoneticBusy(false);
+    }
+  };
+
+  const missingPhoneticCount = cards.filter((c) => !c.phonetic).length;
   const deferredSearch = useDeferredValue(search);
   const filtered = cards.filter(
     (c) =>
@@ -265,6 +287,21 @@ export default function DeckDetail() {
         </CardContent>
       </Card>
 
+      {/* 缺少音标提示 */}
+      {missingPhoneticCount > 0 && (
+        <Card className="border-amber-500/30">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <p className="text-sm">
+              有 <span className="font-semibold text-amber-500">{missingPhoneticCount}</span> 个单词缺少音标
+            </p>
+            <Button size="sm" onClick={fillMissingPhonetics} disabled={phoneticBusy}>
+              {phoneticBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+              自动补齐音标
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 卡片列表 */}
       <Card>
         <CardHeader className="pb-2">
@@ -318,6 +355,15 @@ export default function DeckDetail() {
                           <div className="flex items-center gap-1">
                             {c.is_key === 1 && <Star className="inline size-3 shrink-0 text-amber-500" />}
                             <span className="truncate">{c.front}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6 shrink-0"
+                              onClick={() => speak(c.front)}
+                              title="发音"
+                            >
+                              <Volume2 className="size-3.5" />
+                            </Button>
                           </div>
                           {c.phonetic && (
                             <div className="text-[10px] text-muted-foreground">{c.phonetic}</div>
