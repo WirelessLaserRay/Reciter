@@ -146,23 +146,36 @@ export async function getDeepLCorsProxy(): Promise<string> {
   return (await db.getSetting("deepl_cors_proxy"))?.trim() ?? "";
 }
 
-/** DeepL 翻译（en → zh-CN）；需要 API Key；网页端优先使用 CORS 代理 */
+/** DeepL 翻译（en → zh-CN）；Tauri 直连 DeepL，Web 走 Worker 代理 */
 async function translateWithDeepL(text: string): Promise<string> {
   const key = await getDeepLApiKey();
   if (!key) return "";
-  const url = isTauri() ? await getDeepLApiUrl() : (await getDeepLCorsProxy()) || (await getDeepLApiUrl());
   try {
-    const res = await httpFetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `DeepL-Auth-Key ${key}`,
-      },
-      body: JSON.stringify({
-        text: [text],
-        target_lang: "ZH-HANS",
-      }),
-    });
+    let res: Response;
+    if (isTauri()) {
+      // 桌面端：直连 DeepL，Key 放 Header
+      const url = await getDeepLApiUrl();
+      res = await httpFetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `DeepL-Auth-Key ${key}`,
+        },
+        body: JSON.stringify({ text: [text], target_lang: "ZH-HANS" }),
+      });
+    } else {
+      // 网页端：走 Worker 代理，Key 放 body 由 Worker 转到 Header
+      const proxy = await getDeepLCorsProxy();
+      if (!proxy) {
+        console.warn("DeepL：网页端未配置代理地址，跳过");
+        return "";
+      }
+      res = await httpFetch(proxy, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: [text], target_lang: "ZH-HANS", auth_key: key }),
+      });
+    }
     if (!res.ok) {
       console.warn("DeepL 翻译请求失败 status:", res.status);
       return "";
@@ -170,7 +183,7 @@ async function translateWithDeepL(text: string): Promise<string> {
     const data = (await res.json()) as { translations?: Array<{ text?: string }> };
     return data.translations?.[0]?.text ?? "";
   } catch (e) {
-    console.warn("DeepL 翻译异常（网页端可能为 CORS 限制）:", e);
+    console.warn("DeepL 翻译异常:", e);
     return "";
   }
 }
