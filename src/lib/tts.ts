@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 
-export type TTSSource = "auto" | "system" | "google";
+export type TTSSource = "auto" | "system" | "google" | "youdao";
 
 // 缓存的音源配置，用于确保 speak 的同步执行
 let cachedTtsSource: TTSSource = "auto";
@@ -8,7 +8,7 @@ let cachedTtsSource: TTSSource = "auto";
 // 初始化时拉取一次并监听更改（也可由外部在修改设置时同步更新）
 db.getSetting("tts_source")
   .then((raw) => {
-    cachedTtsSource = (raw === "system" || raw === "google" ? raw : "auto") as TTSSource;
+    cachedTtsSource = (raw === "system" || raw === "google" || raw === "youdao" ? raw : "auto") as TTSSource;
   })
   .catch(() => {});
 
@@ -31,7 +31,7 @@ export function youdaoTTSURL(text: string): string {
 
 export async function getTTSSource(): Promise<TTSSource> {
   const raw = await db.getSetting("tts_source");
-  cachedTtsSource = (raw === "system" || raw === "google" ? raw : "auto") as TTSSource;
+  cachedTtsSource = (raw === "system" || raw === "google" || raw === "youdao" ? raw : "auto") as TTSSource;
   return cachedTtsSource;
 }
 

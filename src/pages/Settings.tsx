@@ -650,6 +650,7 @@ export default function Settings() {
                   <SelectContent>
                     <SelectItem value="auto">自动（优先系统，失败用 Google）</SelectItem>
                     <SelectItem value="system">系统 TTS（离线可用）</SelectItem>
+                    <SelectItem value="youdao">有道 TTS</SelectItem>
                     <SelectItem value="google">Google TTS（需网络）</SelectItem>
                   </SelectContent>
                 </Select>
