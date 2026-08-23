@@ -45,6 +45,7 @@ interface PreviewRow {
   folder: string;
   front: string;
   back: string;
+  phonetic: string;
   markdown: string;
   sourceType: "markdown" | "csv" | "json" | "manual";
   tags: string[];
@@ -119,6 +120,7 @@ export default function Import() {
           folder: c.folder,
           front: c.front,
           back: c.back,
+          phonetic: c.phonetic,
           markdown: c.markdown,
           sourceType: parsed.format === "txt" ? "manual" : parsed.format,
           tags: c.tags,
@@ -291,6 +293,7 @@ export default function Import() {
           deckId,
           front: r.front,
           back: r.back,
+          phonetic: r.phonetic,
           markdown: r.markdown,
           sourceType: r.sourceType,
           tags: r.tags,

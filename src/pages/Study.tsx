@@ -41,7 +41,7 @@ import {
   saveLastAiTestAt,
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
-import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
+import { fetchExamples } from "@/lib/dictionary";
 import { preloadSpeech } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -222,28 +222,14 @@ function StudySession({
       const w = queue[i]?.row.front;
       if (w) {
         void fetchExamples(w).catch(() => {});
-        void fetchPhonetic(w).catch(() => {});
         void preloadSpeech(w).catch(() => {});
       }
     }
   }, [queue, index]);
 
-  // 当前单词音标：优先卡片字段，其次词典接口（仅单词）
+  // 当前单词音标：直接使用卡片导入时解析好的音标
   useEffect(() => {
-    const word = item?.row.front ?? "";
-    if (!word) return;
-    if (item.row.phonetic) {
-      setPhoneticText(item.row.phonetic);
-      return;
-    }
-    setPhoneticText("");
-    let cancelled = false;
-    fetchPhonetic(word).then((p) => {
-      if (!cancelled) setPhoneticText(p);
-    });
-    return () => {
-      cancelled = true;
-    };
+    setPhoneticText(item?.row.phonetic ?? "");
   }, [item]);
 
   // 加载学习偏好与 AI 配置

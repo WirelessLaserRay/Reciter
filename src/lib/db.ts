@@ -4,6 +4,7 @@ import { TauriBackend } from "@/lib/sql/tauri-backend";
 import { SqlJsBackend } from "@/lib/sql/sqljs-backend";
 import { isTauri } from "@/lib/env";
 import { runMigrations } from "@/lib/migrations";
+import { extractPhoneticFromText } from "@/lib/phonetic";
 
 export interface UpsertResult {
   cardId: number;
@@ -104,6 +105,8 @@ class ReciterDB {
           await runMigrations(b);
         }
         this.backend = b;
+        // 回填历史卡片音标（从 front/markdown 解析，仅补空值）
+        await this.backfillCardPhonetics();
       })();
     }
     return this.readyPromise;
@@ -349,6 +352,7 @@ class ReciterDB {
       front: string;
       back: string;
       markdown?: string;
+      phonetic?: string;
       sourceType?: "markdown" | "csv" | "json" | "manual";
       tags?: string[];
       isKey?: number;
@@ -360,18 +364,19 @@ class ReciterDB {
     const wasKnown = knownExisting ? knownExisting.has(opts.front) : false;
     const tags = JSON.stringify(opts.tags ?? []);
     const rows = await db.select<{ id: number }[]>(
-      `INSERT INTO cards (deck_id, front, back, markdown_content, source_type, tags, is_key, weak_source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO cards (deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(deck_id, front) DO UPDATE SET
          back = excluded.back,
          markdown_content = excluded.markdown_content,
+         phonetic = excluded.phonetic,
          source_type = excluded.source_type,
          tags = excluded.tags,
          is_key = excluded.is_key,
          weak_source = excluded.weak_source,
          updated_at = excluded.updated_at
        RETURNING id`,
-      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, opts.weakSource ?? "", nowIso(), nowIso()]
+      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.phonetic ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, opts.weakSource ?? "", nowIso(), nowIso()]
     );
     const cardId = rows[0].id;
     if (knownExisting && !wasKnown) knownExisting.add(opts.front);
@@ -382,10 +387,10 @@ class ReciterDB {
     return { cardId, created: !wasKnown };
   }
 
-  /** 编辑卡片（front/back/tags/weak_source） */
+  /** 编辑卡片（front/back/tags/weak_source/phonetic） */
   async updateCard(
     id: number,
-    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "is_key" | "weak_source" | "weak_dismissed">>
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "phonetic" | "is_key" | "weak_source" | "weak_dismissed">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
@@ -393,6 +398,7 @@ class ReciterDB {
     if (data.back !== undefined) { sets.push("back = ?"); params.push(data.back); }
     if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); }
     if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
+    if (data.phonetic !== undefined) { sets.push("phonetic = ?"); params.push(data.phonetic); }
     if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
     if (data.weak_source !== undefined) { sets.push("weak_source = ?"); params.push(data.weak_source); }
     if (data.weak_dismissed !== undefined) { sets.push("weak_dismissed = ?"); params.push(data.weak_dismissed); }
@@ -401,6 +407,21 @@ class ReciterDB {
     sets.push("updated_at = ?");
     params.push(id);
     await this.requireDb().execute(`UPDATE cards SET ${sets.join(", ")} WHERE id = ?`, params);
+  }
+
+  /** 回填历史卡片音标：从 front / markdown_content 解析，仅补 phonetic 为空的行 */
+  async backfillCardPhonetics(): Promise<void> {
+    try {
+      const rows = await this.requireDb().select<{ id: number; front: string; markdown_content: string }[]>(
+        "SELECT id, front, markdown_content FROM cards WHERE phonetic = ''"
+      );
+      for (const r of rows) {
+        const phonetic = extractPhoneticFromText(r.front) || extractPhoneticFromText(r.markdown_content);
+        if (phonetic) await this.updateCard(r.id, { phonetic });
+      }
+    } catch {
+      // 回填失败不阻塞初始化
+    }
   }
 
   async deleteCard(id: number): Promise<void> {

@@ -3,12 +3,14 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
 import type { Root, Heading, ListItem, Blockquote } from "mdast";
+import { extractPhoneticFromText } from "@/lib/phonetic";
 
 /** 解析出的待导入卡片 */
 export interface ParsedCard {
   front: string;
   back: string;
   markdown: string; // 原始 Markdown 片段
+  phonetic: string; // 导入时从内容解析出的音标（如 /əˈbændən/）
   deckName: string;
   folder: string;
   tags: string[];
@@ -160,6 +162,7 @@ export function parseMarkdown(content: string): ParseResult {
       front,
       back,
       markdown: raw.trim(),
+      phonetic: extractPhoneticFromText(raw),
       deckName,
       folder: "",
       tags: currentSection ? [currentSection] : [],
