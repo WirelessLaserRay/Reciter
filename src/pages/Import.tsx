@@ -261,6 +261,7 @@ export default function Import() {
     let created = 0;
     let updated = 0;
     const knownExistingByDeck = new Map<string, Set<string>>();
+    const createdDeckIds = new Map<string, number>();
     const decksTouched = new Set<string>();
 
     for (const r of selected) {
@@ -284,8 +285,14 @@ export default function Import() {
       if (target.deckId !== null) {
         deckId = target.deckId;
       } else {
-        const uniqueName = await db.getUniqueDeckName(target.name, target.folder);
-        deckId = await db.createDeck(uniqueName, "", undefined, target.folder);
+        const cachedDeckId = createdDeckIds.get(targetKey);
+        if (cachedDeckId) {
+          deckId = cachedDeckId;
+        } else {
+          const uniqueName = await db.getUniqueDeckName(target.name, target.folder);
+          deckId = await db.createDeck(uniqueName, "", undefined, target.folder);
+          createdDeckIds.set(targetKey, deckId);
+        }
       }
       decksTouched.add(target.label);
       const res = await db.upsertCard(

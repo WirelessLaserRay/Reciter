@@ -23,11 +23,20 @@ export function isSystemTTSAvailable(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
 }
 
-/** 播放读音：按设置选择系统 TTS 或 Google TTS；auto 优先系统 */
+/** 系统 TTS 是否真正可用：存在且已加载语音 */
+export function canUseSystemTTS(): boolean {
+  try {
+    return isSystemTTSAvailable() && window.speechSynthesis.getVoices().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 播放读音：按设置选择系统 TTS 或 Google TTS；auto 优先系统，系统不可用时自动切 Google */
 export async function speak(text: string, lang = "en-US"): Promise<void> {
   if (!text.trim()) return;
   const source = await getTTSSource();
-  const useSystem = source === "system" || (source === "auto" && isSystemTTSAvailable());
+  const useSystem = (source === "system" || source === "auto") && canUseSystemTTS();
   if (useSystem) {
     try {
       window.speechSynthesis.cancel();
@@ -51,8 +60,8 @@ export async function speak(text: string, lang = "en-US"): Promise<void> {
 export async function preloadSpeech(text: string): Promise<void> {
   if (!text.trim()) return;
   const source = await getTTSSource();
-  if (source === "system") return;
-  if (source === "auto" && isSystemTTSAvailable()) return;
+  if (source === "system" && canUseSystemTTS()) return;
+  if (source === "auto" && canUseSystemTTS()) return;
   try {
     const audio = new Audio(googleTTSURL(text));
     audio.preload = "auto";
