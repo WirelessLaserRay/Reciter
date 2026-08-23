@@ -53,6 +53,7 @@ export default function DeckDetail() {
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<CardType | null>(null);
   const [confirmWeakTarget, setConfirmWeakTarget] = useState<CardType | null>(null);
   const [phoneticBusy, setPhoneticBusy] = useState(false);
+  const [phoneticProgress, setPhoneticProgress] = useState<{ done: number; total: number } | null>(null);
   const [keyFilter, setKeyFilter] = useState(false);
 
   /**
@@ -166,7 +167,10 @@ export default function DeckDetail() {
     setPhoneticBusy(true);
     try {
       const missing = cards.filter((c) => !c.phonetic);
-      const phoneticMap = await batchFetchPhonetics(missing.map((c) => c.front));
+      setPhoneticProgress({ done: 0, total: missing.length });
+      const phoneticMap = await batchFetchPhonetics(missing.map((c) => c.front), (done, total) => {
+        setPhoneticProgress({ done, total });
+      });
       let filled = 0;
       for (const c of missing) {
         const p = phoneticMap.get(c.front);
@@ -181,6 +185,7 @@ export default function DeckDetail() {
       setNotice({ title: "操作失败", description: String(e), destructive: true });
     } finally {
       setPhoneticBusy(false);
+      setPhoneticProgress(null);
     }
   };
 
@@ -478,6 +483,37 @@ export default function DeckDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 音标补齐进度遮罩 */}
+      {phoneticBusy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-md">
+            <CardContent className="flex flex-col items-center gap-4 py-10">
+              <Loader2 className="size-10 animate-spin text-primary" />
+              <p className="text-sm font-medium">正在补齐音标，可能需要较长时间</p>
+              <p className="text-xs text-muted-foreground">请勿切换页面或关闭窗口</p>
+              <p className="text-sm text-muted-foreground">
+                {phoneticProgress
+                  ? `已获取音标 ${phoneticProgress.done} / ${phoneticProgress.total}`
+                  : "准备中…"}
+              </p>
+              {phoneticProgress && phoneticProgress.total > 0 && (
+                <div className="w-64">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-200"
+                      style={{ width: `${Math.round((phoneticProgress.done / phoneticProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-center text-xs text-muted-foreground">
+                    {Math.round((phoneticProgress.done / phoneticProgress.total) * 100)}%
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* 统一提示框 */}
       <ConfirmDialog
