@@ -314,9 +314,14 @@ export default function DeckDetail() {
                     const tags = tagsOf(c);
                     return (
                       <tr key={c.id} className="border-t">
-                        <td className="max-w-44 truncate px-3 py-2 font-medium" title={c.front}>
-                          {c.is_key === 1 && <Star className="mr-1 inline size-3 text-amber-500" />}
-                          {c.front}
+                        <td className="max-w-44 px-3 py-2 font-medium" title={c.front}>
+                          <div className="flex items-center gap-1">
+                            {c.is_key === 1 && <Star className="inline size-3 shrink-0 text-amber-500" />}
+                            <span className="truncate">{c.front}</span>
+                          </div>
+                          {c.phonetic && (
+                            <div className="text-[10px] text-muted-foreground">{c.phonetic}</div>
+                          )}
                         </td>
                         <td className="max-w-md truncate px-3 py-2 text-muted-foreground" title={c.back}>
                           {c.back}

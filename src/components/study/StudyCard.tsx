@@ -189,12 +189,13 @@ function RetrievabilityLine({ value }: { value: number | null }) {
 function WordBlock({ word, phonetic }: { word: string; phonetic?: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="relative inline-flex items-center justify-center">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center justify-items-center gap-1">
+        <span />
         <span className="text-4xl font-bold break-words">{word}</span>
         <Button
           variant="ghost"
           size="icon"
-          className="absolute left-full ml-1 size-8"
+          className="size-8"
           onClick={() => speak(word)}
           title="发音"
         >
