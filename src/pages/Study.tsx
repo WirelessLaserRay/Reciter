@@ -42,6 +42,7 @@ import {
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
 import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
+import { preloadSpeech } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
@@ -215,11 +216,15 @@ function StudySession({
     ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
     : "0 秒";
 
-  // 预先加载队列前三个单词/词组的例句，展示时直接命中缓存
+  // 预先加载队列前三个单词/词组的例句、音标与发音，展示时直接命中缓存
   useEffect(() => {
     for (let i = index; i < Math.min(queue.length, index + 3); i++) {
       const w = queue[i]?.row.front;
-      if (w) void fetchExamples(w).catch(() => {});
+      if (w) {
+        void fetchExamples(w).catch(() => {});
+        void fetchPhonetic(w).catch(() => {});
+        void preloadSpeech(w).catch(() => {});
+      }
     }
   }, [queue, index]);
 

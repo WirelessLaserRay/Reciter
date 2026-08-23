@@ -19,6 +19,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +33,7 @@ import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
+import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
@@ -67,6 +75,7 @@ export default function Settings() {
   const [leechThreshold, setLeechThreshold] = useState(3);
   const [ignoredTags, setIgnoredTags] = useState("");
   const [easyDaysEnabled, setEasyDaysEnabled] = useState(false);
+  const [ttsSource, setTtsSource] = useState<TTSSource>("auto");
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -93,7 +102,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -108,6 +117,7 @@ export default function Settings() {
         db.getSetting("leech_threshold"),
         getIgnoredTags(),
         getEasyDaysConfig(),
+        getTTSSource(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -126,6 +136,7 @@ export default function Settings() {
       if (Number.isFinite(ltN) && ltN > 0) setLeechThreshold(ltN);
       setIgnoredTags(ig.join("、"));
       setEasyDaysEnabled(ed.enabled);
+      setTtsSource(tts);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -194,6 +205,13 @@ export default function Settings() {
       cfg.weekdays[6] = 0.5;
     }
     await saveEasyDaysConfig(cfg);
+    flashSaved();
+  };
+
+  const saveTTSSetting = async (v: TTSSource) => {
+    setTtsSource(v);
+    if (!dbReady) return;
+    await saveTTSSource(v);
     flashSaved();
   };
 
@@ -585,6 +603,23 @@ export default function Settings() {
                   checked={easyDaysEnabled}
                   onCheckedChange={(v) => void saveEasyDays(v)}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tts-source">发音来源</Label>
+                <Select value={ttsSource} onValueChange={(v) => void saveTTSSetting(v as TTSSource)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动（优先系统，失败用 Google）</SelectItem>
+                    <SelectItem value="system">系统 TTS（离线可用）</SelectItem>
+                    <SelectItem value="google">Google TTS（需网络）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  系统 TTS 离线可用；Google TTS 需要网络/代理
+                </p>
               </div>
 
               <div className="border-t pt-4">
