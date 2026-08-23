@@ -1,6 +1,7 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@/lib/env";
+import { db } from "@/lib/db";
 
 export interface Example {
   text: string;
@@ -125,6 +126,47 @@ export async function batchFetchPhonetics(
   return result;
 }
 
+export type TranslationProvider = "deepl" | "fallback";
+
+export async function getTranslationProvider(): Promise<TranslationProvider> {
+  const raw = await db.getSetting("translation_provider");
+  return raw === "deepl" || raw === "fallback" ? raw : "deepl";
+}
+
+export async function getDeepLApiKey(): Promise<string> {
+  return (await db.getSetting("deepl_api_key")) ?? "";
+}
+
+export async function getDeepLApiUrl(): Promise<string> {
+  const raw = await db.getSetting("deepl_api_url");
+  return raw?.trim() || "https://api-free.deepl.com/v2/translate";
+}
+
+/** DeepL 翻译（en → zh-CN）；需要 API Key */
+async function translateWithDeepL(text: string): Promise<string> {
+  const key = await getDeepLApiKey();
+  if (!key) return "";
+  const url = await getDeepLApiUrl();
+  try {
+    const res = await httpFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `DeepL-Auth-Key ${key}`,
+      },
+      body: JSON.stringify({
+        text: [text],
+        target_lang: "ZH",
+      }),
+    });
+    if (!res.ok) return "";
+    const data = (await res.json()) as { translations?: Array<{ text?: string }> };
+    return data.translations?.[0]?.text ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** MyMemory 免费翻译（en → zh-CN）；失败返回空 */
 async function translateWithMyMemory(text: string): Promise<string> {
   try {
@@ -151,8 +193,13 @@ async function translateWithAI(text: string): Promise<string> {
 }
 
 async function translateText(text: string): Promise<string> {
-  const t = await translateWithMyMemory(text);
-  if (t) return t;
+  const provider = await getTranslationProvider();
+  if (provider === "deepl") {
+    const t = await translateWithDeepL(text);
+    if (t) return t;
+  }
+  const t2 = await translateWithMyMemory(text);
+  if (t2) return t2;
   try {
     return await translateWithAI(text);
   } catch {

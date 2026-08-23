@@ -34,6 +34,12 @@ import { useDbStore } from "@/stores/useDbStore";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
+import {
+  getDeepLApiKey,
+  getDeepLApiUrl,
+  getTranslationProvider,
+  type TranslationProvider,
+} from "@/lib/dictionary";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
@@ -76,6 +82,9 @@ export default function Settings() {
   const [ignoredTags, setIgnoredTags] = useState("");
   const [easyDaysEnabled, setEasyDaysEnabled] = useState(false);
   const [ttsSource, setTtsSource] = useState<TTSSource>("auto");
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>("deepl");
+  const [deeplApiKey, setDeeplApiKey] = useState("");
+  const [deeplApiUrl, setDeeplApiUrl] = useState("");
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -102,7 +111,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -118,6 +127,9 @@ export default function Settings() {
         getIgnoredTags(),
         getEasyDaysConfig(),
         getTTSSource(),
+        getTranslationProvider(),
+        getDeepLApiKey(),
+        getDeepLApiUrl(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -137,6 +149,9 @@ export default function Settings() {
       setIgnoredTags(ig.join("、"));
       setEasyDaysEnabled(ed.enabled);
       setTtsSource(tts);
+      setTranslationProvider(tr);
+      setDeeplApiKey(dlk);
+      setDeeplApiUrl(dlu);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -212,6 +227,27 @@ export default function Settings() {
     setTtsSource(v);
     if (!dbReady) return;
     await saveTTSSource(v);
+    flashSaved();
+  };
+
+  const saveTranslationProvider = async (v: TranslationProvider) => {
+    setTranslationProvider(v);
+    if (!dbReady) return;
+    await db.setSetting("translation_provider", v);
+    flashSaved();
+  };
+
+  const saveDeeplApiKey = async (v: string) => {
+    setDeeplApiKey(v);
+    if (!dbReady) return;
+    await db.setSetting("deepl_api_key", v.trim());
+    flashSaved();
+  };
+
+  const saveDeeplApiUrl = async (v: string) => {
+    setDeeplApiUrl(v);
+    if (!dbReady) return;
+    await db.setSetting("deepl_api_url", v.trim());
     flashSaved();
   };
 
@@ -621,6 +657,52 @@ export default function Settings() {
                   系统 TTS 离线可用；Google TTS 需要网络/代理
                 </p>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="translation-provider">例句翻译接口</Label>
+                <Select
+                  value={translationProvider}
+                  onValueChange={(v) => void saveTranslationProvider(v as TranslationProvider)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deepl">DeepL（默认，需 API Key）</SelectItem>
+                    <SelectItem value="fallback">现有方案（MyMemory + AI 兜底）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  DeepL 翻译质量更高；未配置 Key 时自动回退到现有方案
+                </p>
+              </div>
+
+              {translationProvider === "deepl" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-api-key">DeepL API Key</Label>
+                    <Input
+                      id="deepl-api-key"
+                      type="password"
+                      placeholder="DeepL Auth Key"
+                      value={deeplApiKey}
+                      onChange={(e) => saveDeeplApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-api-url">DeepL API URL（可选）</Label>
+                    <Input
+                      id="deepl-api-url"
+                      placeholder="https://api-free.deepl.com/v2/translate"
+                      value={deeplApiUrl}
+                      onChange={(e) => saveDeeplApiUrl(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      免费版默认 api-free，专业版可改为 https://api.deepl.com/v2/translate
+                    </p>
+                  </div>
+                </>
+              )}
 
               <div className="border-t pt-4">
                 <p className="mb-3 text-sm font-medium">学习体验</p>
