@@ -169,6 +169,8 @@ interface ModeViewProps {
   distractors: Distractor[];
   /** 熟练卡秒答阈值（毫秒），可在设置中调整 */
   quickMs: number;
+  /** 单词音标（优先外部词典获取，缺省用卡片字段） */
+  phonetic?: string;
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;
   onRateReadyChange: (ready: boolean) => void;
@@ -180,6 +182,21 @@ function RetrievabilityLine({ value }: { value: number | null }) {
     <p className="text-xs text-muted-foreground">
       记忆可检索度：{(value * 100).toFixed(0)}%
     </p>
+  );
+}
+
+/** 单词 + 音标（下方）+ 发音按钮（旁边） */
+function WordBlock({ word, phonetic }: { word: string; phonetic?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="flex items-center justify-center gap-2">
+        <span className="text-4xl font-bold break-words">{word}</span>
+        <Button variant="ghost" size="icon" className="size-8" onClick={() => speak(word)} title="发音">
+          <Volume2 className="size-4" />
+        </Button>
+      </div>
+      {phonetic && <span className="text-sm text-muted-foreground">{phonetic}</span>}
+    </div>
   );
 }
 
@@ -237,12 +254,7 @@ function ClassicFlipView(props: ModeViewProps) {
           {/* 正面 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8 [backface-visibility:hidden]">
             <CardMetaBadges row={row} />
-            <div className="text-center text-4xl font-bold break-words">{row.front}</div>
-            {row.phonetic && <div className="text-sm text-muted-foreground">{row.phonetic}</div>}
-            <Button variant="ghost" size="sm" onClick={() => speak(row.front)}>
-              <Volume2 className="size-4" />
-              发音
-            </Button>
+            <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
             {!flipped && (
               <Button onClick={showAnswer} size="lg">
                 显示答案
@@ -320,7 +332,7 @@ function ActiveRecallView(props: ModeViewProps) {
       {recallPhase === "prompt" && (
         <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
           <CardMetaBadges row={row} />
-          <div className="text-center text-4xl font-bold break-words">{row.front}</div>
+          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
           <p className="text-sm text-muted-foreground">你知道这个词的意思吗？</p>
           <div className="flex gap-3">
             <Button onClick={() => setRecallPhase("input")} size="lg">
@@ -338,7 +350,7 @@ function ActiveRecallView(props: ModeViewProps) {
       {recallPhase === "input" && (
         <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
           <CardMetaBadges row={row} />
-          <div className="text-center text-4xl font-bold break-words">{row.front}</div>
+          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
           <p className="text-sm text-muted-foreground">请输入你记得的释义：</p>
           <div className="flex w-full max-w-md gap-2">
             <Input
@@ -362,7 +374,7 @@ function ActiveRecallView(props: ModeViewProps) {
         <div className="space-y-4">
           <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
             <CardMetaBadges row={row} />
-            <div className="text-center text-3xl font-bold break-words">{row.front}</div>
+            <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
             <div className="max-w-md text-center text-2xl font-semibold whitespace-pre-wrap break-words">
               {row.back}
             </div>
@@ -419,7 +431,7 @@ function NewCardTeachView(props: ModeViewProps) {
   return (
     <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
       <CardMetaBadges row={row} />
-      <div className="text-center text-4xl font-bold break-words">{row.front}</div>
+      <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
       <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
         {row.back}
       </div>
@@ -516,7 +528,11 @@ function QuickTestView(props: ModeViewProps) {
           快速测试 · {Math.round(quickMs / 1000)} 秒内答对自动「记得」
           {choice.useFront ? " · 形近词干扰" : ""}
         </p>
-        <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
+        {choice.useFront ? (
+          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
+        ) : (
+          <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
+        )}
 
         {checked === null && useChoice && (
           <div className="grid w-full max-w-lg gap-2">
@@ -615,7 +631,7 @@ function AiDrillView(props: ModeViewProps) {
     <div className="space-y-4">
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border border-amber-500/30 bg-card p-8">
         <CardMetaBadges row={row} />
-        <div className="text-center text-3xl font-bold break-words">{row.front}</div>
+        <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
         <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
           {row.back}
         </div>
@@ -650,6 +666,8 @@ export interface StudyCardProps {
   distractors: Distractor[];
   /** 熟练卡秒答阈值（毫秒，P2-⑨） */
   quickMs: number;
+  /** 单词音标（外部词典获取后传入） */
+  phonetic?: string;
   /** 揭示答案：父组件据此计算间隔预览与可检索度 */
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;

@@ -15,7 +15,6 @@ import {
   Sparkles,
   Star,
   Tag,
-  Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,7 +42,6 @@ import {
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
 import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
-import { speak } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
@@ -535,19 +533,11 @@ function StudySession({
             ) : (
               modeConfig && (
                 <>
-                  <div className="flex items-center justify-between">
-                    {phoneticText ? (
-                      <span className="text-sm text-muted-foreground">{phoneticText}</span>
-                    ) : <span />}
-                    <Button variant="ghost" size="sm" onClick={() => speak(item.row.front)}>
-                      <Volume2 className="size-4" />
-                      发音
-                    </Button>
-                  </div>
                   <StudyCard
                     key={item.row.card_id}
                   row={item.row}
                   config={modeConfig}
+                  phonetic={phoneticText}
                   ratingMode={ratingMode}
                   preview={preview}
                   retrievability={retrievability}
