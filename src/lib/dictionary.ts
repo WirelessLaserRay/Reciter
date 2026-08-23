@@ -85,6 +85,48 @@ export function fetchPhonetic(word: string): Promise<string> {
   return p;
 }
 
+/**
+ * 批量获取音标（带并发控制），用于导入时批量补齐。
+ * @param words  待查询的单词列表（词组/空值自动跳过）
+ * @param onProgress 进度回调 (done, total)
+ * @param concurrency 并发数（默认 5，Free Dictionary 免费 API 不宜过高）
+ * @returns Map<原始单词, 音标>
+ */
+export async function batchFetchPhonetics(
+  words: string[],
+  onProgress?: (done: number, total: number) => void,
+  concurrency = 5,
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  // 去重：同一 normalized key 只查一次
+  const unique = new Map<string, string[]>(); // normalized key → [原始 words]
+  for (const w of words) {
+    const key = normalizeWordForPhonetic(w);
+    if (!key) continue; // 词组/空值跳过
+    const arr = unique.get(key) ?? [];
+    arr.push(w);
+    unique.set(key, arr);
+  }
+  const entries = [...unique.entries()];
+  const total = entries.length;
+  let done = 0;
+  onProgress?.(0, total);
+
+  // 分批并发
+  for (let i = 0; i < entries.length; i += concurrency) {
+    const batch = entries.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async ([, originals]) => {
+        const phonetic = await fetchPhonetic(originals[0]);
+        for (const w of originals) result.set(w, phonetic);
+        done++;
+        onProgress?.(done, total);
+      }),
+    );
+  }
+  return result;
+}
+
 /** MyMemory 免费翻译（en → zh-CN）；失败返回空 */
 async function translateWithMyMemory(text: string): Promise<string> {
   try {

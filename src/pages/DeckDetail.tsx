@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
-import { fetchPhonetic } from "@/lib/dictionary";
+import { batchFetchPhonetics } from "@/lib/dictionary";
 import { speak } from "@/lib/tts";
 import MasteryOverview from "@/components/deck/MasteryOverview";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -165,13 +165,18 @@ export default function DeckDetail() {
     if (phoneticBusy) return;
     setPhoneticBusy(true);
     try {
-      for (const c of cards) {
-        if (c.phonetic) continue;
-        const p = await fetchPhonetic(c.front);
-        if (p) await db.updateCard(c.id, { phonetic: p });
+      const missing = cards.filter((c) => !c.phonetic);
+      const phoneticMap = await batchFetchPhonetics(missing.map((c) => c.front));
+      let filled = 0;
+      for (const c of missing) {
+        const p = phoneticMap.get(c.front);
+        if (p) {
+          await db.updateCard(c.id, { phonetic: p });
+          filled++;
+        }
       }
       await load(true);
-      setNotice({ title: "音标补齐完成", description: "已尝试为缺少音标的单词自动补齐。" });
+      setNotice({ title: "音标补齐完成", description: `已为 ${filled} 个单词补齐音标。` });
     } catch (e) {
       setNotice({ title: "操作失败", description: String(e), destructive: true });
     } finally {

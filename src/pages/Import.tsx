@@ -37,7 +37,7 @@ import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
 import { generateCardsFromText } from "@/lib/ai-generate";
-import { fetchPhonetic } from "@/lib/dictionary";
+import { batchFetchPhonetics } from "@/lib/dictionary";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -92,6 +92,7 @@ export default function Import() {
     >
   >({});
   const refreshDecks = useDeckStore((s) => s.refresh);
+  const [importProgress, setImportProgress] = useState({ phase: "" as "" | "phonetic" | "db", done: 0, total: 0 });
 
   /** 解析结果 → 冲突检测（DB 匹配）→ 预览 */
   const handleParsed = async (name: string, parsed: ImportFileResult) => {
@@ -259,13 +260,27 @@ export default function Import() {
   const confirmImport = async () => {
     setStage("importing");
     const selected = rows.filter((r) => r.checked);
+
+    // Phase 1: 批量获取缺少音标的单词的音标（并发 + 进度）
+    const needPhonetic = selected.filter((r) => !r.phonetic).map((r) => r.front);
+    let phoneticMap = new Map<string, string>();
+    if (needPhonetic.length > 0) {
+      setImportProgress({ phase: "phonetic", done: 0, total: needPhonetic.length });
+      phoneticMap = await batchFetchPhonetics(needPhonetic, (done, total) => {
+        setImportProgress({ phase: "phonetic", done, total });
+      });
+    }
+
+    // Phase 2: 写入数据库（带进度）
+    setImportProgress({ phase: "db", done: 0, total: selected.length });
     let created = 0;
     let updated = 0;
     const knownExistingByDeck = new Map<string, Set<string>>();
     const createdDeckIds = new Map<string, number>();
     const decksTouched = new Set<string>();
 
-    for (const r of selected) {
+    for (let idx = 0; idx < selected.length; idx++) {
+      const r = selected[idx];
       const target = deckTargets[r.deckName] ?? {
         deckId: null,
         label: r.deckName,
@@ -296,14 +311,7 @@ export default function Import() {
         }
       }
       decksTouched.add(target.label);
-      let phonetic = r.phonetic;
-      if (!phonetic) {
-        try {
-          phonetic = await fetchPhonetic(r.front);
-        } catch {
-          phonetic = "";
-        }
-      }
+      const phonetic = r.phonetic || phoneticMap.get(r.front) || "";
       const res = await db.upsertCard(
         {
           deckId,
@@ -319,9 +327,13 @@ export default function Import() {
       );
       if (res.created) created++;
       else updated++;
+      if ((idx + 1) % 10 === 0 || idx === selected.length - 1) {
+        setImportProgress({ phase: "db", done: idx + 1, total: selected.length });
+      }
     }
     const skipped = rows.length - selected.length;
     setResult({ created, updated, skipped, decks: decksTouched.size });
+    setImportProgress({ phase: "", done: 0, total: 0 });
     setStage("done");
     refreshDecks();
   };
@@ -632,9 +644,28 @@ export default function Import() {
 
       {stage === "importing" && (
         <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-16">
+          <CardContent className="flex flex-col items-center gap-4 py-16">
             <Loader2 className="size-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">正在写入本地数据库…</p>
+            <p className="text-sm text-muted-foreground">
+              {importProgress.phase === "phonetic"
+                ? `正在获取音标… ${importProgress.done} / ${importProgress.total}`
+                : importProgress.phase === "db"
+                  ? `正在写入数据库… ${importProgress.done} / ${importProgress.total}`
+                  : "准备中…"}
+            </p>
+            {importProgress.total > 0 && (
+              <div className="w-64">
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-200"
+                    style={{ width: `${Math.round((importProgress.done / importProgress.total) * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-center text-xs text-muted-foreground">
+                  {Math.round((importProgress.done / importProgress.total) * 100)}%
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

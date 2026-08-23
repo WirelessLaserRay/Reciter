@@ -41,7 +41,7 @@ import {
   saveLastAiTestAt,
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
-import { fetchExamples } from "@/lib/dictionary";
+import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
 import { preloadSpeech } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -227,9 +227,27 @@ function StudySession({
     }
   }, [queue, index]);
 
-  // 当前单词音标：直接使用卡片导入时解析好的音标
+  // 当前单词音标：优先使用卡片字段，为空时惰性在线查询并回写 DB
   useEffect(() => {
-    setPhoneticText(item?.row.phonetic ?? "");
+    if (!item) { setPhoneticText(""); return; }
+    const stored = item.row.phonetic;
+    if (stored) { setPhoneticText(stored); return; }
+    // DB 字段为空 → 在线查询 + 回写
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = await fetchPhonetic(item.row.front);
+        if (cancelled) return;
+        setPhoneticText(p);
+        if (p) {
+          // 回写 DB，后续不再重复查询
+          await db.updateCard(item.row.card_id, { phonetic: p });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
   }, [item]);
 
   // 加载学习偏好与 AI 配置
