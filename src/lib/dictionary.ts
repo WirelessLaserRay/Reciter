@@ -19,18 +19,16 @@ const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) =
 /**
  * 规范化用于查音标的单词：
  * - 忽略括号及括号内容
- * - 内容含空格不解析（词组不显示音标）
+ * - 只要内容含空格就不解析音标
  * - 内容含斜杠时只取斜杠前内容
  */
 export function normalizeWordForPhonetic(raw: string): string {
   const noParen = raw
     .replace(/[（(][^（）()]*[）)]/g, "")
     .trim();
-  if (!noParen) return "";
+  if (!noParen || noParen.includes(" ")) return "";
   const slash = noParen.indexOf("/");
-  const candidate = (slash >= 0 ? noParen.slice(0, slash) : noParen).trim();
-  if (!candidate || candidate.includes(" ")) return "";
-  return candidate.toLowerCase();
+  return (slash >= 0 ? noParen.slice(0, slash) : noParen).trim().toLowerCase();
 }
 
 /** AI 生成音标兜底（仅单词） */
