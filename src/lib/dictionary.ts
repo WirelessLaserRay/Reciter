@@ -33,7 +33,23 @@ export function normalizeWordForPhonetic(raw: string): string {
   return candidate.toLowerCase();
 }
 
-/** 获取单词音标（仅单词，词组返回空）；Free Dictionary 音标字段 */
+/** AI 生成音标兜底（仅单词） */
+async function generatePhonetic(word: string): Promise<string> {
+  try {
+    const cfg = await getAIConfig();
+    const client = new AIClient(cfg);
+    if (!client.isReady) return "";
+    const raw = await client.chat([
+      { role: "user", content: `请给出英语单词 "${word}" 的英式或美式 IPA 音标，只输出音标本身，例如 /əˈbændən/。` },
+    ]);
+    const cleaned = raw.trim().replace(/^["'“”]|["'“”]$/g, "");
+    return /^[\/\[]/.test(cleaned) || /[ˈˌa-zæɒɔɪʊʌəɜːiːuːɑːeɪaɪɔɪəʊ]/i.test(cleaned) ? cleaned : "";
+  } catch {
+    return "";
+  }
+}
+
+/** 获取单词音标（仅单词，词组返回空）；Free Dictionary 优先，AI 兜底 */
 export function fetchPhonetic(word: string): Promise<string> {
   const key = normalizeWordForPhonetic(word);
   if (!key) return Promise.resolve("");
@@ -42,17 +58,24 @@ export function fetchPhonetic(word: string): Promise<string> {
   const p = (async () => {
     try {
       const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
-      if (!res.ok) return "";
-      const data = (await res.json()) as Array<{
-        phonetic?: string;
-        phonetics?: Array<{ text?: string }>;
-      }>;
-      for (const entry of data ?? []) {
-        if (entry.phonetic) return entry.phonetic;
-        for (const ph of entry.phonetics ?? []) {
-          if (ph.text) return ph.text;
+      if (res.ok) {
+        const data = (await res.json()) as Array<{
+          phonetic?: string;
+          phonetics?: Array<{ text?: string }>;
+        }>;
+        for (const entry of data ?? []) {
+          if (entry.phonetic) return entry.phonetic;
+          for (const ph of entry.phonetics ?? []) {
+            if (ph.text) return ph.text;
+          }
         }
       }
+    } catch {
+      // ignore
+    }
+    try {
+      const ai = await generatePhonetic(key);
+      if (ai) return ai;
     } catch {
       // ignore
     }
