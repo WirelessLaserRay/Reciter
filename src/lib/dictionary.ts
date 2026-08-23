@@ -156,13 +156,17 @@ async function translateWithDeepL(text: string): Promise<string> {
       },
       body: JSON.stringify({
         text: [text],
-        target_lang: "ZH",
+        target_lang: "ZH-HANS",
       }),
     });
-    if (!res.ok) return "";
+    if (!res.ok) {
+      console.warn("DeepL 翻译请求失败 status:", res.status);
+      return "";
+    }
     const data = (await res.json()) as { translations?: Array<{ text?: string }> };
     return data.translations?.[0]?.text ?? "";
-  } catch {
+  } catch (e) {
+    console.warn("DeepL 翻译异常（网页端可能为 CORS 限制）:", e);
     return "";
   }
 }

@@ -152,6 +152,7 @@
 - **例句翻译接口可选**：默认接入 DeepL（设置页填 API Key），现有 MyMemory + AI 作为第二选项
 - **HarmonyOS TTS 修复**：同步播放、全局单例 Audio、国内优先有道，避免移动端 Autoplay 拦截
 - **TTS 来源新增“有道”**：设置页可单独选择有道 TTS
+- **DeepL 翻译修复**：目标语言改为 `ZH-HANS`；网页端提示需配置 CORS 代理，避免静默失败
 
 ### Planned
 

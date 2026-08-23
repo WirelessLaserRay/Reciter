@@ -34,6 +34,7 @@ import { useDbStore } from "@/stores/useDbStore";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
+import { isTauri } from "@/lib/env";
 import {
   getDeepLApiKey,
   getDeepLApiUrl,
@@ -699,8 +700,15 @@ export default function Settings() {
                       onChange={(e) => saveDeeplApiUrl(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      免费版默认 api-free，专业版可改为 https://api.deepl.com/v2/translate
+                      {isTauri()
+                        ? "桌面端可保持默认：免费版 api-free，专业版改为 https://api.deepl.com/v2/translate"
+                        : "网页端存在跨域限制：请填写你的 CORS 代理地址（如 Cloudflare Workers），桌面端可保持默认"}
                     </p>
+                    {!isTauri() && (
+                      <p className="text-xs text-amber-600">
+                        ⚠️ 网页版 DeepL 需配置 CORS 代理才能生效；否则会自动回退到现有方案
+                      </p>
+                    )}
                   </div>
                 </>
               )}
