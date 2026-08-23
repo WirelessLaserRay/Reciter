@@ -10,6 +10,15 @@ export function googleTTSURL(text: string): string {
   );
 }
 
+/** Youdao TTS 备用源（国内可访问性更好） */
+export function youdaoTTSURL(text: string): string {
+  return (
+    "https://dict.youdao.com/dictvoice?audio=" +
+    encodeURIComponent(text.trim()) +
+    "&type=2"
+  );
+}
+
 export async function getTTSSource(): Promise<TTSSource> {
   const raw = await db.getSetting("tts_source");
   return raw === "system" || raw === "google" ? raw : "auto";
@@ -23,20 +32,24 @@ export function isSystemTTSAvailable(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
 }
 
-/** 系统 TTS 是否真正可用：存在且已加载语音 */
-export function canUseSystemTTS(): boolean {
-  try {
-    return isSystemTTSAvailable() && window.speechSynthesis.getVoices().length > 0;
-  } catch {
-    return false;
-  }
+async function playAudio(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const audio = new Audio(url);
+      audio.onerror = () => resolve(false);
+      audio.onended = () => resolve(true);
+      audio.play().then(() => resolve(true)).catch(() => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
-/** 播放读音：按设置选择系统 TTS 或 Google TTS；auto 优先系统，系统不可用时自动切 Google */
+/** 播放读音：优先系统 TTS（移动端可用系统语音），否则 Google → Youdao 音频兜底 */
 export async function speak(text: string, lang = "en-US"): Promise<void> {
   if (!text.trim()) return;
   const source = await getTTSSource();
-  const useSystem = (source === "system" || source === "auto") && canUseSystemTTS();
+  const useSystem = (source === "system" || source === "auto") && isSystemTTSAvailable();
   if (useSystem) {
     try {
       window.speechSynthesis.cancel();
@@ -45,23 +58,18 @@ export async function speak(text: string, lang = "en-US"): Promise<void> {
       window.speechSynthesis.speak(utterance);
       return;
     } catch {
-      // fall through to google
+      // fall through to audio
     }
   }
-  try {
-    const audio = new Audio(googleTTSURL(text));
-    audio.play().catch(() => {});
-  } catch {
-    // 静默降级
-  }
+  if (await playAudio(googleTTSURL(text))) return;
+  await playAudio(youdaoTTSURL(text));
 }
 
-/** 预加载读音：若最终会走 Google TTS，则提前加载音频 */
+/** 预加载读音：若最终会走系统 TTS 则跳过；否则预加载 Google 音频 */
 export async function preloadSpeech(text: string): Promise<void> {
   if (!text.trim()) return;
   const source = await getTTSSource();
-  if (source === "system" && canUseSystemTTS()) return;
-  if (source === "auto" && canUseSystemTTS()) return;
+  if ((source === "system" || source === "auto") && isSystemTTSAvailable()) return;
   try {
     const audio = new Audio(googleTTSURL(text));
     audio.preload = "auto";
