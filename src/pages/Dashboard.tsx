@@ -20,7 +20,6 @@ import {
   getIgnoredTags,
   getLastAiTestAt,
   getLastStudyContext,
-  saveLastAiTestAt,
   type LastStudyContext,
 } from "@/lib/study-prefs";
 import { getDailyQuote } from "@/lib/daily-quotes";
@@ -105,8 +104,7 @@ export default function Dashboard() {
   const aiTestDeck = recommendedDeck ?? decks.find((d) => (cardCounts[d.id] ?? 0) > 0) ?? null;
   const startAiTest = () => {
     if (!aiTestDeck) return;
-    void saveLastAiTestAt(Date.now());
-    navigate(`/study?quiz=${aiTestDeck.id}&ai=1&smart=1`);
+    navigate(`/study?quiz=${aiTestDeck.id}&ai=1&smart=1&record=1`);
   };
 
   const lastDeck = lastContext ? decks.find((d) => d.id === lastContext.deckId) ?? null : null;

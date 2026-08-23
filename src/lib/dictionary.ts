@@ -13,7 +13,37 @@ export interface DictionaryResult {
 }
 
 const cache = new Map<string, Promise<DictionaryResult>>();
+const phoneticCache = new Map<string, Promise<string>>();
 const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
+
+/** 获取单词音标（仅单词，词组返回空）；Free Dictionary 音标字段 */
+export function fetchPhonetic(word: string): Promise<string> {
+  const key = word.trim().toLowerCase();
+  if (!key || key.includes(" ")) return Promise.resolve("");
+  const cached = phoneticCache.get(key);
+  if (cached) return cached;
+  const p = (async () => {
+    try {
+      const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
+      if (!res.ok) return "";
+      const data = (await res.json()) as Array<{
+        phonetic?: string;
+        phonetics?: Array<{ text?: string }>;
+      }>;
+      for (const entry of data ?? []) {
+        if (entry.phonetic) return entry.phonetic;
+        for (const ph of entry.phonetics ?? []) {
+          if (ph.text) return ph.text;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return "";
+  })();
+  phoneticCache.set(key, p);
+  return p;
+}
 
 /** MyMemory 免费翻译（en → zh-CN）；失败返回空 */
 async function translateWithMyMemory(text: string): Promise<string> {

@@ -148,6 +148,7 @@ export default function QuizSession({
   presetTag,
   defaultUseAI,
   smart,
+  onTestComplete,
   onExit,
 }: {
   deckId: number;
@@ -158,6 +159,8 @@ export default function QuizSession({
   defaultUseAI?: boolean;
   /** 智能测试：优先选取到期/薄弱/重点卡片 */
   smart?: boolean;
+  /** 测试完成回调（用于记录上次测试时间） */
+  onTestComplete?: () => void;
   onExit: () => void;
 }) {
   const [configType, setConfigType] = useState<QuizType>("mixed");
@@ -324,6 +327,7 @@ export default function QuizSession({
           aiQuestions: next.filter((i) => i.aiQuestion).length,
         });
         setPhase("done");
+        onTestComplete?.();
       } else {
         setIndex(index + 1);
         setRevealed(false);

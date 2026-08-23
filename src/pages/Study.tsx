@@ -39,8 +39,10 @@ import {
   getRatingMode,
   getSummaryInterval,
   saveDeckShuffle,
+  saveLastAiTestAt,
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
+import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
 import { speak } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -166,6 +168,8 @@ function StudySession({
   const [rateReady, setRateReady] = useState(false);
   // 弱词阈值（设置页可调，默认 3）
   const [leechThreshold, setLeechThreshold] = useState(3);
+  // 当前单词音标（优先卡片字段，其次词典接口）
+  const [phoneticText, setPhoneticText] = useState("");
   // P2-⑨：熟练卡秒答阈值（毫秒，可在设置中调整）
   const [quickMs, setQuickMs] = useState(5000);
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
@@ -212,6 +216,32 @@ function StudySession({
   const sessionDuration = stats.sessionStartTime > 0
     ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
     : "0 秒";
+
+  // 预先加载队列前三个单词/词组的例句，展示时直接命中缓存
+  useEffect(() => {
+    for (let i = index; i < Math.min(queue.length, index + 3); i++) {
+      const w = queue[i]?.row.front;
+      if (w) void fetchExamples(w).catch(() => {});
+    }
+  }, [queue, index]);
+
+  // 当前单词音标：优先卡片字段，其次词典接口（仅单词）
+  useEffect(() => {
+    const word = item?.row.front ?? "";
+    if (!word) return;
+    if (item.row.phonetic) {
+      setPhoneticText(item.row.phonetic);
+      return;
+    }
+    setPhoneticText("");
+    let cancelled = false;
+    fetchPhonetic(word).then((p) => {
+      if (!cancelled) setPhoneticText(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
 
   // 加载学习偏好与 AI 配置
   useEffect(() => {
@@ -506,8 +536,8 @@ function StudySession({
               modeConfig && (
                 <>
                   <div className="flex items-center justify-between">
-                    {item.row.phonetic ? (
-                      <span className="text-sm text-muted-foreground">{item.row.phonetic}</span>
+                    {phoneticText ? (
+                      <span className="text-sm text-muted-foreground">{phoneticText}</span>
                     ) : <span />}
                     <Button variant="ghost" size="sm" onClick={() => speak(item.row.front)}>
                       <Volume2 className="size-4" />
@@ -760,6 +790,7 @@ export default function Study() {
   const tagParam = searchParams.get("tag");
   const aiParam = searchParams.get("ai");
   const smartParam = searchParams.get("smart");
+  const recordParam = searchParams.get("record");
 
   // 测试入口：/study?quiz=<deckId>（词库详情页）；/study?quiz=<deckId>&tag=<tag>（标签巩固测试）
   useEffect(() => {
@@ -787,6 +818,9 @@ export default function Study() {
         presetTag={quizDeck.tag}
         defaultUseAI={quizDeck.ai ?? false}
         smart={quizDeck.smart ?? false}
+        onTestComplete={() => {
+          if (recordParam === "1") void saveLastAiTestAt(Date.now());
+        }}
         onExit={() => {
           const taggedQuiz = !!quizDeck.tag;
           setQuizDeck(null);
