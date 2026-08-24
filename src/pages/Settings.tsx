@@ -40,6 +40,7 @@ import {
   getDeepLApiKey,
   getDeepLApiUrl,
   getTranslationProvider,
+  testDeepL,
   type TranslationProvider,
 } from "@/lib/dictionary";
 import { db } from "@/lib/db";
@@ -88,6 +89,8 @@ export default function Settings() {
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [deeplApiUrl, setDeeplApiUrl] = useState("");
   const [deeplCorsProxy, setDeeplCorsProxy] = useState("");
+  const [deeplTesting, setDeeplTesting] = useState(false);
+  const [deeplTestResult, setDeeplTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saved, setSaved] = useState(false);
 
   // AI 配置
@@ -261,6 +264,19 @@ export default function Settings() {
     if (!dbReady) return;
     await db.setSetting("deepl_cors_proxy", v.trim());
     flashSaved();
+  };
+
+  const handleTestDeepL = async () => {
+    setDeeplTesting(true);
+    setDeeplTestResult(null);
+    try {
+      const r = await testDeepL();
+      setDeeplTestResult(r);
+    } catch (e) {
+      setDeeplTestResult({ ok: false, message: String(e) });
+    } finally {
+      setDeeplTesting(false);
+    }
   };
 
   const saveDayStart = async (v: string) => {
@@ -732,6 +748,17 @@ export default function Settings() {
                     <p className="text-xs text-muted-foreground">
                       网页端翻译 DeepL 时优先使用该代理地址；桌面端可留空
                     </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Button variant="outline" size="sm" onClick={handleTestDeepL} disabled={deeplTesting}>
+                      {deeplTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                      测试 DeepL
+                    </Button>
+                    {deeplTestResult && (
+                      <p className={deeplTestResult.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                        {deeplTestResult.message}
+                      </p>
+                    )}
                   </div>
                 </>
               )}

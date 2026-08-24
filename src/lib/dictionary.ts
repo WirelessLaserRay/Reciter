@@ -188,6 +188,27 @@ async function translateWithDeepL(text: string): Promise<string> {
   }
 }
 
+/** 测试 DeepL 配置是否可用（供设置页诊断） */
+export async function testDeepL(): Promise<{ ok: boolean; message: string }> {
+  const provider = await getTranslationProvider();
+  if (provider !== "deepl") {
+    return { ok: false, message: "当前例句翻译接口未选择 DeepL" };
+  }
+  const key = await getDeepLApiKey();
+  if (!key) {
+    return { ok: false, message: "未填写 DeepL API Key" };
+  }
+  if (!isTauri()) {
+    const proxy = await getDeepLCorsProxy();
+    if (!proxy) {
+      return { ok: false, message: "网页端未配置 CORS 代理地址，DeepL 无法直连" };
+    }
+  }
+  const t = await translateWithDeepL("Hello world");
+  if (t) return { ok: true, message: `翻译成功：${t}` };
+  return { ok: false, message: "DeepL 请求失败，请检查 API Key / URL / 代理或控制台日志" };
+}
+
 /** MyMemory 免费翻译（en → zh-CN）；失败返回空 */
 async function translateWithMyMemory(text: string): Promise<string> {
   try {

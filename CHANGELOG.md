@@ -155,6 +155,7 @@
 - **DeepL 翻译修复**：目标语言改为 `ZH-HANS`；网页端提示需配置 CORS 代理，避免静默失败
 - **DeepL CORS 代理输入框**：网页端可单独填写代理地址，翻译时优先使用
 - **DeepL Worker 代理**：新增 Cloudflare Worker 代理项目与部署工作流，网页端可通过代理调用 DeepL
+- **DeepL 测试按钮**：设置页可一键测试 DeepL 配置是否生效
 
 ### Planned
 
