@@ -250,7 +250,7 @@ export default function DeckList() {
                         <CardHeader className="pb-2">
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="truncate">{d.name}</CardTitle>
-                            <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                            <div className="flex shrink-0 gap-0.5">
                               <Button
                                 variant="ghost"
                                 size="icon"
