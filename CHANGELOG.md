@@ -16,6 +16,14 @@
 
 ## [Unreleased]
 
+### Planned
+
+- 后续方向：更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
+
+---
+
+## [0.15.4] - 2026-08-24
+
 ### Changed
 
 - **词库列表操作按钮常驻显示**：勾选/编辑/删除不再依赖悬停，适配移动端
@@ -24,9 +32,11 @@
 
 - **桌面端导入 database is locked**：Tauri 后端不再用跨连接显式事务，并设置 `busy_timeout`，避免导入配置时锁库
 
-### Planned
+### Verified
 
-- 后续方向：更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
+- ✅ `npm run build` 通过
+- ✅ `.install/6c-test.ts` 全过
+- ✅ `.install/phase7-test.ts` 全过
 
 ---
 
