@@ -24,6 +24,21 @@ function syncBase(endpoint: string): string {
   return endpoint.trim().replace(/\/+$/, "");
 }
 
+/** 把底层网络/HTTP 错误转成更易排查的提示 */
+function syncErrorMessage(e: unknown): string {
+  const msg = String(e);
+  if (/401|Unauthorized/i.test(msg)) {
+    return "同步 Token 不正确或未填写（401 Unauthorized），请检查 Reciter 设置与 Cloudflare SYNC_TOKEN 是否一致";
+  }
+  if (/403|Forbidden/i.test(msg)) {
+    return "Worker 拒绝了请求（403 Forbidden），请确认已部署最新 Worker 且 Origin 允许";
+  }
+  if (/404|Not Found/i.test(msg)) {
+    return "同步接口不存在（404），请确认 Worker 已部署最新代码";
+  }
+  return msg;
+}
+
 export async function getSyncConfig(): Promise<SyncConfig> {
   const [endpoint, token] = await Promise.all([
     db.getSetting("sync_endpoint"),
@@ -51,12 +66,17 @@ export async function testSyncConnection(): Promise<SyncResult> {
       headers: { "X-Sync-Token": cfg.token },
     });
     if (!res.ok) {
-      return { ok: false, message: `连接失败（HTTP ${res.status}）` };
+      return {
+        ok: false,
+        message: res.status === 401
+          ? "同步 Token 不正确或未填写（401 Unauthorized），请检查 Reciter 设置与 Cloudflare SYNC_TOKEN 是否一致"
+          : `连接失败（HTTP ${res.status}）`,
+      };
     }
     const data = (await res.json()) as { updatedAt?: string | null };
     return { ok: true, message: "连接成功", updatedAt: data.updatedAt ?? null };
   } catch (e) {
-    return { ok: false, message: String(e) };
+    return { ok: false, message: syncErrorMessage(e) };
   }
 }
 
@@ -78,7 +98,12 @@ export async function pushSnapshot(): Promise<SyncResult> {
       body,
     });
     if (!res.ok) {
-      return { ok: false, message: `上传失败（HTTP ${res.status}）` };
+      return {
+        ok: false,
+        message: res.status === 401
+          ? "同步 Token 不正确或未填写（401 Unauthorized），请检查 Reciter 设置与 Cloudflare SYNC_TOKEN 是否一致"
+          : `上传失败（HTTP ${res.status}）`,
+      };
     }
     const result = (await res.json()) as { ok?: boolean; updatedAt?: string };
     return {
@@ -89,7 +114,7 @@ export async function pushSnapshot(): Promise<SyncResult> {
       cards: data.cards.length,
     };
   } catch (e) {
-    return { ok: false, message: String(e) };
+    return { ok: false, message: syncErrorMessage(e) };
   }
 }
 
@@ -107,11 +132,16 @@ export async function pullSnapshot(): Promise<SyncResult> {
       return { ok: false, message: "云端暂无快照" };
     }
     if (!res.ok) {
-      return { ok: false, message: `下载失败（HTTP ${res.status}）` };
+      return {
+        ok: false,
+        message: res.status === 401
+          ? "同步 Token 不正确或未填写（401 Unauthorized），请检查 Reciter 设置与 Cloudflare SYNC_TOKEN 是否一致"
+          : `下载失败（HTTP ${res.status}）`,
+      };
     }
     const data = (await res.json()) as BackupData;
     return restoreBackupData(data);
   } catch (e) {
-    return { ok: false, message: String(e) };
+    return { ok: false, message: syncErrorMessage(e) };
   }
 }
