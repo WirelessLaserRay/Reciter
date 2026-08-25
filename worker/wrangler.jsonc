@@ -4,8 +4,8 @@
   "compatibility_date": "2024-12-01",
   "kv_namespaces": [
     {
-      "binding": "SYNC_KV",
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+      "binding": "KV_BINDING",
+      "id": "9dd0f8972b70417290849d1c5e047dc8"
     }
   ]
 }

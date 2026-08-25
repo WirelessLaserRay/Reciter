@@ -17,7 +17,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 interface Env {
-  SYNC_KV: KVNamespace;
+  KV_BINDING: KVNamespace;
   SYNC_TOKEN?: string;
 }
 
@@ -58,13 +58,13 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
   }
 
   if (path === "/api/sync/meta" && request.method === "GET") {
-    const updatedAt = await env.SYNC_KV.get("snapshot_updated_at");
+    const updatedAt = await env.KV_BINDING.get("snapshot_updated_at");
     return json({ updatedAt: updatedAt ?? null }, 200, cors);
   }
 
   if (path === "/api/sync/snapshot") {
     if (request.method === "GET") {
-      const snapshot = await env.SYNC_KV.get("snapshot");
+      const snapshot = await env.KV_BINDING.get("snapshot");
       if (snapshot === null) {
         return json({ error: "No snapshot yet" }, 404, cors);
       }
@@ -85,14 +85,14 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
         return json({ error: "Invalid JSON" }, 400, cors);
       }
       const updatedAt = new Date().toISOString();
-      await env.SYNC_KV.put("snapshot", raw);
-      await env.SYNC_KV.put("snapshot_updated_at", updatedAt);
+      await env.KV_BINDING.put("snapshot", raw);
+      await env.KV_BINDING.put("snapshot_updated_at", updatedAt);
       return json({ ok: true, updatedAt }, 200, cors);
     }
 
     if (request.method === "DELETE") {
-      await env.SYNC_KV.delete("snapshot");
-      await env.SYNC_KV.delete("snapshot_updated_at");
+      await env.KV_BINDING.delete("snapshot");
+      await env.KV_BINDING.delete("snapshot_updated_at");
       return json({ ok: true }, 200, cors);
     }
   }
