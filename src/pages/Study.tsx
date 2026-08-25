@@ -42,6 +42,7 @@ import {
 } from "@/lib/study-prefs";
 import { resolveStudyMode } from "@/lib/study-mode";
 import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
+import { getDisplayPhonetic } from "@/lib/phonetic";
 import { preloadSpeech } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -167,8 +168,8 @@ function StudySession({
   const [rateReady, setRateReady] = useState(false);
   // 弱词阈值（设置页可调，默认 3）
   const [leechThreshold, setLeechThreshold] = useState(3);
-  // 当前单词音标（优先卡片字段，其次词典接口）
-  const [phoneticText, setPhoneticText] = useState("");
+  // 已异步获取的音标缓存（card_id → phonetic），用于缺失音标卡片即时显示
+  const [phoneticMap, setPhoneticMap] = useState<Record<number, string>>({});
   // P2-⑨：熟练卡秒答阈值（毫秒，可在设置中调整）
   const [quickMs, setQuickMs] = useState(5000);
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
@@ -216,33 +217,43 @@ function StudySession({
     ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
     : "0 秒";
 
+  // 当前音标：卡片字段优先，异步获取结果其次；派生值保证切换卡片时同步更新
+  const phoneticText = item ? getDisplayPhonetic(item.row.phonetic, phoneticMap, item.row.card_id) : "";
+
   // 预先加载队列前三个单词/词组的例句、音标与发音，展示时直接命中缓存
   useEffect(() => {
     for (let i = index; i < Math.min(queue.length, index + 3); i++) {
-      const w = queue[i]?.row.front;
-      if (w) {
-        void fetchExamples(w).catch(() => {});
-        void preloadSpeech(w).catch(() => {});
+      const row = queue[i]?.row;
+      if (!row) continue;
+      void fetchExamples(row.front).catch(() => {});
+      void preloadSpeech(row.front).catch(() => {});
+      if (!row.phonetic) {
+        void fetchPhonetic(row.front)
+          .then((p) => {
+            if (!p) return;
+            setPhoneticMap((prev) =>
+              prev[row.card_id] === p ? prev : { ...prev, [row.card_id]: p }
+            );
+          })
+          .catch(() => {});
       }
     }
   }, [queue, index]);
 
-  // 当前单词音标：优先使用卡片字段，为空时惰性在线查询并回写 DB
+  // 当前单词音标：卡片字段为空时惰性在线查询并回写 DB；查询结果写入 phoneticMap 供同步渲染
   useEffect(() => {
-    if (!item) { setPhoneticText(""); return; }
-    const stored = item.row.phonetic;
-    if (stored) { setPhoneticText(stored); return; }
-    // DB 字段为空 → 在线查询 + 回写
+    if (!item) return;
+    if (item.row.phonetic) return;
     let cancelled = false;
     void (async () => {
       try {
         const p = await fetchPhonetic(item.row.front);
-        if (cancelled) return;
-        setPhoneticText(p);
-        if (p) {
-          // 回写 DB，后续不再重复查询
-          await db.updateCard(item.row.card_id, { phonetic: p });
-        }
+        if (cancelled || !p) return;
+        setPhoneticMap((prev) =>
+          prev[item.row.card_id] === p ? prev : { ...prev, [item.row.card_id]: p }
+        );
+        // 回写 DB，后续不再重复查询
+        await db.updateCard(item.row.card_id, { phonetic: p });
       } catch {
         // ignore
       }

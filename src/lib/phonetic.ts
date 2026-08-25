@@ -16,3 +16,16 @@ export function extractPhoneticFromText(raw: string): string {
   const phonetic = noParen.slice(firstSlash + 1, secondSlash).trim();
   return phonetic ? `/${phonetic}/` : "";
 }
+
+/**
+ * 学习界面同步取音标：
+ * 卡片自带音标优先；否则用已异步获取并缓存的音标；都没有返回空。
+ * 避免切换卡片时等异步状态更新造成音标“迟滞”。
+ */
+export function getDisplayPhonetic(
+  stored: string,
+  fetchedByCard: Record<number, string> | undefined,
+  cardId: number,
+): string {
+  return stored || fetchedByCard?.[cardId] || "";
+}
