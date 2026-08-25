@@ -18,6 +18,8 @@ const ALLOWED_ORIGINS = [
   /^tauri:\/\/localhost$/,
   /^https?:\/\/tauri\.localhost$/,
   /^https?:\/\/[a-zA-Z0-9-]+\.tauri\.localhost$/,
+  // 鸿蒙/部分 WebView/文件模式会发送 Origin: null
+  /^null$/i,
 ];
 
 interface Env {
@@ -161,8 +163,8 @@ export default {
     const isSync = url.pathname.startsWith("/api/sync/");
     const origin = request.headers.get("Origin") ?? "";
 
-    // 拒绝不在白名单内的来源；同步接口允许无 Origin 的桌面端原生请求（Token 已鉴权）
-    if (!isOriginAllowed(origin) && !(isSync && !origin)) {
+    // 拒绝不在白名单内的来源；无 Origin 的原生/WebView 请求放行（同步有 Token，DeepL 用用户自己的 Key）
+    if (origin && !isOriginAllowed(origin)) {
       return new Response("Forbidden", { status: 403 });
     }
 
