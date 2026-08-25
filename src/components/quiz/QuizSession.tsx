@@ -32,6 +32,7 @@ import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { adaptAIQuestion } from "@/lib/ai-adapter";
 import { pickSimilarWords } from "@/lib/similar-words";
 import { cn } from "@/lib/utils";
+import { optionIndexFromNumberKey } from "@/lib/shortcuts";
 import type { Card as CardType } from "@/types";
 
 export type QuizType = "fill-cn2en" | "choice-cn2en" | "choice-en2cn" | "mixed";
@@ -244,6 +245,7 @@ export default function QuizSession({
   }, [deckId, smart]);
 
   const item = items[index];
+  const isFill = item ? item.type === "fill-cn2en" : false;
 
   const startQuiz = async () => {
     setPhase("running");
@@ -337,6 +339,40 @@ export default function QuizSession({
       setBusy(false);
     }
   };
+
+  // 键盘快捷键：测试中 1-4 选 ABCD；揭示后 Enter/Y = 确定（掌握），N = 不确定（忘记）；填空 Enter 已由输入框处理
+  useEffect(() => {
+    if (phase !== "running" || !item) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      const interactive = !!target && (target.tagName === "BUTTON" || target.tagName === "SELECT" || target.tagName === "A");
+      const options = item.aiOptions ?? item.options;
+      if (!revealed && !isFill && options && options.length > 0 && !typing) {
+        const idx = optionIndexFromNumberKey(e.key, options.length);
+        if (idx !== null) {
+          e.preventDefault();
+          submitAnswer(options[idx]);
+          return;
+        }
+      }
+      if (revealed && !busy && !typing) {
+        if (e.key === "Enter") {
+          if (interactive) return;
+          e.preventDefault();
+          void confirmMastery("mastered");
+        } else if (e.key === "y" || e.key === "Y") {
+          e.preventDefault();
+          void confirmMastery("mastered");
+        } else if (e.key === "n" || e.key === "N") {
+          e.preventDefault();
+          void confirmMastery("forgot");
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, item, revealed, busy, isFill, submitAnswer, confirmMastery]);
 
   // ============ 设置页 ============
   if (phase === "setup") {
@@ -474,7 +510,6 @@ export default function QuizSession({
     );
   }
 
-  const isFill = item.type === "fill-cn2en";
   const answered = revealed && item.userAnswer !== null;
   const isCorrect =
     answered &&

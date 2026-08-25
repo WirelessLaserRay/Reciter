@@ -24,6 +24,7 @@ import { speak } from "@/lib/tts";
 import { DictionaryExample } from "./DictionaryExample";
 import { findRelatedWords } from "@/lib/word-family";
 import { pickSimilarWords } from "@/lib/similar-words";
+import { optionIndexFromNumberKey } from "@/lib/shortcuts";
 import type { StudyModeConfig } from "@/lib/study-mode";
 import { STUDY_MODE_LABELS } from "@/lib/study-mode";
 import MarkdownContext from "./MarkdownContext";
@@ -249,6 +250,20 @@ function ClassicFlipView(props: ModeViewProps) {
     onReveal();
   };
 
+  // 统一快捷键：回车显示答案
+  useEffect(() => {
+    if (flipped) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable)) return;
+      e.preventDefault();
+      showAnswer();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flipped, showAnswer]);
+
   return (
     <div className="space-y-4">
       <div className="[perspective:1000px]">
@@ -325,6 +340,28 @@ function ActiveRecallView(props: ModeViewProps) {
     setLimitedRatings(false);
     onReveal();
   };
+
+  // 统一快捷键：主动回忆提问阶段 Y/回车 = 确定（我知道），N = 不确定/不知道
+  useEffect(() => {
+    if (recallPhase !== "prompt") return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const interactive = !!target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable);
+      if (e.key === "Enter") {
+        if (interactive) return;
+        e.preventDefault();
+        setRecallPhase("input");
+      } else if (e.key === "y" || e.key === "Y") {
+        e.preventDefault();
+        setRecallPhase("input");
+      } else if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        handleDontKnow();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [recallPhase, handleDontKnow]);
 
   // 计时提示仅在「知道/不知道」选择前显示；点击后不再提示
   const recallHint =
@@ -435,6 +472,19 @@ function NewCardTeachView(props: ModeViewProps) {
     onRate(3);
   };
 
+  // 统一快捷键：回车开始记忆
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable)) return;
+      e.preventDefault();
+      handleStartMemory();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleStartMemory]);
+
   return (
     <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
       <CardMetaBadges row={row} />
@@ -526,6 +576,20 @@ function QuickTestView(props: ModeViewProps) {
     if (!typed.trim() || checked !== null || busy) return;
     finish(typed.trim().toLowerCase() === row.front.trim().toLowerCase());
   };
+
+  // 快速测试选择题：1-4 对应选项 A-D
+  useEffect(() => {
+    if (checked !== null || !useChoice || busy) return;
+    const onKey = (e: KeyboardEvent) => {
+      const idx = optionIndexFromNumberKey(e.key, choice.options.length);
+      if (idx !== null) {
+        e.preventDefault();
+        submitChoice(choice.options[idx]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [checked, useChoice, busy, choice, submitChoice]);
 
   return (
     <div className="space-y-4">
