@@ -48,6 +48,7 @@ import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
 import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
 import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
+import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
@@ -103,6 +104,7 @@ export default function Settings() {
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
+  const [vocabStandard, setVocabStandard] = useState<VocabStandard>("考研");
 
   // 数据备份
   const [backupBusy, setBackupBusy] = useState(false);
@@ -125,7 +127,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -146,6 +148,7 @@ export default function Settings() {
         getDeepLApiUrl(),
         getDeepLCorsProxy(),
         getSyncConfig(),
+        getVocabStandard(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -171,6 +174,7 @@ export default function Settings() {
       setDeeplCorsProxy(dcp);
       setSyncEndpoint(syncCfg.endpoint);
       setSyncToken(syncCfg.token);
+      setVocabStandard(vocabStd);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -358,6 +362,13 @@ export default function Settings() {
       model: aiModel,
       temperature: aiTemp,
     });
+    flashAiSaved();
+  };
+
+  const handleVocabStandardChange = async (v: VocabStandard) => {
+    setVocabStandard(v);
+    if (!dbReady) return;
+    await saveVocabStandard(v);
     flashAiSaved();
   };
 
@@ -953,6 +964,32 @@ export default function Settings() {
                   </span>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>词汇标准</CardTitle>
+              <CardDescription>用于闪卡生成、生词识别、每日一文 AI 出题</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Select
+                value={vocabStandard}
+                onValueChange={(v) => handleVocabStandardChange(v as VocabStandard)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CET4">四级（CET-4）</SelectItem>
+                  <SelectItem value="CET6">六级（CET-6）</SelectItem>
+                  <SelectItem value="考研">考研英语</SelectItem>
+                  <SelectItem value="专业英语">专业英语</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                当前默认：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
+              </p>
             </CardContent>
           </Card>
 

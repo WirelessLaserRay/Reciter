@@ -157,6 +157,122 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
   }
 }
 
+// ==================== 每日一文（RSS 代理 + 正文提取） ====================
+
+interface NewsItem {
+  title: string;
+  link: string;
+  description: string;
+  pubDate: string;
+  source: string;
+}
+
+const NEWS_SOURCES: Record<string, { name: string; rss: string }> = {
+  chinadaily: { name: "China Daily", rss: "https://www.chinadaily.com.cn/rss/china_rss.xml" },
+  cnn: { name: "CNN", rss: "http://rss.cnn.com/rss/edition.rss" },
+  reuters: { name: "Reuters", rss: "https://feeds.reuters.com/reuters/topNews" },
+};
+
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function stripTags(s: string): string {
+  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function extractRssItems(xml: string, source: string, limit: number): NewsItem[] {
+  const items: NewsItem[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = itemRe.exec(xml)) !== null && items.length < limit) {
+    const block = m[1];
+    const pick = (tag: string) => {
+      const mm = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+      return mm ? decodeXmlEntities(stripTags(mm[1])) : "";
+    };
+    const title = pick("title");
+    const link = pick("link");
+    const description = pick("description");
+    const pubDate = pick("pubDate");
+    if (title && link) {
+      items.push({ title, link, description, pubDate, source });
+    }
+  }
+  return items;
+}
+
+/** 抓取文章正文：提取 <p> 文本，去掉脚本/样式，限制长度 */
+async function fetchArticleText(url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)",
+      Accept: "text/html,application/xhtml+xml",
+    },
+  });
+  if (!res.ok) throw new Error("Article fetch failed: " + res.status);
+  const html = await res.text();
+  const cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+  const paragraphs = [...cleaned.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((mm) => decodeXmlEntities(stripTags(mm[1])))
+    .filter((t) => t.length > 20);
+  const text = paragraphs.join("\n\n").slice(0, 12000);
+  return text || decodeXmlEntities(stripTags(cleaned)).slice(0, 8000);
+}
+
+async function handleNews(request: Request, cors: Record<string, string>): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  // 文章正文提取
+  if (path === "/api/news/article" && request.method === "GET") {
+    const target = url.searchParams.get("url") ?? "";
+    if (!/^https?:\/\//i.test(target)) {
+      return json({ error: "Invalid url" }, 400, cors);
+    }
+    try {
+      const content = await fetchArticleText(target);
+      if (!content) {
+        return json({ error: "No content extracted" }, 422, cors);
+      }
+      return json({ content }, 200, cors);
+    } catch (e) {
+      return json({ error: "Article fetch failed", detail: String(e) }, 502, cors);
+    }
+  }
+
+  // RSS 列表
+  if (path === "/api/news" && request.method === "GET") {
+    const source = url.searchParams.get("source") ?? "chinadaily";
+    const limit = Math.min(10, Math.max(1, parseInt(url.searchParams.get("limit") ?? "5", 10) || 5));
+    const cfg = NEWS_SOURCES[source];
+    if (!cfg) {
+      return json({ error: "Unknown source", sources: Object.keys(NEWS_SOURCES) }, 400, cors);
+    }
+    try {
+      const res = await fetch(cfg.rss, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
+      });
+      if (!res.ok) throw new Error("RSS fetch failed: " + res.status);
+      const xml = await res.text();
+      const items = extractRssItems(xml, cfg.name, limit);
+      return json({ source: cfg.name, items }, 200, cors);
+    } catch (e) {
+      return json({ error: "RSS fetch failed", detail: String(e) }, 502, cors);
+    }
+  }
+
+  return json({ error: "Not Found" }, 404, cors);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -176,6 +292,10 @@ export default {
 
     if (isSync) {
       return handleSync(request, env, cors);
+    }
+
+    if (url.pathname.startsWith("/api/news")) {
+      return handleNews(request, cors);
     }
 
     return handleDeepL(request, cors);

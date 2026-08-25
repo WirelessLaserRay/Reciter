@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { BookOpen, CalendarClock, FileUp, GraduationCap, PlayCircle, Quote, RotateCcw, Sparkles } from "lucide-react";
+import { BookOpen, CalendarClock, FileUp, GraduationCap, Newspaper, PlayCircle, Quote, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -166,6 +166,26 @@ export default function Dashboard() {
           <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
           <p className="mt-1 text-sm text-muted-foreground">{quote.translation}</p>
           <p className="mt-1 text-xs text-muted-foreground">— {quote.author}</p>
+        </CardContent>
+      </Card>
+
+      {/* 每日一文 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Newspaper className="size-4 text-primary" />
+            每日一文
+          </CardTitle>
+          <CardDescription>China Daily / CNN / Reuters 热点文章 + AI 出题 + 生词识别</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">每天读一篇，AI 帮你出题和讲解生词</p>
+          <Button asChild>
+            <Link to="/daily-article">
+              <Newspaper className="size-4" />
+              去阅读
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 

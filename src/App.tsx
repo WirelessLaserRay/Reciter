@@ -12,6 +12,7 @@ import Import from "@/pages/Import";
 import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
 import WeakWords from "@/pages/WeakWords";
+import DailyArticle from "@/pages/DailyArticle";
 
 function App() {
   const theme = useThemeStore((s) => s.theme);
@@ -42,6 +43,7 @@ function App() {
           <Route path="/import" element={<Import />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/weak-words" element={<WeakWords />} />
+          <Route path="/daily-article" element={<DailyArticle />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
