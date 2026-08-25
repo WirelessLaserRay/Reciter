@@ -118,6 +118,44 @@ export async function readBackupFile(): Promise<BackupData | null> {
   }
 }
 
+/** 从 BackupData 整体恢复（清空现有数据后恢复，带原子回滚与自校验） */
+export async function restoreBackupData(data: BackupData): Promise<BackupResult> {
+  if (!data || typeof data.version !== "number" || !Array.isArray(data.decks) || !Array.isArray(data.cards)) {
+    return { ok: false, message: "无效的备份数据（缺少 decks/cards 字段）" };
+  }
+  // 原子导入：先快照，失败回滚，成功立即持久化，避免残留半状态
+  const snap = db.snapshot();
+  try {
+    await db.transaction(async () => {
+      await db.clearAllData();
+      for (const d of data.decks) await db.restoreDeck(d);
+      for (const c of data.cards) await db.restoreCard(c as never);
+      for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
+      for (const s of data.settings ?? []) await db.restoreSetting(s.key, s.value);
+      for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
+    });
+    // 自校验：恢复数量与备份一致
+    const deckCount = (await db.getDecks()).length;
+    const cardCount = await db.getTotalCardCount();
+    if (deckCount !== data.decks.length || cardCount !== data.cards.length) {
+      throw new Error(
+        "恢复校验失败：词库 " + deckCount + "/" + data.decks.length +
+        "，卡片 " + cardCount + "/" + data.cards.length
+      );
+    }
+    await db.flush(); // 立即持久化，防止刷新丢数据
+    return {
+      ok: true,
+      message: "恢复成功（" + deckCount + " 词库 / " + cardCount + " 卡片）",
+      decks: deckCount,
+      cards: cardCount,
+    };
+  } catch (e) {
+    if (snap) await db.restoreSnapshot(snap).catch(() => {});
+    return { ok: false, message: String(e) };
+  }
+}
+
 /** 批量导出指定词库为可再次导入的 JSON（保留标签、重点标记、文件夹） */
 export async function exportDecksToJSON(deckIds: number[]): Promise<BackupResult> {
   try {
@@ -202,40 +240,7 @@ export async function importFromJSON(): Promise<BackupResult> {
       });
     }
     const data = JSON.parse(content) as BackupData;
-    if (!data || typeof data.version !== "number" || !Array.isArray(data.decks) || !Array.isArray(data.cards)) {
-      return { ok: false, message: "无效的备份文件（缺少 decks/cards 字段）" };
-    }
-    // 原子导入：先快照，失败回滚，成功立即持久化，避免残留半状态
-    const snap = db.snapshot();
-    try {
-      await db.transaction(async () => {
-        await db.clearAllData();
-        for (const d of data.decks) await db.restoreDeck(d);
-        for (const c of data.cards) await db.restoreCard(c as never);
-        for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
-        for (const s of data.settings ?? []) await db.restoreSetting(s.key, s.value);
-        for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
-      });
-      // 自校验：恢复数量与备份一致
-      const deckCount = (await db.getDecks()).length;
-      const cardCount = await db.getTotalCardCount();
-      if (deckCount !== data.decks.length || cardCount !== data.cards.length) {
-        throw new Error(
-          "恢复校验失败：词库 " + deckCount + "/" + data.decks.length +
-          "，卡片 " + cardCount + "/" + data.cards.length
-        );
-      }
-      await db.flush(); // 立即持久化，防止刷新丢数据
-      return {
-        ok: true,
-        message: "恢复成功（" + deckCount + " 词库 / " + cardCount + " 卡片）",
-        decks: deckCount,
-        cards: cardCount,
-      };
-    } catch (e) {
-      if (snap) await db.restoreSnapshot(snap).catch(() => {});
-      return { ok: false, message: String(e) };
-    }
+    return restoreBackupData(data);
   } catch (e) {
     return { ok: false, message: String(e) };
   }

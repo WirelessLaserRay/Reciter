@@ -47,6 +47,7 @@ import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
 import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
+import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
@@ -107,6 +108,13 @@ export default function Settings() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // 跨端同步
+  const [syncEndpoint, setSyncEndpoint] = useState("");
+  const [syncToken, setSyncToken] = useState("");
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncTesting, setSyncTesting] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // 危险区
   const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
@@ -117,7 +125,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -137,6 +145,7 @@ export default function Settings() {
         getDeepLApiKey(),
         getDeepLApiUrl(),
         getDeepLCorsProxy(),
+        getSyncConfig(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -160,6 +169,8 @@ export default function Settings() {
       setDeeplApiKey(dlk);
       setDeeplApiUrl(dlu);
       setDeeplCorsProxy(dcp);
+      setSyncEndpoint(syncCfg.endpoint);
+      setSyncToken(syncCfg.token);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -399,6 +410,35 @@ export default function Settings() {
     const r = await importFromJSON();
     setBackupBusy(false);
     setBackupMsg({ ok: r.ok, text: r.message });
+  };
+
+  const handleSaveSync = async () => {
+    await saveSyncConfig(syncEndpoint, syncToken);
+    setSyncMsg({ ok: true, text: "同步设置已保存" });
+  };
+
+  const handleTestSync = async () => {
+    setSyncTesting(true);
+    setSyncMsg(null);
+    const r = await testSyncConnection();
+    setSyncTesting(false);
+    setSyncMsg({ ok: r.ok, text: r.message });
+  };
+
+  const handlePushSync = async () => {
+    setSyncBusy(true);
+    setSyncMsg(null);
+    const r = await pushSnapshot();
+    setSyncBusy(false);
+    setSyncMsg({ ok: r.ok, text: r.message });
+  };
+
+  const handlePullSync = async () => {
+    setSyncBusy(true);
+    setSyncMsg(null);
+    const r = await pullSnapshot();
+    setSyncBusy(false);
+    setSyncMsg({ ok: r.ok, text: r.message });
   };
 
   const confirmDangerReset = async () => {
@@ -955,8 +995,67 @@ export default function Settings() {
               <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Database className="mt-0.5 size-3.5 shrink-0" />
                 <div>
-                  <p>备份为本地 JSON（不含 WebDAV 同步）。</p>
+                  <p>备份为本地 JSON；跨端同步请使用下方「跨端同步」。</p>
                   <p>恢复会清空现有数据，请谨慎使用。</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 跨端同步 */}
+          <Card>
+            <CardHeader>
+              <CardTitle>跨端同步</CardTitle>
+              <CardDescription>通过 Cloudflare Worker + KV 上传/下载完整快照，实现 PWA 与 Windows 之间同步</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="sync-endpoint">同步地址（Worker URL）</Label>
+                <Input
+                  id="sync-endpoint"
+                  value={syncEndpoint}
+                  onChange={(e) => setSyncEndpoint(e.target.value)}
+                  placeholder="https://your-worker.example.workers.dev"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sync-token">同步 Token</Label>
+                <Input
+                  id="sync-token"
+                  type="password"
+                  value={syncToken}
+                  onChange={(e) => setSyncToken(e.target.value)}
+                  placeholder="与 Worker 环境变量 SYNC_TOKEN 一致"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleSaveSync}>
+                  保存设置
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleTestSync} disabled={syncTesting || syncBusy}>
+                  {syncTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  测试连接
+                </Button>
+                <Button size="sm" onClick={handlePushSync} disabled={syncBusy || syncTesting}>
+                  {syncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                  上传快照到云端
+                </Button>
+                <Button variant="secondary" size="sm" onClick={handlePullSync} disabled={syncBusy || syncTesting}>
+                  {syncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                  从云端下载快照
+                </Button>
+              </div>
+              {syncMsg && (
+                <p className={syncMsg.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                  {syncMsg.ok ? <CheckCircle2 className="mr-1 inline size-3.5" /> : <XCircle className="mr-1 inline size-3.5" />}
+                  {syncMsg.text}
+                </p>
+              )}
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                <Database className="mt-0.5 size-3.5 shrink-0" />
+                <div>
+                  <p>上传会用本地完整备份覆盖云端；下载会用云端完整备份覆盖本地。</p>
+                  <p>请先部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN，再填写上面的地址和 Token。</p>
                 </div>
               </div>
             </CardContent>
