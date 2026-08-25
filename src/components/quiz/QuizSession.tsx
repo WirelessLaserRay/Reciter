@@ -357,7 +357,7 @@ export default function QuizSession({
         }
       }
       if (revealed && !busy && !typing) {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" || e.key === " ") {
           if (interactive) return;
           e.preventDefault();
           void confirmMastery("mastered");
@@ -589,36 +589,42 @@ export default function QuizSession({
                 autoFocus
               />
               {!revealed && (
-                <Button
-                  className="w-full"
-                  disabled={!typed.trim()}
-                  onClick={() => submitAnswer(typed.trim())}
-                >
-                  检查答案
-                </Button>
+                <>
+                  <Button
+                    className="w-full"
+                    disabled={!typed.trim()}
+                    onClick={() => submitAnswer(typed.trim())}
+                  >
+                    检查答案
+                  </Button>
+                  <p className="text-center text-xs text-muted-foreground">快捷键：Enter 提交</p>
+                </>
               )}
             </div>
           )}
 
           {/* 选择选项（AI 出题时优先用 AI 选项） */}
           {!isFill && !revealed && (
-            <div className="grid gap-2">
-              {(item.aiOptions ?? item.options)?.map((opt, i) => (
-                <Button
-                  key={i}
-                  variant="outline"
-                  className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
-                  onClick={() => submitAnswer(opt)}
-                >
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                    {String.fromCharCode(65 + i)}
-                  </span>
-                  <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
-                    {opt}
-                  </span>
-                </Button>
-              ))}
-            </div>
+            <>
+              <div className="grid gap-2">
+                {(item.aiOptions ?? item.options)?.map((opt, i) => (
+                  <Button
+                    key={i}
+                    variant="outline"
+                    className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
+                    onClick={() => submitAnswer(opt)}
+                  >
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                      {String.fromCharCode(65 + i)}
+                    </span>
+                    <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
+                      {opt}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+              <p className="text-center text-xs text-muted-foreground">快捷键：1-4 选择 A-D</p>
+            </>
           )}
 
           {/* 揭示结果 */}
@@ -702,6 +708,9 @@ export default function QuizSession({
                   </Button>
                 </div>
               )}
+              <p className="text-center text-xs text-muted-foreground">
+                快捷键：Y / Enter / 空格 掌握 · N 忘记
+              </p>
               {busy && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" />

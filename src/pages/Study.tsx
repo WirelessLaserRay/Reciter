@@ -96,6 +96,20 @@ function SessionMiniSummary({
   onAIReview: (words: string[]) => void;
 }) {
   const remembered = Math.max(0, stats.reviewed - stats.again - stats.hard);
+
+  // 默认空格切页：学习小结时按空格继续学习
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " ") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable)) return;
+      e.preventDefault();
+      onContinue();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onContinue]);
+
   return (
     <Card className="mx-auto max-w-2xl border-primary/30 bg-primary/5">
       <CardHeader>
@@ -141,6 +155,7 @@ function SessionMiniSummary({
             AI 帮我巩固
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground">快捷键：空格 继续学习</p>
       </CardContent>
     </Card>
   );

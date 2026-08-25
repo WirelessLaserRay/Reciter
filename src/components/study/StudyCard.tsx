@@ -254,7 +254,7 @@ function ClassicFlipView(props: ModeViewProps) {
   useEffect(() => {
     if (flipped) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter") return;
+      if (e.key !== "Enter" && e.key !== " ") return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable)) return;
       e.preventDefault();
@@ -278,9 +278,12 @@ function ClassicFlipView(props: ModeViewProps) {
             <CardMetaBadges row={row} />
             <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
             {!flipped && (
-              <Button onClick={showAnswer} size="lg">
-                显示答案
-              </Button>
+              <>
+                <Button onClick={showAnswer} size="lg">
+                  显示答案
+                </Button>
+                <p className="text-xs text-muted-foreground">快捷键：Enter / 空格 显示答案</p>
+              </>
             )}
             <p className="text-xs text-muted-foreground">正面 · 单词</p>
           </div>
@@ -347,7 +350,7 @@ function ActiveRecallView(props: ModeViewProps) {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const interactive = !!target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable);
-      if (e.key === "Enter") {
+      if (e.key === "Enter" || e.key === " ") {
         if (interactive) return;
         e.preventDefault();
         setRecallPhase("input");
@@ -386,6 +389,7 @@ function ActiveRecallView(props: ModeViewProps) {
               不确定 / 不知道
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">快捷键：Y / Enter / 空格 确定 · N 不确定</p>
           {recallHint}
           <p className="text-xs text-muted-foreground">主动回忆 · 先回忆再看释义</p>
         </div>
@@ -475,7 +479,7 @@ function NewCardTeachView(props: ModeViewProps) {
   // 统一快捷键：回车开始记忆
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter") return;
+      if (e.key !== "Enter" && e.key !== " ") return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "BUTTON" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "A" || target.isContentEditable)) return;
       e.preventDefault();
@@ -501,6 +505,7 @@ function NewCardTeachView(props: ModeViewProps) {
         <BookOpen className="size-4" />
         开始记忆
       </Button>
+      <p className="text-xs text-muted-foreground">快捷键：Enter / 空格 开始记忆</p>
     </div>
   );
 }
@@ -593,41 +598,47 @@ function QuickTestView(props: ModeViewProps) {
         )}
 
         {checked === null && useChoice && (
-          <div className="grid w-full max-w-lg gap-2">
-            {choice.options.map((opt, i) => (
-              <Button
-                key={opt}
-                variant="outline"
-                className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
-                onClick={() => submitChoice(opt)}
-                disabled={busy}
-              >
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {String.fromCharCode(65 + i)}
-                </span>
-                <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
-                  {opt}
-                </span>
-              </Button>
-            ))}
-          </div>
+          <>
+            <div className="grid w-full max-w-lg gap-2">
+              {choice.options.map((opt, i) => (
+                <Button
+                  key={opt}
+                  variant="outline"
+                  className="h-auto min-h-12 w-full items-start justify-start gap-2.5 whitespace-normal px-3 py-2.5 text-left"
+                  onClick={() => submitChoice(opt)}
+                  disabled={busy}
+                >
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words leading-relaxed">
+                    {opt}
+                  </span>
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">快捷键：1-4 选择 A-D</p>
+          </>
         )}
 
         {checked === null && !useChoice && (
-          <div className="flex w-full max-w-md gap-2">
-            <Input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder="输入对应的单词…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitFill();
-              }}
-              autoFocus
-            />
-            <Button onClick={submitFill} disabled={!typed.trim() || busy}>
-              检查
-            </Button>
-          </div>
+          <>
+            <div className="flex w-full max-w-md gap-2">
+              <Input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="输入对应的单词…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitFill();
+                }}
+                autoFocus
+              />
+              <Button onClick={submitFill} disabled={!typed.trim() || busy}>
+                检查
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">快捷键：Enter 提交</p>
+          </>
         )}
 
         {checked !== null && (
