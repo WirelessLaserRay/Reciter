@@ -638,7 +638,7 @@ export default function Settings() {
                   <span className="text-sm text-muted-foreground">秒</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  阈值内答对自动记为「记得」
+                  阈值内答对提示「建议记得」，仍需确认评分后进入下一张
                 </p>
               </div>
 

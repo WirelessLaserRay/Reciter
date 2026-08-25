@@ -510,10 +510,9 @@ function NewCardTeachView(props: ModeViewProps) {
 function QuickTestView(props: ModeViewProps) {
   const { row, ratingMode, preview, busy, distractors, quickMs, onReveal, onRate, onRateReadyChange } = props;
   const startRef = useRef(Date.now());
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [typed, setTyped] = useState("");
   const [checked, setChecked] = useState<boolean | null>(null);
-  const [autoGood, setAutoGood] = useState(false);
+  const [fast, setFast] = useState(false);
 
   // 形近词干扰项优先：看释义选单词（中译英），干扰项取编辑距离最近的全词库单词；
   // 形近候选不足时退回「看单词选释义」，最后回退填空。
@@ -545,26 +544,14 @@ function QuickTestView(props: ModeViewProps) {
   }, [distractors, row.front, row.back]);
   const useChoice = choice.options.length >= 2;
 
-  // 卸载时清理自动推进计时器
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    onRateReadyChange(checked !== null && !autoGood && !busy);
-  }, [checked, autoGood, busy, onRateReadyChange]);
+    onRateReadyChange(checked !== null && !busy);
+  }, [checked, busy, onRateReadyChange]);
 
   const finish = (correct: boolean) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    const fast = Date.now() - startRef.current <= quickMs;
+    setFast(correct && Date.now() - startRef.current <= quickMs);
     setChecked(correct);
     onReveal();
-    if (correct && fast) {
-      setAutoGood(true);
-      timerRef.current = setTimeout(() => onRate(3), 900);
-    }
   };
 
   const submitChoice = (opt: string) => {
@@ -596,13 +583,13 @@ function QuickTestView(props: ModeViewProps) {
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
-          快速测试 · {Math.round(quickMs / 1000)} 秒内答对自动「记得」
-          {choice.useFront ? " · 形近词干扰" : ""}
+          快速测试 · {Math.round(quickMs / 1000)} 秒内答对建议「记得」 ·{" "}
+          {choice.useFront ? "看释义选单词" : "看单词选释义"}
         </p>
         {choice.useFront ? (
-          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-        ) : (
           <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
+        ) : (
+          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
         )}
 
         {checked === null && useChoice && (
@@ -657,7 +644,7 @@ function QuickTestView(props: ModeViewProps) {
                 <XCircle className="size-4 text-red-500" />
               )}
               <span className="font-medium">
-                {checked ? (autoGood ? "回答正确，秒答 → 自动记为「记得」" : "回答正确") : "回答错误"}
+                {checked ? (fast ? "回答正确，秒答 → 建议记为「记得」" : "回答正确") : "回答错误"}
               </span>
             </div>
             {!checked && (
@@ -676,7 +663,7 @@ function QuickTestView(props: ModeViewProps) {
         )}
       </div>
 
-      {checked !== null && !autoGood && (
+      {checked !== null && (
         <RatingButtons
           ratingMode={ratingMode}
           preview={preview}

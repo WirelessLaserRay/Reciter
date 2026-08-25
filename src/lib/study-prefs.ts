@@ -79,7 +79,7 @@ export async function saveInterleaveRatio(ratio: number): Promise<void> {
   await db.setSetting("interleave_ratio", String(Math.min(10, Math.max(1, Math.round(ratio)))));
 }
 
-/** 熟练卡秒答阈值（毫秒）：阈值内答对自动 Good（P2-⑨，默认 5 秒） */
+/** 熟练卡秒答阈值（毫秒）：阈值内答对提示「建议 Good」，仍需用户确认（P2-⑨，默认 5 秒） */
 export async function getQuickTestMs(): Promise<number> {
   const raw = await db.getSetting("quick_test_threshold_ms");
   const n = raw ? parseInt(raw, 10) : NaN;
