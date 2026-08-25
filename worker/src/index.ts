@@ -14,6 +14,10 @@ const ALLOWED_ORIGINS = [
   /^https?:\/\/localhost(:\d+)?$/,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
   /^https:\/\/[\w-]+\.github\.io$/,
+  // Tauri v2 桌面端 WebView Origin
+  /^tauri:\/\/localhost$/,
+  /^https?:\/\/tauri\.localhost$/,
+  /^https?:\/\/[a-zA-Z0-9-]+\.tauri\.localhost$/,
 ];
 
 interface Env {
@@ -153,8 +157,12 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const isSync = url.pathname.startsWith("/api/sync/");
     const origin = request.headers.get("Origin") ?? "";
-    if (!isOriginAllowed(origin)) {
+
+    // 拒绝不在白名单内的来源；同步接口允许无 Origin 的桌面端原生请求（Token 已鉴权）
+    if (!isOriginAllowed(origin) && !(isSync && !origin)) {
       return new Response("Forbidden", { status: 403 });
     }
 
@@ -164,8 +172,7 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    const url = new URL(request.url);
-    if (url.pathname.startsWith("/api/sync/")) {
+    if (isSync) {
       return handleSync(request, env, cors);
     }
 
