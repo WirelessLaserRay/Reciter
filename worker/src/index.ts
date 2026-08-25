@@ -169,8 +169,9 @@ interface NewsItem {
 
 const NEWS_SOURCES: Record<string, { name: string; rss: string }> = {
   chinadaily: { name: "China Daily", rss: "https://www.chinadaily.com.cn/rss/china_rss.xml" },
-  cnn: { name: "CNN", rss: "http://rss.cnn.com/rss/edition.rss" },
-  reuters: { name: "Reuters", rss: "https://feeds.reuters.com/reuters/topNews" },
+  // CNN / Reuters 官方 RSS 不稳定，改用 Google News 按站点聚合
+  cnn: { name: "CNN", rss: "https://news.google.com/rss/search?q=site:cnn.com&hl=en-US&gl=US&ceid=US:en" },
+  reuters: { name: "Reuters", rss: "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en" },
 };
 
 function decodeXmlEntities(s: string): string {
@@ -180,6 +181,10 @@ function decodeXmlEntities(s: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&");
+}
+
+function unwrapCdata(s: string): string {
+  return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
 }
 
 function stripTags(s: string): string {
@@ -194,14 +199,19 @@ function extractRssItems(xml: string, source: string, limit: number): NewsItem[]
     const block = m[1];
     const pick = (tag: string) => {
       const mm = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
-      return mm ? decodeXmlEntities(stripTags(mm[1])) : "";
+      return mm ? decodeXmlEntities(stripTags(unwrapCdata(mm[1]))) : "";
+    };
+    const pickAttr = (tag: string, attr: string) => {
+      const mm = block.match(new RegExp(`<${tag}[^>]*${attr}\\s*=\\s*["']([^"']+)["']`, "i"));
+      return mm ? decodeXmlEntities(mm[1]) : "";
     };
     const title = pick("title");
     const link = pick("link");
+    const sourceUrl = pickAttr("source", "url") || link;
     const description = pick("description");
     const pubDate = pick("pubDate");
-    if (title && link) {
-      items.push({ title, link, description, pubDate, source });
+    if (title && sourceUrl) {
+      items.push({ title, link: sourceUrl, description, pubDate, source });
     }
   }
   return items;
