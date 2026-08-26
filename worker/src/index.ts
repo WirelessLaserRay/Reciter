@@ -201,7 +201,7 @@ const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
       "https://www.chinadaily.com.cn/rss/world_rss.xml",
     ],
   },
-  reuters: { name: "Reuters", feeds: ["https://www.reuters.com/rss/world/"] },
+  cnn: { name: "CNN", feeds: ["http://rss.cnn.com/rss/edition.rss"] },
   guardian: {
     name: "The Guardian",
     feeds: [

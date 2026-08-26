@@ -41,7 +41,7 @@ import {
 
 const SOURCES = [
   { value: "chinadaily", label: "China Daily" },
-  { value: "reuters", label: "Reuters" },
+  { value: "cnn", label: "CNN" },
   { value: "guardian", label: "The Guardian" },
   { value: "npr", label: "NPR" },
   { value: "bbc", label: "BBC" },

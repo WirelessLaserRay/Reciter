@@ -26,7 +26,7 @@
 
 - **快速测试不再自动切页**：秒答正确后提示「建议记得」，但仍需用户确认评分后才进入下一张；同时修正“看释义选单词”题面误显示答案单词的问题
 - **每日一文交互调整**：AI 出题移至侧边栏并与生词通过按钮切换；只出选择题，显示答案后提供中文解析，最后提供全文翻译
-- **每日一文来源更新**：来源为 China Daily / Reuters / The Guardian / NPR / BBC；China Daily 使用 opinion + world 双 RSS
+- **每日一文来源更新**：来源为 China Daily / CNN / The Guardian / NPR / BBC；China Daily 使用 opinion + world 双 RSS
 - **收藏夹单独显示**：点击「收藏夹」后单独展示收藏内容，不再混在文章列表中
 - **每日一文正文提取升级**：fetch 原始 URL → Readability → `article.content` 结构化解析为 paragraphs；Guardian 特殊清洗；返回 `title / paragraphs / wordCount / isFullArticle`；不再使用 `<p>` 正则抓取
 - **全文翻译位置调整**：AI 全文翻译直接显示在英文原文下方
