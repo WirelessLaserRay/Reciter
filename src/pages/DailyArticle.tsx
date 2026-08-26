@@ -401,8 +401,26 @@ export default function DailyArticle() {
                 <p className="text-xs text-amber-600">文章过长，已截断显示前 30000 字符。</p>
               )}
               {content && (
-                <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
-                  {content}
+                <div className="space-y-4">
+                  <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                    {content}
+                  </div>
+                  <div className="border-t pt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleTranslateArticle}
+                      disabled={translating || !!translation}
+                    >
+                      {translating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                      {translation ? "已显示全文翻译" : "全文翻译"}
+                    </Button>
+                    {translation && (
+                      <div className="mt-3 whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-7">
+                        {translation}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -589,24 +607,6 @@ export default function DailyArticle() {
                       </Button>
                     )}
 
-                    {questions && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full"
-                        onClick={handleTranslateArticle}
-                        disabled={translating || !!translation}
-                      >
-                        {translating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                        {translation ? "已显示全文翻译" : "全文翻译"}
-                      </Button>
-                    )}
-
-                    {translation && (
-                      <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs leading-6">
-                        {translation}
-                      </div>
-                    )}
                   </>
                 )}
               </CardContent>

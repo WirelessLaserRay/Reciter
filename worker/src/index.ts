@@ -185,7 +185,15 @@ const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
       "https://www.chinadaily.com.cn/rss/world_rss.xml",
     ],
   },
-  nyt: { name: "The New York Times", feeds: ["https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"] },
+  nyt: {
+    name: "The New York Times",
+    feeds: [
+      "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+      "https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/spotlight/artificial-intelligence/rss.xml",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+    ],
+  },
   guardian: {
     name: "The Guardian",
     feeds: [
@@ -308,7 +316,7 @@ function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
  * fetch 原始 URL → DOMParser → Readability → article.content 结构化解析
  * → Guardian 特殊清洗 → 质量检测 → 返回 paragraphs
  */
-async function fetchArticle(url: string): Promise<ArticleExtractResult> {
+async function fetchArticleDirect(url: string): Promise<ArticleExtractResult> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -376,6 +384,52 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
     wordCount,
     isFullArticle: limited.length === paragraphs.length,
   };
+}
+
+/**
+ * 正文入口：优先直接抓取 + Readability；失败时用 Jina Reader 兜底（解决 NYT 等反爬/付费墙 502）
+ */
+async function fetchArticle(url: string): Promise<ArticleExtractResult> {
+  try {
+    return await fetchArticleDirect(url);
+  } catch (directError) {
+    try {
+      const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Accept: "text/plain",
+        },
+        redirect: "follow",
+      });
+      if (!res.ok) throw new Error("Jina fallback failed: " + res.status);
+      const text = await res.text();
+      const paragraphs = cleanParagraphs(
+        text
+          .split(/\n{2,}/)
+          .map((s) => decodeXmlEntities(stripTags(s)).trim())
+          .filter((s) => s.length >= 2),
+        isGuardianUrl(url)
+      );
+      if (paragraphs.length < 2) throw directError;
+
+      let total = 0;
+      const limited: string[] = [];
+      for (const p of paragraphs) {
+        if (total + p.length > MAX_ARTICLE_LENGTH) break;
+        limited.push(p);
+        total += p.length;
+      }
+      return {
+        title: "",
+        paragraphs: limited,
+        wordCount: text.split(/\s+/).filter(Boolean).length,
+        isFullArticle: limited.length === paragraphs.length,
+      };
+    } catch {
+      throw directError;
+    }
+  }
 }
 
 async function handleNews(request: Request, cors: Record<string, string>): Promise<Response> {

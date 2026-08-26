@@ -29,6 +29,7 @@
 - **每日一文来源更新**：移除 CNN / Reuters，新增 NYT / The Guardian / NPR / BBC；China Daily 改用 opinion + world 双 RSS，获取近期文章
 - **收藏夹单独显示**：点击「收藏夹」后单独展示收藏内容，不再混在文章列表中
 - **每日一文正文提取升级**：fetch 原始 URL → Readability → `article.content` 结构化解析为 paragraphs；Guardian 特殊清洗；返回 `title / paragraphs / wordCount / isFullArticle`；不再使用 `<p>` 正则抓取
+- **全文翻译位置调整**：AI 全文翻译直接显示在英文原文下方
 
 ### Fixed
 
@@ -36,6 +37,7 @@
 - **每日一文 RSS 修复**：支持 CDATA 内容解析，避免列表为空或 502
 - **新导入词库不安排学习**：词库每日新卡配额为 0 时按默认 20 张安排学习
 - **每日一文出题选项显示**：选项支持自动换行，并去除 AI 返回里自带的前缀字母，避免 ABCD 重复出现
+- **NYT 全文 502 修复**：更新 RSS 源为 World / Technology / AI / Science，并增加 Jina Reader 兜底
 
 ### Planned
 
