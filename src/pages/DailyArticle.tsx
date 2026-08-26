@@ -138,8 +138,8 @@ export default function DailyArticle() {
     setArticleLoading(true);
     try {
       const res = await fetchArticleContent(item.link);
-      setContent(res.content);
-      setArticleTruncated(!!res.truncated);
+      setContent(res.paragraphs.join("\n\n"));
+      setArticleTruncated(res.isFullArticle === false);
     } catch (e) {
       setArticleError(String(e));
     } finally {

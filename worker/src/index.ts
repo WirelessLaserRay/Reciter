@@ -256,45 +256,59 @@ function extractRssItems(xml: string, source: string, limit: number): NewsItem[]
   return items;
 }
 
-/** 清理正文中的噪声行 */
-function cleanArticleText(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => {
-      if (!line) return false;
-      const lower = line.toLowerCase();
+interface ArticleExtractResult {
+  title: string;
+  paragraphs: string[];
+  wordCount: number;
+  isFullArticle: boolean;
+}
+
+/** 从 Readability 的 article.content HTML 中提取结构化段落/块 */
+function extractParagraphsFromHtml(html: string): string[] {
+  const { document } = parseHTML(html);
+  const blocks: string[] = [];
+  document
+    .querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre")
+    .forEach((el) => {
+      const text = decodeXmlEntities(stripTags(el.textContent ?? "")).trim();
+      if (text.length >= 2) blocks.push(text);
+    });
+  // 结构化块太少时，退化为 body textContent 按空行分段
+  if (blocks.length < 2) {
+    const text = decodeXmlEntities(stripTags(document.body?.textContent ?? "")).trim();
+    blocks.push(...text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean));
+  }
+  return blocks;
+}
+
+function isGuardianUrl(url: string): boolean {
+  return /theguardian\.com/i.test(url);
+}
+
+/** 清理正文段落中的噪声 */
+function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
+  return paragraphs
+    .map((p) => p.trim())
+    .filter((p) => {
+      if (!p) return false;
+      const lower = p.toLowerCase();
       if (lower.includes("advertisement")) return false;
       if (lower.includes("sign up for")) return false;
       if (lower.includes("all rights reserved")) return false;
       if (lower.includes("copyright")) return false;
       if (lower.includes("caption")) return false;
       if (lower.includes("figure")) return false;
-      if (lower.length < 2) return false;
+      if (guardian && (lower.includes("the guardian") || lower.includes("first published"))) return false;
       return true;
-    })
-    .join("\n\n");
+    });
 }
 
 /**
  * 抓取文章正文：
- * 1. 优先使用 RSS 自带全文缓存
- * 2. 否则 fetch URL → DOMParser → Mozilla Readability
- * 3. 清理 figure / caption / copyright 等噪声
- * 4. 质量检测 + 长度限制
+ * fetch 原始 URL → DOMParser → Readability → article.content 结构化解析
+ * → Guardian 特殊清洗 → 质量检测 → 返回 paragraphs
  */
-async function fetchArticleText(url: string): Promise<{ content: string; truncated: boolean }> {
-  // 1. RSS 全文优先
-  const cached = rssFullTextCache.get(url);
-  if (cached && cached.trim().length >= 200) {
-    const cleaned = cleanArticleText(cached);
-    return {
-      content: cleaned.slice(0, MAX_ARTICLE_LENGTH),
-      truncated: cleaned.length > MAX_ARTICLE_LENGTH,
-    };
-  }
-
-  // 2. 抓取原始页面
+async function fetchArticle(url: string): Promise<ArticleExtractResult> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -307,7 +321,6 @@ async function fetchArticleText(url: string): Promise<{ content: string; truncat
   if (!res.ok) throw new Error("Article fetch failed: " + res.status);
   const html = await res.text();
 
-  // 3. DOM 解析 + 清理广告/版权节点
   const { document } = parseHTML(html);
   document
     .querySelectorAll(
@@ -315,30 +328,53 @@ async function fetchArticleText(url: string): Promise<{ content: string; truncat
     )
     .forEach((el) => el.remove());
 
-  // 4. Mozilla Readability 提取正文
   const article = new Readability(document as unknown as Document).parse();
-  let text = article?.textContent?.trim() ?? "";
+  if (!article) throw new Error("Readability failed");
 
-  // 5. 正文质量检测：Readability 失败或太短时回退到 <p> 提取
-  if (text.length < 200) {
-    const cleanedHtml = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
-    const paragraphs = [...cleanedHtml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
-      .map((mm) => decodeXmlEntities(stripTags(mm[1])))
-      .filter((t) => t.length > 20);
-    text = paragraphs.join("\n\n");
-  }
+  const textContent = article.textContent?.trim() ?? "";
+  const contentHtml = article.content ?? "";
+  const guardian = isGuardianUrl(url);
 
-  const cleaned = cleanArticleText(text);
-  if (cleaned.length < 100) {
+  let paragraphs = cleanParagraphs(extractParagraphsFromHtml(contentHtml), guardian);
+  const wordCount = textContent.split(/\s+/).filter(Boolean).length;
+
+  // 质量检测
+  const isFullArticle = textContent.length >= 200 && paragraphs.length >= 2;
+  if (!isFullArticle) {
+    // fallback：RSS 自带全文（如有）
+    const cached = rssFullTextCache.get(url);
+    if (cached && cached.trim().length >= 200) {
+      const fallback = cleanParagraphs(
+        cached
+          .split(/\n{2,}/)
+          .map((s) => decodeXmlEntities(stripTags(s)).trim())
+          .filter(Boolean),
+        guardian
+      );
+      return {
+        title: article.title ?? "",
+        paragraphs: fallback,
+        wordCount,
+        isFullArticle: false,
+      };
+    }
     throw new Error("Article content too short or not extractable");
   }
 
+  // 长度限制：按段落截断到 MAX_ARTICLE_LENGTH
+  let total = 0;
+  const limited: string[] = [];
+  for (const p of paragraphs) {
+    if (total + p.length > MAX_ARTICLE_LENGTH) break;
+    limited.push(p);
+    total += p.length;
+  }
+
   return {
-    content: cleaned.slice(0, MAX_ARTICLE_LENGTH),
-    truncated: cleaned.length > MAX_ARTICLE_LENGTH,
+    title: article.title ?? "",
+    paragraphs: limited,
+    wordCount,
+    isFullArticle: limited.length === paragraphs.length,
   };
 }
 
@@ -353,11 +389,8 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       return json({ error: "Invalid url" }, 400, cors);
     }
     try {
-      const { content, truncated } = await fetchArticleText(target);
-      if (!content) {
-        return json({ error: "No content extracted" }, 422, cors);
-      }
-      return json({ content, truncated }, 200, cors);
+      const result = await fetchArticle(target);
+      return json(result, 200, cors);
     } catch (e) {
       return json({ error: "Article fetch failed", detail: String(e) }, 502, cors);
     }

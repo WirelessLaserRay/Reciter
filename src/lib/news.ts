@@ -16,8 +16,10 @@ export interface NewsListResult {
 }
 
 export interface ArticleResult {
-  content: string;
-  truncated?: boolean;
+  title?: string;
+  paragraphs: string[];
+  wordCount?: number;
+  isFullArticle?: boolean;
 }
 
 const httpFetch = isTauri()

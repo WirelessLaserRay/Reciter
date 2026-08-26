@@ -28,7 +28,7 @@
 - **每日一文交互调整**：AI 出题移至侧边栏并与生词通过按钮切换；只出选择题，显示答案后提供中文解析，最后提供全文翻译
 - **每日一文来源更新**：移除 CNN / Reuters，新增 NYT / The Guardian / NPR / BBC；China Daily 改用 opinion + world 双 RSS，获取近期文章
 - **收藏夹单独显示**：点击「收藏夹」后单独展示收藏内容，不再混在文章列表中
-- **每日一文正文提取升级**：优先使用 RSS 全文，其次 Readability 提取；清理 figure/caption/copyright 等噪声；正文上限 30000 字符并返回截断标记
+- **每日一文正文提取升级**：fetch 原始 URL → Readability → `article.content` 结构化解析为 paragraphs；Guardian 特殊清洗；返回 `title / paragraphs / wordCount / isFullArticle`；不再使用 `<p>` 正则抓取
 
 ### Fixed
 
