@@ -26,12 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { db } from "@/lib/db";
-import { fetchNewsList, fetchArticleContent, type NewsItem } from "@/lib/news";
+import { getAIConfig } from "@/lib/ai-client";
+import { fetchNewsList, fetchArticleContent, getWorkerBaseUrl, type NewsItem } from "@/lib/news";
 import {
   generateArticleQuestions,
   recognizeNewWords,
   explainWord,
   translateArticle,
+  getVocabStandard,
   type ArticleQuestion,
   type NewWord,
   type WordExplanation,
@@ -39,7 +41,7 @@ import {
 
 const SOURCES = [
   { value: "chinadaily", label: "China Daily" },
-  { value: "nyt", label: "The New York Times" },
+  { value: "reuters", label: "Reuters" },
   { value: "guardian", label: "The Guardian" },
   { value: "npr", label: "NPR" },
   { value: "bbc", label: "BBC" },
@@ -106,6 +108,9 @@ export default function DailyArticle() {
   const [showQuizAnswers, setShowQuizAnswers] = useState(false);
   const [translation, setTranslation] = useState("");
   const [translating, setTranslating] = useState(false);
+  const [workerOk, setWorkerOk] = useState(false);
+  const [aiOk, setAiOk] = useState(false);
+  const [vocabLabel, setVocabLabel] = useState("考研");
 
   const loadList = useCallback(async (src: string) => {
     setListLoading(true);
@@ -123,6 +128,18 @@ export default function DailyArticle() {
   useEffect(() => {
     void loadList(source);
   }, [source, loadList]);
+
+  // 加载每日一文所需设置状态
+  useEffect(() => {
+    (async () => {
+      const base = await getWorkerBaseUrl().catch(() => "");
+      setWorkerOk(!!base);
+      const ai = await getAIConfig().catch(() => ({ enabled: false } as { enabled: boolean }));
+      setAiOk(ai.enabled);
+      const vs = await getVocabStandard().catch(() => "考研" as "考研");
+      setVocabLabel(vs === "CET4" ? "四级" : vs === "CET6" ? "六级" : vs === "专业英语" ? "专业英语" : "考研");
+    })().catch(() => {});
+  }, []);
 
   const openArticle = async (item: NewsItem) => {
     setSelected(item);
@@ -275,6 +292,25 @@ export default function DailyArticle() {
         </Button>
         <span className="text-sm text-muted-foreground">每日一文</span>
       </div>
+
+      <Card className={(!workerOk || !aiOk) ? "border-amber-500/40" : ""}>
+        <CardHeader>
+          <CardTitle className="text-base">每日一文所需设置</CardTitle>
+          <CardDescription>以下配置影响文章获取、AI 出题、生词识别与全文翻译</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3 text-sm">
+          <Badge variant={workerOk ? "secondary" : "destructive"}>
+            Worker 地址：{workerOk ? "已配置" : "未配置"}
+          </Badge>
+          <Badge variant={aiOk ? "secondary" : "destructive"}>
+            AI 接口：{aiOk ? "已配置" : "未配置"}
+          </Badge>
+          <Badge variant="secondary">词汇标准：{vocabLabel}</Badge>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/settings">去设置</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

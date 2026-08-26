@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Database, Download, Loader2, Upload, XCircle } from "lucide-react";
 import {
   Card,
@@ -990,6 +991,32 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 当前默认：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
               </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>每日一文所需设置</CardTitle>
+              <CardDescription>文章抓取需要 Worker 地址；AI 出题 / 生词 / 翻译需要 AI 接口</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={syncEndpoint.trim() || deeplCorsProxy.trim() ? "secondary" : "destructive"}>
+                  Worker 地址：{syncEndpoint.trim() || deeplCorsProxy.trim() ? "已配置" : "未配置"}
+                </Badge>
+                <Badge variant={aiBaseURL.trim() && aiModel.trim() ? "secondary" : "destructive"}>
+                  AI 接口：{aiBaseURL.trim() && aiModel.trim() ? "已配置" : "未配置"}
+                </Badge>
+                <Badge variant="secondary">
+                  词汇标准：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Worker 地址可使用「跨端同步地址」或「DeepL CORS 代理地址」；AI 接口在「AI 接口」区域配置。
+              </p>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/daily-article">前往每日一文</Link>
+              </Button>
             </CardContent>
           </Card>
 

@@ -201,15 +201,7 @@ const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
       "https://www.chinadaily.com.cn/rss/world_rss.xml",
     ],
   },
-  nyt: {
-    name: "The New York Times",
-    feeds: [
-      "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-      "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-      "https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/spotlight/artificial-intelligence/rss.xml",
-      "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
-    ],
-  },
+  reuters: { name: "Reuters", feeds: ["https://www.reuters.com/rss/world/"] },
   guardian: {
     name: "The Guardian",
     feeds: [
