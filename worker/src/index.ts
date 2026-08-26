@@ -177,6 +177,22 @@ const MAX_ARTICLE_LENGTH = 30000;
 /** 近期 RSS 自带的全文缓存：URL -> 全文（Worker 单实例内存） */
 const rssFullTextCache = new Map<string, string>();
 
+function truncateParagraphs(paragraphs: string[]): string[] {
+  let total = 0;
+  const out: string[] = [];
+  for (const p of paragraphs) {
+    if (total + p.length > MAX_ARTICLE_LENGTH) break;
+    out.push(p);
+    total += p.length;
+  }
+  return out;
+}
+
+/** 全文质量判断：至少 3 个段落且累计正文长度 ≥ 400 字符 */
+function isFullEnough(paragraphs: string[]): boolean {
+  return paragraphs.length >= 3 && paragraphs.reduce((sum, p) => sum + p.length, 0) >= 400;
+}
+
 const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
   chinadaily: {
     name: "China Daily",
@@ -269,6 +285,16 @@ interface ArticleExtractResult {
   paragraphs: string[];
   wordCount: number;
   isFullArticle: boolean;
+  debug?: ArticleDebug;
+}
+
+interface ArticleDebug {
+  fetchStatus: number;
+  readabilityOk: boolean;
+  timesExtractorUsed: boolean;
+  paywallDetected: boolean;
+  usedJinaFallback: boolean;
+  reason?: string;
 }
 
 /** 从 Readability 的 article.content HTML 中提取结构化段落/块 */
@@ -311,12 +337,58 @@ function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
     });
 }
 
+/** NYT 专用提取：JSON-LD articleBody / article 内段落 */
+function extractTimesArticle(html: string): string | null {
+  const jsonLdBlocks = [
+    ...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
+  ];
+  for (const m of jsonLdBlocks) {
+    try {
+      const data = JSON.parse(decodeXmlEntities(m[1]));
+      const candidates = Array.isArray(data) ? data : (data?.["@graph"] ?? [data]);
+      for (const item of candidates) {
+        if (typeof item?.articleBody === "string" && item.articleBody.trim().length > 200) {
+          return item.articleBody.trim();
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const { document } = parseHTML(html);
+  const container =
+    document.querySelector("article") ??
+    document.querySelector("section[name='articleBody'], section[itemprop='articleBody']");
+  if (container) {
+    const paragraphs = [...container.querySelectorAll("p")]
+      .map((el) => decodeXmlEntities(stripTags(el.textContent ?? "")).trim())
+      .filter((t) => t.length > 20);
+    if (paragraphs.length >= 2) return paragraphs.join("\n\n");
+  }
+  return null;
+}
+
+/** 检测 paywall / 截断标志 */
+function detectPaywall(html: string, text: string): boolean {
+  const lower = (html + " " + text).toLowerCase();
+  return [
+    "subscribe",
+    "subscription",
+    "log in",
+    "you have reached your limit",
+    "unlimited article",
+    "continue reading",
+    "sign up",
+    "paid subscriber",
+  ].some((s) => lower.includes(s));
+}
+
 /**
  * 抓取文章正文：
  * fetch 原始 URL → DOMParser → Readability → article.content 结构化解析
  * → Guardian 特殊清洗 → 质量检测 → 返回 paragraphs
  */
-async function fetchArticleDirect(url: string): Promise<ArticleExtractResult> {
+async function fetchArticleDirect(url: string, debug: ArticleDebug): Promise<ArticleExtractResult> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -326,63 +398,97 @@ async function fetchArticleDirect(url: string): Promise<ArticleExtractResult> {
     },
     redirect: "follow",
   });
+  debug.fetchStatus = res.status;
+
+  // ① 记录真实 status；403/401 = 访问控制/订阅问题
+  if (res.status === 401 || res.status === 403) {
+    debug.reason = "Times access control / subscription required (HTTP " + res.status + ")";
+    console.log("[Times] access control", url, res.status);
+    throw new Error(debug.reason);
+  }
   if (!res.ok) throw new Error("Article fetch failed: " + res.status);
   const html = await res.text();
 
   const { document } = parseHTML(html);
+  // 只移除明确与正文无关的节点；figure/footer/aside/caption 等交给 Readability 和后续清洗处理
   document
     .querySelectorAll(
-      "script, style, noscript, figure, figcaption, footer, aside, nav, form, iframe, .ad, .ads, .advertisement, .caption, .copyright"
+      "script, style, noscript, nav, form, iframe, .ad, .ads, .advertisement"
     )
     .forEach((el) => el.remove());
 
-  const article = new Readability(document as unknown as Document).parse();
-  if (!article) throw new Error("Readability failed");
+  // ② 200 → Readability
+  let article = new Readability(document as unknown as Document).parse();
+  debug.readabilityOk = !!article;
+  const guardian = isGuardianUrl(url);
+
+  // ③ Readability null → Times 专用 extractor
+  if (!article) {
+    debug.timesExtractorUsed = true;
+    const timesText = extractTimesArticle(html);
+    if (timesText && timesText.trim().length >= 200) {
+      const paragraphs = truncateParagraphs(
+        cleanParagraphs(
+          timesText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
+          guardian
+        )
+      );
+      debug.reason = "Readability null -> Times extractor";
+      console.log("[Times] Readability null, Times extractor OK", url);
+      return {
+        title: "",
+        paragraphs,
+        wordCount: timesText.split(/\s+/).filter(Boolean).length,
+        isFullArticle: isFullEnough(paragraphs),
+        debug,
+      };
+    }
+    throw new Error("Readability failed");
+  }
 
   const textContent = article.textContent?.trim() ?? "";
   const contentHtml = article.content ?? "";
-  const guardian = isGuardianUrl(url);
-
   let paragraphs = cleanParagraphs(extractParagraphsFromHtml(contentHtml), guardian);
   const wordCount = textContent.split(/\s+/).filter(Boolean).length;
 
-  // 质量检测
-  const isFullArticle = textContent.length >= 200 && paragraphs.length >= 2;
+  // ④ 正文太短 → paywall / truncated 判断（条件收紧，避免把片段当全文）
+  const isFullArticle = textContent.length >= 500 && isFullEnough(paragraphs);
   if (!isFullArticle) {
-    // fallback：RSS 自带全文（如有）
+    debug.paywallDetected = detectPaywall(html, textContent);
+    debug.reason = debug.paywallDetected
+      ? "Paywall/truncated detected"
+      : "Article content too short or not extractable";
+    console.log("[Times] quality check failed", url, debug.reason, "paywall=" + debug.paywallDetected);
+
     const cached = rssFullTextCache.get(url);
     if (cached && cached.trim().length >= 200) {
-      const fallback = cleanParagraphs(
-        cached
-          .split(/\n{2,}/)
-          .map((s) => decodeXmlEntities(stripTags(s)).trim())
-          .filter(Boolean),
-        guardian
+      const fallback = truncateParagraphs(
+        cleanParagraphs(
+          cached
+            .split(/\n{2,}/)
+            .map((s) => decodeXmlEntities(stripTags(s)).trim())
+            .filter(Boolean),
+          guardian
+        )
       );
       return {
         title: article.title ?? "",
         paragraphs: fallback,
         wordCount,
         isFullArticle: false,
+        debug,
       };
     }
-    throw new Error("Article content too short or not extractable");
+    throw new Error(debug.reason);
   }
 
-  // 长度限制：按段落截断到 MAX_ARTICLE_LENGTH
-  let total = 0;
-  const limited: string[] = [];
-  for (const p of paragraphs) {
-    if (total + p.length > MAX_ARTICLE_LENGTH) break;
-    limited.push(p);
-    total += p.length;
-  }
-
+  const limited = truncateParagraphs(paragraphs);
   return {
     title: article.title ?? "",
     paragraphs: limited,
     wordCount,
     isFullArticle: limited.length === paragraphs.length,
+    debug,
   };
 }
 
@@ -390,8 +496,15 @@ async function fetchArticleDirect(url: string): Promise<ArticleExtractResult> {
  * 正文入口：优先直接抓取 + Readability；失败时用 Jina Reader 兜底（解决 NYT 等反爬/付费墙 502）
  */
 async function fetchArticle(url: string): Promise<ArticleExtractResult> {
+  const debug: ArticleDebug = {
+    fetchStatus: 0,
+    readabilityOk: false,
+    timesExtractorUsed: false,
+    paywallDetected: false,
+    usedJinaFallback: false,
+  };
   try {
-    return await fetchArticleDirect(url);
+    return await fetchArticleDirect(url, debug);
   } catch (directError) {
     try {
       const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
@@ -413,20 +526,19 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
       );
       if (paragraphs.length < 2) throw directError;
 
-      let total = 0;
-      const limited: string[] = [];
-      for (const p of paragraphs) {
-        if (total + p.length > MAX_ARTICLE_LENGTH) break;
-        limited.push(p);
-        total += p.length;
-      }
+      const limited = truncateParagraphs(paragraphs);
+      debug.usedJinaFallback = true;
+      debug.reason = (debug.reason ? debug.reason + " -> " : "") + "Jina fallback";
+      console.log("[Times] Jina fallback OK", url);
       return {
         title: "",
         paragraphs: limited,
         wordCount: text.split(/\s+/).filter(Boolean).length,
-        isFullArticle: limited.length === paragraphs.length,
+        isFullArticle: limited.length === paragraphs.length && isFullEnough(paragraphs),
+        debug,
       };
     } catch {
+      (directError as Error & { debug?: ArticleDebug }).debug = debug;
       throw directError;
     }
   }
@@ -446,7 +558,12 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       const result = await fetchArticle(target);
       return json(result, 200, cors);
     } catch (e) {
-      return json({ error: "Article fetch failed", detail: String(e) }, 502, cors);
+      const err = e as Error & { debug?: ArticleDebug };
+      return json(
+        { error: "Article fetch failed", detail: String(e), debug: err.debug },
+        502,
+        cors
+      );
     }
   }
 

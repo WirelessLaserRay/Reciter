@@ -38,6 +38,7 @@
 - **新导入词库不安排学习**：词库每日新卡配额为 0 时按默认 20 张安排学习
 - **每日一文出题选项显示**：选项支持自动换行，并去除 AI 返回里自带的前缀字母，避免 ABCD 重复出现
 - **NYT 全文 502 修复**：更新 RSS 源为 World / Technology / AI / Science，并增加 Jina Reader 兜底
+- **全文质量判定收紧**：`isFullArticle` 要求正文 ≥500 字符、至少 3 个段落且累计 ≥400 字符；Readability 前处理不再提前删除 figure/footer/aside 等节点
 
 ### Planned
 
