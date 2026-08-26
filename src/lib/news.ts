@@ -59,6 +59,34 @@ export async function fetchArticleContent(articleUrl: string): Promise<ArticleRe
     `${base}/api/news/article?url=${encodeURIComponent(articleUrl)}`,
     { headers: { Accept: "application/json" } }
   );
-  if (!res.ok) throw new Error(`文章获取失败（HTTP ${res.status}）`);
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const data = (await res.json()) as {
+        detail?: string;
+        debug?: {
+          fetchStatus?: number;
+          readabilityOk?: boolean;
+          timesExtractorUsed?: boolean;
+          paywallDetected?: boolean;
+          usedJinaFallback?: boolean;
+          reason?: string;
+        };
+      };
+      if (data?.debug) {
+        detail += ` | fetchStatus=${data.debug.fetchStatus ?? "?"}`;
+        detail += ` readability=${data.debug.readabilityOk ?? "?"}`;
+        detail += ` timesExtractor=${data.debug.timesExtractorUsed ?? "?"}`;
+        detail += ` paywall=${data.debug.paywallDetected ?? "?"}`;
+        detail += ` jina=${data.debug.usedJinaFallback ?? "?"}`;
+        if (data.debug.reason) detail += ` | ${data.debug.reason}`;
+      } else if (data?.detail) {
+        detail += ` | ${data.detail}`;
+      }
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(`文章获取失败（${detail}）`);
+  }
   return (await res.json()) as ArticleResult;
 }
