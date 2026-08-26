@@ -142,8 +142,10 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
+      // 新导入词库若配额为 0，按默认 20 张安排，避免“持续不安排学习”
+      const effectiveNewPerDay = deck.new_cards_per_day > 0 ? deck.new_cards_per_day : 20;
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
-      const newLimit = Math.max(0, deck.new_cards_per_day - learnedToday);
+      const newLimit = Math.max(0, effectiveNewPerDay - learnedToday);
       const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly, ignoredTags) : [];
 
       // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）

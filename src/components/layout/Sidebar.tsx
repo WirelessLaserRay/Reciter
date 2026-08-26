@@ -10,6 +10,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Languages,
+  Newspaper,
   Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { to: "/decks", label: "词库", icon: BookOpen },
   { to: "/study", label: "学习", icon: GraduationCap },
   { to: "/weak-words", label: "弱词本", icon: AlertTriangle },
+  { to: "/daily-article", label: "每日一文", icon: Newspaper },
   { to: "/import", label: "导入", icon: FileUp },
   { to: "/stats", label: "统计", icon: BarChart3 },
   { to: "/settings", label: "设置", icon: Settings },

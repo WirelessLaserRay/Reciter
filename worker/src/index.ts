@@ -167,11 +167,38 @@ interface NewsItem {
   source: string;
 }
 
-const NEWS_SOURCES: Record<string, { name: string; rss: string }> = {
-  chinadaily: { name: "China Daily", rss: "https://www.chinadaily.com.cn/rss/china_rss.xml" },
-  // CNN / Reuters 官方 RSS 不稳定，改用 Google News 按站点聚合
-  cnn: { name: "CNN", rss: "https://news.google.com/rss/search?q=site:cnn.com&hl=en-US&gl=US&ceid=US:en" },
-  reuters: { name: "Reuters", rss: "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en" },
+const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
+  chinadaily: {
+    name: "China Daily",
+    feeds: [
+      "https://www.chinadaily.com.cn/rss/opinion_rss.xml",
+      "https://www.chinadaily.com.cn/rss/world_rss.xml",
+    ],
+  },
+  nyt: { name: "The New York Times", feeds: ["https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"] },
+  guardian: {
+    name: "The Guardian",
+    feeds: [
+      "https://www.theguardian.com/world/rss",
+      "https://www.theguardian.com/technology/rss",
+      "https://www.theguardian.com/environment/rss",
+    ],
+  },
+  npr: {
+    name: "NPR",
+    feeds: [
+      "https://feeds.npr.org/1001/rss.xml",
+      "https://feeds.npr.org/1007/rss.xml",
+    ],
+  },
+  bbc: {
+    name: "BBC",
+    feeds: [
+      "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+      "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    ],
+  },
 };
 
 function decodeXmlEntities(s: string): string {
@@ -267,17 +294,31 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
     if (!cfg) {
       return json({ error: "Unknown source", sources: Object.keys(NEWS_SOURCES) }, 400, cors);
     }
-    try {
-      const res = await fetch(cfg.rss, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
-      });
-      if (!res.ok) throw new Error("RSS fetch failed: " + res.status);
-      const xml = await res.text();
-      const items = extractRssItems(xml, cfg.name, limit);
-      return json({ source: cfg.name, items }, 200, cors);
-    } catch (e) {
-      return json({ error: "RSS fetch failed", detail: String(e) }, 502, cors);
+    const all: NewsItem[] = [];
+    const seen = new Set<string>();
+    for (const feed of cfg.feeds) {
+      try {
+        const res = await fetch(feed, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
+        });
+        if (!res.ok) continue;
+        const xml = await res.text();
+        for (const it of extractRssItems(xml, cfg.name, limit * 2)) {
+          if (!seen.has(it.link)) {
+            seen.add(it.link);
+            all.push(it);
+          }
+        }
+      } catch {
+        // 单个 feed 失败不阻断其他 feed
+      }
     }
+    all.sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
+    const items = all.slice(0, limit);
+    if (items.length === 0) {
+      return json({ error: "No articles from feeds" }, 502, cors);
+    }
+    return json({ source: cfg.name, items }, 200, cors);
   }
 
   return json({ error: "Not Found" }, 404, cors);

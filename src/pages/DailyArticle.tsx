@@ -25,13 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { db } from "@/lib/db";
 import { fetchNewsList, fetchArticleContent, type NewsItem } from "@/lib/news";
 import {
   generateArticleQuestions,
   recognizeNewWords,
   explainWord,
+  translateArticle,
   type ArticleQuestion,
   type NewWord,
   type WordExplanation,
@@ -39,8 +39,10 @@ import {
 
 const SOURCES = [
   { value: "chinadaily", label: "China Daily" },
-  { value: "cnn", label: "CNN" },
-  { value: "reuters", label: "Reuters" },
+  { value: "nyt", label: "The New York Times" },
+  { value: "guardian", label: "The Guardian" },
+  { value: "npr", label: "NPR" },
+  { value: "bbc", label: "BBC" },
 ];
 
 interface FavoriteArticle {
@@ -78,8 +80,7 @@ export default function DailyArticle() {
   const [articleError, setArticleError] = useState("");
 
   const [questions, setQuestions] = useState<ArticleQuestion[] | null>(null);
-  const [answers, setAnswers] = useState<string[]>([]);
-  const [showAnswers, setShowAnswers] = useState(false);
+
   const [generating, setGenerating] = useState(false);
   const [questionError, setQuestionError] = useState("");
 
@@ -90,8 +91,15 @@ export default function DailyArticle() {
   const [explaining, setExplaining] = useState(false);
 
   const [favorites, setFavorites] = useState<FavoriteArticle[]>(() => loadFavorites());
+  const [showFavorites, setShowFavorites] = useState(false);
   const [importingWords, setImportingWords] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+
+  const [sidebarTab, setSidebarTab] = useState<"words" | "quiz">("words");
+  const [selectedOptions, setSelectedOptions] = useState<(number | null)[]>([]);
+  const [showQuizAnswers, setShowQuizAnswers] = useState(false);
+  const [translation, setTranslation] = useState("");
+  const [translating, setTranslating] = useState(false);
 
   const loadList = useCallback(async (src: string) => {
     setListLoading(true);
@@ -115,10 +123,11 @@ export default function DailyArticle() {
     setContent("");
     setArticleError("");
     setQuestions(null);
-    setAnswers([]);
-    setShowAnswers(false);
     setNewWords(null);
     setExplanation(null);
+    setSidebarTab("words");
+    setSelectedOptions([]);
+    setTranslation("");
     setArticleLoading(true);
     try {
       const res = await fetchArticleContent(item.link);
@@ -137,8 +146,8 @@ export default function DailyArticle() {
     try {
       const qs = await generateArticleQuestions(content, 3);
       setQuestions(qs);
-      setAnswers(qs.map(() => ""));
-      setShowAnswers(false);
+      setSelectedOptions(qs.map(() => null));
+      setShowQuizAnswers(false);
     } catch (e) {
       setQuestionError(String(e));
     } finally {
@@ -234,6 +243,19 @@ export default function DailyArticle() {
     }
   };
 
+  const handleTranslateArticle = async () => {
+    if (!content || translation) return;
+    setTranslating(true);
+    try {
+      const t = await translateArticle(content);
+      setTranslation(t);
+    } catch (e) {
+      setWordError(String(e));
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between">
@@ -268,14 +290,25 @@ export default function DailyArticle() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              size="sm"
+              variant={showFavorites ? "secondary" : "outline"}
+              onClick={() => setShowFavorites((v) => !v)}
+            >
+              收藏夹
+            </Button>
             {listLoading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
           </div>
-          {favorites.length > 0 && (
-            <div className="rounded-md border bg-muted/30 p-3">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">我的收藏</p>
-              <div className="space-y-1">
-                {favorites.map((f) => (
-                  <div key={f.link} className="flex items-center justify-between gap-2 text-sm">
+          {showFavorites ? (
+            <div className="space-y-2">
+              {favorites.length === 0 ? (
+                <p className="text-sm text-muted-foreground">暂无收藏文章。</p>
+              ) : (
+                favorites.map((f) => (
+                  <div
+                    key={f.link}
+                    className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                  >
                     <button
                       type="button"
                       className="min-w-0 truncate text-left hover:underline"
@@ -287,33 +320,36 @@ export default function DailyArticle() {
                       移除
                     </Button>
                   </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <>
+              {listError && <p className="text-xs text-red-600">{listError}</p>}
+              {!listLoading && items.length === 0 && !listError && (
+                <p className="text-sm text-muted-foreground">暂无文章，请尝试切换来源或稍后刷新。</p>
+              )}
+              <div className="grid gap-2">
+                {items.map((it) => (
+                  <Button
+                    key={it.link}
+                    variant="outline"
+                    className="h-auto w-full justify-start px-4 py-3 text-left"
+                    onClick={() => openArticle(it)}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{it.title}</div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="secondary">{it.source}</Badge>
+                        <span>{it.pubDate}</span>
+                        {it.description && <span className="truncate">{it.description}</span>}
+                      </div>
+                    </div>
+                  </Button>
                 ))}
               </div>
-            </div>
+            </>
           )}
-          {listError && <p className="text-xs text-red-600">{listError}</p>}
-          {!listLoading && items.length === 0 && !listError && (
-            <p className="text-sm text-muted-foreground">暂无文章，请尝试切换来源或稍后刷新。</p>
-          )}
-          <div className="grid gap-2">
-            {items.map((it) => (
-              <Button
-                key={it.link}
-                variant="outline"
-                className="h-auto w-full justify-start px-4 py-3 text-left"
-                onClick={() => openArticle(it)}
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{it.title}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary">{it.source}</Badge>
-                    <span>{it.pubDate}</span>
-                    {it.description && <span className="truncate">{it.description}</span>}
-                  </div>
-                </div>
-              </Button>
-            ))}
-          </div>
         </CardContent>
       </Card>
 
@@ -354,153 +390,213 @@ export default function DailyArticle() {
               )}
               {articleError && <p className="text-sm text-red-600">{articleError}</p>}
               {content && (
-                <div className="space-y-4">
-                  <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
-                    {content}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 border-t pt-4">
-                    <Button onClick={handleGenerateQuestions} disabled={generating || !content}>
-                      {generating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                      AI 出题
-                    </Button>
-                    <Button variant="outline" onClick={handleRecognizeWords} disabled={recognizing || !content}>
-                      {recognizing ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
-                      识别生词
-                    </Button>
-                  </div>
-
-                  {questionError && <p className="text-xs text-red-600">{questionError}</p>}
-
-                  {questions && (
-                    <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
-                      <h3 className="flex items-center gap-2 font-semibold">
-                        <Sparkles className="size-4 text-purple-500" />
-                        阅读理解题
-                      </h3>
-                      {questions.map((q, i) => (
-                        <div key={i} className="space-y-2">
-                          <p className="text-sm font-medium">
-                            {i + 1}. {q.question}
-                          </p>
-                          <Textarea
-                            value={answers[i] ?? ""}
-                            onChange={(e) =>
-                              setAnswers((prev) => prev.map((a, idx) => (idx === i ? e.target.value : a)))
-                            }
-                            placeholder="输入你的答案…"
-                            rows={2}
-                          />
-                          {showAnswers && (
-                            <p className="text-xs text-green-600">
-                              参考答案：{q.answer}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setShowAnswers((v) => !v)}
-                        >
-                          {showAnswers ? "隐藏参考答案" : "查看参考答案"}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                  {content}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* 生词侧栏 */}
+          {/* 学习工具侧栏 */}
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">AI 生词</CardTitle>
-                <CardDescription>按当前词汇标准识别</CardDescription>
+                <CardTitle className="text-base">学习工具</CardTitle>
+                <CardDescription>生词识别 / AI 选择题</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {wordError && <p className="text-xs text-red-600">{wordError}</p>}
-                {!newWords && (
-                  <p className="text-xs text-muted-foreground">
-                    点击「识别生词」从当前文章中提取生词。
-                  </p>
-                )}
-                {newWords && (
-                  <div className="space-y-2">
-                    {newWords.map((w) => (
-                      <button
-                        key={w.word}
-                        type="button"
-                        className="flex w-full items-start justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                        onClick={() => handleExplainWord(w.word)}
-                      >
-                        <span className="font-medium">{w.word}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {w.pos} {w.meaning}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {newWords && newWords.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
                   <Button
                     size="sm"
-                    className="w-full"
-                    onClick={importWordsToDeck}
-                    disabled={importingWords}
+                    variant={sidebarTab === "words" ? "default" : "outline"}
+                    onClick={() => setSidebarTab("words")}
                   >
-                    {importingWords ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
-                    导入生词到词库
+                    生词
                   </Button>
-                )}
-                {importMsg && <p className="text-xs text-muted-foreground">{importMsg}</p>}
-                {explaining && (
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="size-3 animate-spin" />
-                    正在讲解…
-                  </p>
-                )}
-                {explanation && (
-                  <div className="space-y-2 rounded-md border bg-muted/40 p-3 text-sm">
-                    <p className="flex items-center gap-2 font-semibold">
-                      {explanation.word}
-                      <Badge variant="secondary">{explanation.pos}</Badge>
+                  <Button
+                    size="sm"
+                    variant={sidebarTab === "quiz" ? "default" : "outline"}
+                    onClick={() => setSidebarTab("quiz")}
+                  >
+                    AI 出题
+                  </Button>
+                </div>
+
+                {sidebarTab === "words" ? (
+                  <>
+                    {wordError && <p className="text-xs text-red-600">{wordError}</p>}
+                    {!newWords && (
+                      <p className="text-xs text-muted-foreground">
+                        点击「识别生词」从当前文章中提取生词。
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={handleRecognizeWords}
+                      disabled={recognizing || !content}
+                    >
+                      {recognizing ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
+                      识别生词
+                    </Button>
+                    {newWords && (
+                      <div className="space-y-2">
+                        {newWords.map((w) => (
+                          <button
+                            key={w.word}
+                            type="button"
+                            className="flex w-full items-start justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                            onClick={() => handleExplainWord(w.word)}
+                          >
+                            <span className="font-medium">{w.word}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {w.pos} {w.meaning}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {newWords && newWords.length > 0 && (
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6"
-                        onClick={() => {
-                          const u = new SpeechSynthesisUtterance(explanation.word);
-                          window.speechSynthesis.speak(u);
-                        }}
-                        title="发音"
+                        size="sm"
+                        className="w-full"
+                        onClick={importWordsToDeck}
+                        disabled={importingWords}
                       >
-                        <Volume2 className="size-3.5" />
+                        {importingWords ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
+                        导入生词到词库
                       </Button>
-                    </p>
-                    <p>{explanation.meaning}</p>
-                    <p className="text-xs text-muted-foreground">例：{explanation.example}</p>
-                    <p className="text-xs text-muted-foreground">译：{explanation.exampleCn}</p>
+                    )}
+                    {importMsg && <p className="text-xs text-muted-foreground">{importMsg}</p>}
+                    {explaining && (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="size-3 animate-spin" />
+                        正在讲解…
+                      </p>
+                    )}
+                    {explanation && (
+                      <div className="space-y-2 rounded-md border bg-muted/40 p-3 text-sm">
+                        <p className="flex items-center gap-2 font-semibold">
+                          {explanation.word}
+                          <Badge variant="secondary">{explanation.pos}</Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() => {
+                              const u = new SpeechSynthesisUtterance(explanation.word);
+                              window.speechSynthesis.speak(u);
+                            }}
+                            title="发音"
+                          >
+                            <Volume2 className="size-3.5" />
+                          </Button>
+                        </p>
+                        <p>{explanation.meaning}</p>
+                        <p className="text-xs text-muted-foreground">例：{explanation.example}</p>
+                        <p className="text-xs text-muted-foreground">译：{explanation.exampleCn}</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          disabled={importingWords}
+                          onClick={() =>
+                            importSingleWord({
+                              word: explanation.word,
+                              pos: explanation.pos,
+                              meaning: explanation.meaning,
+                            })
+                          }
+                        >
+                          {importingWords ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
+                          加入词库
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {questionError && <p className="text-xs text-red-600">{questionError}</p>}
+                    {!questions && (
+                      <p className="text-xs text-muted-foreground">
+                        点击「AI 出题」生成阅读理解选择题。
+                      </p>
+                    )}
                     <Button
                       size="sm"
-                      variant="outline"
                       className="w-full"
-                      disabled={importingWords}
-                      onClick={() =>
-                        importSingleWord({
-                          word: explanation.word,
-                          pos: explanation.pos,
-                          meaning: explanation.meaning,
-                        })
-                      }
+                      onClick={handleGenerateQuestions}
+                      disabled={generating || !content}
                     >
-                      {importingWords ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
-                      加入词库
+                      {generating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                      AI 出题
                     </Button>
-                  </div>
+
+                    {questions &&
+                      questions.map((q, i) => (
+                        <div key={i} className="space-y-2 rounded-md border p-3">
+                          <p className="text-sm font-medium">
+                            {i + 1}. {q.question}
+                          </p>
+                          <div className="grid gap-1">
+                            {q.options.map((opt, oi) => (
+                              <Button
+                                key={oi}
+                                size="sm"
+                                variant={selectedOptions[i] === oi ? "secondary" : "outline"}
+                                className="justify-start"
+                                onClick={() =>
+                                  setSelectedOptions((prev) =>
+                                    prev.map((v, idx) => (idx === i ? oi : v))
+                                  )
+                                }
+                              >
+                                {String.fromCharCode(65 + oi)}. {opt}
+                              </Button>
+                            ))}
+                          </div>
+                          {showQuizAnswers && (
+                            <div className="space-y-1 text-xs">
+                              <p className="text-green-600">
+                                答案：{q.answer}. {q.options["ABCD".indexOf(q.answer.toUpperCase())] ?? q.answer}
+                              </p>
+                              <p className="text-muted-foreground">解析：{q.explanation}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                    {questions && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full"
+                        onClick={() => setShowQuizAnswers((v) => !v)}
+                      >
+                        {showQuizAnswers ? "隐藏答案解析" : "查看答案解析"}
+                      </Button>
+                    )}
+
+                    {questions && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={handleTranslateArticle}
+                        disabled={translating || !!translation}
+                      >
+                        {translating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                        {translation ? "已显示全文翻译" : "全文翻译"}
+                      </Button>
+                    )}
+
+                    {translation && (
+                      <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs leading-6">
+                        {translation}
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

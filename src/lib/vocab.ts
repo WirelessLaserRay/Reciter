@@ -5,7 +5,9 @@ export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
 
 export interface ArticleQuestion {
   question: string;
+  options: string[];
   answer: string;
+  explanation: string;
 }
 
 export interface NewWord {
@@ -60,7 +62,7 @@ async function getClient(): Promise<AIClient> {
   return client;
 }
 
-/** 根据文章生成阅读理解题（含参考答案） */
+/** 根据文章生成阅读理解选择题（含选项、答案、中文解析） */
 export async function generateArticleQuestions(
   content: string,
   count = 3
@@ -68,10 +70,10 @@ export async function generateArticleQuestions(
   const client = await getClient();
   const standard = await getVocabStandard();
   const prompt = [
-    `你是英语阅读出题老师。请根据下面的文章，出 ${count} 道阅读理解题。`,
+    `你是英语阅读出题老师。请根据下面的文章，出 ${count} 道阅读理解选择题。`,
     `难度标准：${standard}。`,
-    "每道题包含 question 和 answer（参考答案）。",
-    '只输出 JSON 数组，格式：[{"question":"...","answer":"..."}]',
+    "每题包含：question（题干）、options（4 个选项 A-D）、answer（正确选项字母 A/B/C/D）、explanation（中文解析）。",
+    '只输出 JSON 数组，格式：[{"question":"...","options":["A选项","B选项","C选项","D选项"],"answer":"A","explanation":"中文解析"}]',
     "",
     "文章：",
     content.slice(0, 8000),
@@ -81,6 +83,20 @@ export async function generateArticleQuestions(
     { role: "user", content: prompt },
   ]);
   return extractJsonArray<ArticleQuestion>(raw).slice(0, count);
+}
+
+/** 全文翻译成中文 */
+export async function translateArticle(content: string): Promise<string> {
+  const client = await getClient();
+  const prompt = [
+    "请将下面的英文文章完整翻译成中文，保留段落结构，只输出翻译结果。",
+    "",
+    content.slice(0, 10000),
+  ].join("\n");
+  return client.chat([
+    { role: "system", content: "你是 Reciter 文章翻译助手，只输出中文翻译。" },
+    { role: "user", content: prompt },
+  ]);
 }
 
 /** 从文章中识别生词（含词性和中文释义） */
