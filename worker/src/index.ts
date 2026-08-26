@@ -3,9 +3,13 @@
  *
  * 1. DeepL CORS Proxy：纯转发代理，接收前端请求（携带用户自己的 API Key），转发到 DeepL。
  * 2. 轻量全量快照同步：把 Reciter 备份 JSON 存到 KV，供 PWA / Windows 跨端同步。
+ * 3. 每日一文：RSS 代理 + Readability 正文提取。
  *
  * Worker 不存储 DeepL Key；同步 Token 通过环境变量 SYNC_TOKEN 配置（wrangler secret put）。
  */
+
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 
 const DEEPL_API = "https://api-free.deepl.com/v2/translate";
 
@@ -165,7 +169,13 @@ interface NewsItem {
   description: string;
   pubDate: string;
   source: string;
+  /** RSS 自带全文（如有） */
+  content?: string;
 }
+
+const MAX_ARTICLE_LENGTH = 30000;
+/** 近期 RSS 自带的全文缓存：URL -> 全文（Worker 单实例内存） */
+const rssFullTextCache = new Map<string, string>();
 
 const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
   chinadaily: {
@@ -237,32 +247,99 @@ function extractRssItems(xml: string, source: string, limit: number): NewsItem[]
     const sourceUrl = pickAttr("source", "url") || link;
     const description = pick("description");
     const pubDate = pick("pubDate");
+    const fullContent = pick("content:encoded") || (description.length > 1000 ? description : "");
     if (title && sourceUrl) {
-      items.push({ title, link: sourceUrl, description, pubDate, source });
+      if (fullContent) rssFullTextCache.set(sourceUrl, fullContent);
+      items.push({ title, link: sourceUrl, description, pubDate, source, content: fullContent || undefined });
     }
   }
   return items;
 }
 
-/** 抓取文章正文：提取 <p> 文本，去掉脚本/样式，限制长度 */
-async function fetchArticleText(url: string): Promise<string> {
+/** 清理正文中的噪声行 */
+function cleanArticleText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      const lower = line.toLowerCase();
+      if (lower.includes("advertisement")) return false;
+      if (lower.includes("sign up for")) return false;
+      if (lower.includes("all rights reserved")) return false;
+      if (lower.includes("copyright")) return false;
+      if (lower.includes("caption")) return false;
+      if (lower.includes("figure")) return false;
+      if (lower.length < 2) return false;
+      return true;
+    })
+    .join("\n\n");
+}
+
+/**
+ * 抓取文章正文：
+ * 1. 优先使用 RSS 自带全文缓存
+ * 2. 否则 fetch URL → DOMParser → Mozilla Readability
+ * 3. 清理 figure / caption / copyright 等噪声
+ * 4. 质量检测 + 长度限制
+ */
+async function fetchArticleText(url: string): Promise<{ content: string; truncated: boolean }> {
+  // 1. RSS 全文优先
+  const cached = rssFullTextCache.get(url);
+  if (cached && cached.trim().length >= 200) {
+    const cleaned = cleanArticleText(cached);
+    return {
+      content: cleaned.slice(0, MAX_ARTICLE_LENGTH),
+      truncated: cleaned.length > MAX_ARTICLE_LENGTH,
+    };
+  }
+
+  // 2. 抓取原始页面
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)",
-      Accept: "text/html,application/xhtml+xml",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
     },
+    redirect: "follow",
   });
   if (!res.ok) throw new Error("Article fetch failed: " + res.status);
   const html = await res.text();
-  const cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
-  const paragraphs = [...cleaned.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
-    .map((mm) => decodeXmlEntities(stripTags(mm[1])))
-    .filter((t) => t.length > 20);
-  const text = paragraphs.join("\n\n").slice(0, 12000);
-  return text || decodeXmlEntities(stripTags(cleaned)).slice(0, 8000);
+
+  // 3. DOM 解析 + 清理广告/版权节点
+  const { document } = parseHTML(html);
+  document
+    .querySelectorAll(
+      "script, style, noscript, figure, figcaption, footer, aside, nav, form, iframe, .ad, .ads, .advertisement, .caption, .copyright"
+    )
+    .forEach((el) => el.remove());
+
+  // 4. Mozilla Readability 提取正文
+  const article = new Readability(document as unknown as Document).parse();
+  let text = article?.textContent?.trim() ?? "";
+
+  // 5. 正文质量检测：Readability 失败或太短时回退到 <p> 提取
+  if (text.length < 200) {
+    const cleanedHtml = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+    const paragraphs = [...cleanedHtml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((mm) => decodeXmlEntities(stripTags(mm[1])))
+      .filter((t) => t.length > 20);
+    text = paragraphs.join("\n\n");
+  }
+
+  const cleaned = cleanArticleText(text);
+  if (cleaned.length < 100) {
+    throw new Error("Article content too short or not extractable");
+  }
+
+  return {
+    content: cleaned.slice(0, MAX_ARTICLE_LENGTH),
+    truncated: cleaned.length > MAX_ARTICLE_LENGTH,
+  };
 }
 
 async function handleNews(request: Request, cors: Record<string, string>): Promise<Response> {
@@ -276,11 +353,11 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       return json({ error: "Invalid url" }, 400, cors);
     }
     try {
-      const content = await fetchArticleText(target);
+      const { content, truncated } = await fetchArticleText(target);
       if (!content) {
         return json({ error: "No content extracted" }, 422, cors);
       }
-      return json({ content }, 200, cors);
+      return json({ content, truncated }, 200, cors);
     } catch (e) {
       return json({ error: "Article fetch failed", detail: String(e) }, 502, cors);
     }

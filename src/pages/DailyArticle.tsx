@@ -56,6 +56,11 @@ interface FavoriteArticle {
 
 const FAVORITES_KEY = "reciter-favorite-articles";
 
+/** 去掉 AI 返回选项里可能自带的前缀字母（A. / B) / C、等），避免重复显示 ABCD */
+function cleanOption(opt: string): string {
+  return opt.replace(/^[A-Da-d]\s*[.)、:：]\s*/, "").trim();
+}
+
 function loadFavorites(): FavoriteArticle[] {
   try {
     return JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]") as FavoriteArticle[];
@@ -76,6 +81,7 @@ export default function DailyArticle() {
 
   const [selected, setSelected] = useState<NewsItem | null>(null);
   const [content, setContent] = useState("");
+  const [articleTruncated, setArticleTruncated] = useState(false);
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleError, setArticleError] = useState("");
 
@@ -121,6 +127,7 @@ export default function DailyArticle() {
   const openArticle = async (item: NewsItem) => {
     setSelected(item);
     setContent("");
+    setArticleTruncated(false);
     setArticleError("");
     setQuestions(null);
     setNewWords(null);
@@ -132,6 +139,7 @@ export default function DailyArticle() {
     try {
       const res = await fetchArticleContent(item.link);
       setContent(res.content);
+      setArticleTruncated(!!res.truncated);
     } catch (e) {
       setArticleError(String(e));
     } finally {
@@ -389,6 +397,9 @@ export default function DailyArticle() {
                 </div>
               )}
               {articleError && <p className="text-sm text-red-600">{articleError}</p>}
+              {articleTruncated && (
+                <p className="text-xs text-amber-600">文章过长，已截断显示前 30000 字符。</p>
+              )}
               {content && (
                 <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
                   {content}
@@ -545,21 +556,21 @@ export default function DailyArticle() {
                                 key={oi}
                                 size="sm"
                                 variant={selectedOptions[i] === oi ? "secondary" : "outline"}
-                                className="justify-start"
+                                className="h-auto min-h-9 justify-start whitespace-normal break-words px-2 py-2 text-left leading-relaxed"
                                 onClick={() =>
                                   setSelectedOptions((prev) =>
                                     prev.map((v, idx) => (idx === i ? oi : v))
                                   )
                                 }
                               >
-                                {String.fromCharCode(65 + oi)}. {opt}
+                                {String.fromCharCode(65 + oi)}. {cleanOption(opt)}
                               </Button>
                             ))}
                           </div>
                           {showQuizAnswers && (
                             <div className="space-y-1 text-xs">
                               <p className="text-green-600">
-                                答案：{q.answer}. {q.options["ABCD".indexOf(q.answer.toUpperCase())] ?? q.answer}
+                                答案：{q.answer}. {cleanOption(q.options["ABCD".indexOf(q.answer.toUpperCase())] ?? q.answer)}
                               </p>
                               <p className="text-muted-foreground">解析：{q.explanation}</p>
                             </div>

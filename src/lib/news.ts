@@ -17,6 +17,7 @@ export interface NewsListResult {
 
 export interface ArticleResult {
   content: string;
+  truncated?: boolean;
 }
 
 const httpFetch = isTauri()
