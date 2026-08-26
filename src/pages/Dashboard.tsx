@@ -176,7 +176,7 @@ export default function Dashboard() {
             <Newspaper className="size-4 text-primary" />
             每日一文
           </CardTitle>
-          <CardDescription>China Daily / CNN / Reuters 热点文章 + AI 出题 + 生词识别</CardDescription>
+          <CardDescription>CGTN / CNN / Guardian / NPR / BBC + 自定义 RSS，AI 出题 + 生词识别</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">每天读一篇，AI 帮你出题和讲解生词</p>

@@ -10,9 +10,36 @@ export interface NewsItem {
   source: string;
 }
 
+export interface NewsTopic {
+  id: string;
+  label: string;
+  url: string;
+}
+
 export interface NewsListResult {
   source: string;
+  topics?: NewsTopic[];
   items: NewsItem[];
+}
+
+export interface CustomRssSource {
+  id: string;
+  name: string;
+  topics: NewsTopic[];
+}
+
+const CUSTOM_RSS_KEY = "reciter-custom-rss-sources";
+
+export function getCustomRssSources(): CustomRssSource[] {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_RSS_KEY) ?? "[]") as CustomRssSource[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomRssSources(sources: CustomRssSource[]): void {
+  localStorage.setItem(CUSTOM_RSS_KEY, JSON.stringify(sources));
 }
 
 export interface ArticleResult {
@@ -39,15 +66,33 @@ export async function getWorkerBaseUrl(): Promise<string> {
   return trimSlash(syncEndpoint ?? "") || trimSlash(deeplProxy ?? "");
 }
 
-/** 拉取 RSS 新闻列表 */
-export async function fetchNewsList(source: string, limit = 5): Promise<NewsListResult> {
+/** 拉取内置 RSS 新闻列表；topic 为空时拉取该媒体全部主题 */
+export async function fetchNewsList(source: string, topic?: string, limit = 8): Promise<NewsListResult> {
   const base = await getWorkerBaseUrl();
   if (!base) throw new Error("请先在设置中配置 Worker 地址（同步地址或 DeepL CORS 代理）");
-  const res = await httpFetch(
-    `${base}/api/news?source=${encodeURIComponent(source)}&limit=${limit}`,
-    { headers: { Accept: "application/json" } }
-  );
+  const params = new URLSearchParams({ source, limit: String(limit) });
+  if (topic) params.set("topic", topic);
+  const res = await httpFetch(`${base}/api/news?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
   if (!res.ok) throw new Error(`新闻列表请求失败（HTTP ${res.status}）`);
+  return (await res.json()) as NewsListResult;
+}
+
+/** 拉取自导入 RSS 源（多个主题链接） */
+export async function fetchCustomNews(
+  name: string,
+  urls: string[],
+  limit = 8
+): Promise<NewsListResult> {
+  const base = await getWorkerBaseUrl();
+  if (!base) throw new Error("请先在设置中配置 Worker 地址（同步地址或 DeepL CORS 代理）");
+  const res = await httpFetch(`${base}/api/news/custom`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ name, urls, limit }),
+  });
+  if (!res.ok) throw new Error(`自定义 RSS 请求失败（HTTP ${res.status}）`);
   return (await res.json()) as NewsListResult;
 }
 

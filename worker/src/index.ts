@@ -193,36 +193,47 @@ function isFullEnough(paragraphs: string[]): boolean {
   return paragraphs.length >= 3 && paragraphs.reduce((sum, p) => sum + p.length, 0) >= 400;
 }
 
-const NEWS_SOURCES: Record<string, { name: string; feeds: string[] }> = {
-  chinadaily: {
-    name: "China Daily",
-    feeds: [
-      "https://www.chinadaily.com.cn/rss/opinion_rss.xml",
-      "https://www.chinadaily.com.cn/rss/world_rss.xml",
+interface NewsTopic {
+  id: string;
+  label: string;
+  url: string;
+}
+
+const NEWS_SOURCES: Record<string, { name: string; topics: NewsTopic[] }> = {
+  cgtn: {
+    name: "CGTN",
+    topics: [
+      { id: "world", label: "World", url: "https://www.cgtn.com/subscribe/rss/section/world.xml" },
+      { id: "opinion", label: "Opinion", url: "https://www.cgtn.com/subscribe/rss/section/opinion.xml" },
+      { id: "tech-sci", label: "Tech/Sci", url: "https://www.cgtn.com/subscribe/rss/section/tech-sci.xml" },
+      { id: "culture", label: "Culture", url: "https://www.cgtn.com/subscribe/rss/section/culture.xml" },
     ],
   },
-  cnn: { name: "CNN", feeds: ["http://rss.cnn.com/rss/edition.rss"] },
+  cnn: {
+    name: "CNN",
+    topics: [{ id: "edition", label: "Edition", url: "http://rss.cnn.com/rss/edition.rss" }],
+  },
   guardian: {
     name: "The Guardian",
-    feeds: [
-      "https://www.theguardian.com/world/rss",
-      "https://www.theguardian.com/technology/rss",
-      "https://www.theguardian.com/environment/rss",
+    topics: [
+      { id: "world", label: "World", url: "https://www.theguardian.com/world/rss" },
+      { id: "technology", label: "Technology", url: "https://www.theguardian.com/technology/rss" },
+      { id: "environment", label: "Environment", url: "https://www.theguardian.com/environment/rss" },
     ],
   },
   npr: {
     name: "NPR",
-    feeds: [
-      "https://feeds.npr.org/1001/rss.xml",
-      "https://feeds.npr.org/1007/rss.xml",
+    topics: [
+      { id: "top-stories", label: "Top Stories", url: "https://feeds.npr.org/1001/rss.xml" },
+      { id: "science", label: "Science", url: "https://feeds.npr.org/1007/rss.xml" },
     ],
   },
   bbc: {
     name: "BBC",
-    feeds: [
-      "https://feeds.bbci.co.uk/news/world/rss.xml",
-      "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-      "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    topics: [
+      { id: "world", label: "World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+      { id: "science", label: "Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml" },
+      { id: "technology", label: "Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml" },
     ],
   },
 };
@@ -536,6 +547,31 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
   }
 }
 
+/** 抓取多个 RSS feed 并合并去重排序 */
+async function fetchRssFeeds(urls: string[], sourceName: string, limit: number): Promise<NewsItem[]> {
+  const all: NewsItem[] = [];
+  const seen = new Set<string>();
+  for (const feed of urls) {
+    try {
+      const res = await fetch(feed, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
+      });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      for (const it of extractRssItems(xml, sourceName, limit * 2)) {
+        if (!seen.has(it.link)) {
+          seen.add(it.link);
+          all.push(it);
+        }
+      }
+    } catch {
+      // 单个 feed 失败不阻断其他 feed
+    }
+  }
+  all.sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
+  return all.slice(0, limit);
+}
+
 async function handleNews(request: Request, cors: Record<string, string>): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -559,39 +595,53 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
     }
   }
 
-  // RSS 列表
+  // 自定义 RSS 列表（用户导入的多个主题链接）
+  if (path === "/api/news/custom" && request.method === "POST") {
+    try {
+      const body = (await request.json()) as { name?: string; urls?: string[]; limit?: number };
+      const limit = Math.min(10, Math.max(1, body.limit ?? 8));
+      const urls = (body.urls ?? [])
+        .map((u) => u.trim())
+        .filter((u) => /^https?:\/\//i.test(u))
+        .slice(0, 20);
+      if (urls.length === 0) {
+        return json({ error: "No valid urls" }, 400, cors);
+      }
+      const sourceName = body.name?.trim().slice(0, 50) || "Custom";
+      const items = await fetchRssFeeds(urls, sourceName, limit);
+      if (items.length === 0) {
+        return json({ error: "No articles from feeds" }, 502, cors);
+      }
+      return json({ source: sourceName, items }, 200, cors);
+    } catch (e) {
+      return json({ error: "Invalid request", detail: String(e) }, 400, cors);
+    }
+  }
+
+  // 内置 RSS 列表（支持 topic 切换）
   if (path === "/api/news" && request.method === "GET") {
-    const source = url.searchParams.get("source") ?? "chinadaily";
-    const limit = Math.min(10, Math.max(1, parseInt(url.searchParams.get("limit") ?? "5", 10) || 5));
+    const source = url.searchParams.get("source") ?? "cgtn";
+    const topic = url.searchParams.get("topic") ?? "";
+    const limit = Math.min(10, Math.max(1, parseInt(url.searchParams.get("limit") ?? "8", 10) || 8));
     const cfg = NEWS_SOURCES[source];
     if (!cfg) {
       return json({ error: "Unknown source", sources: Object.keys(NEWS_SOURCES) }, 400, cors);
     }
-    const all: NewsItem[] = [];
-    const seen = new Set<string>();
-    for (const feed of cfg.feeds) {
-      try {
-        const res = await fetch(feed, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
-        });
-        if (!res.ok) continue;
-        const xml = await res.text();
-        for (const it of extractRssItems(xml, cfg.name, limit * 2)) {
-          if (!seen.has(it.link)) {
-            seen.add(it.link);
-            all.push(it);
-          }
-        }
-      } catch {
-        // 单个 feed 失败不阻断其他 feed
-      }
+    const selectedTopics = topic
+      ? cfg.topics.filter((t) => t.id === topic)
+      : cfg.topics;
+    if (topic && selectedTopics.length === 0) {
+      return json({ error: "Unknown topic", topics: cfg.topics }, 400, cors);
     }
-    all.sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
-    const items = all.slice(0, limit);
+    const items = await fetchRssFeeds(
+      selectedTopics.map((t) => t.url),
+      cfg.name,
+      limit
+    );
     if (items.length === 0) {
       return json({ error: "No articles from feeds" }, 502, cors);
     }
-    return json({ source: cfg.name, items }, 200, cors);
+    return json({ source: cfg.name, topics: cfg.topics, items }, 200, cors);
   }
 
   return json({ error: "Not Found" }, 404, cors);

@@ -27,7 +27,16 @@ import {
 } from "@/components/ui/select";
 import { db } from "@/lib/db";
 import { getAIConfig } from "@/lib/ai-client";
-import { fetchNewsList, fetchArticleContent, getWorkerBaseUrl, type NewsItem } from "@/lib/news";
+import {
+  fetchNewsList,
+  fetchCustomNews,
+  fetchArticleContent,
+  getWorkerBaseUrl,
+  getCustomRssSources,
+  type CustomRssSource,
+  type NewsItem,
+  type NewsTopic,
+} from "@/lib/news";
 import {
   generateArticleQuestions,
   recognizeNewWords,
@@ -39,12 +48,54 @@ import {
   type WordExplanation,
 } from "@/lib/vocab";
 
-const SOURCES = [
-  { value: "chinadaily", label: "China Daily" },
-  { value: "cnn", label: "CNN" },
-  { value: "guardian", label: "The Guardian" },
-  { value: "npr", label: "NPR" },
-  { value: "bbc", label: "BBC" },
+interface BuiltInSource {
+  value: string;
+  label: string;
+  topics: NewsTopic[];
+}
+
+const BUILT_IN_SOURCES: BuiltInSource[] = [
+  {
+    value: "cgtn",
+    label: "CGTN",
+    topics: [
+      { id: "world", label: "World", url: "https://www.cgtn.com/subscribe/rss/section/world.xml" },
+      { id: "opinion", label: "Opinion", url: "https://www.cgtn.com/subscribe/rss/section/opinion.xml" },
+      { id: "tech-sci", label: "Tech/Sci", url: "https://www.cgtn.com/subscribe/rss/section/tech-sci.xml" },
+      { id: "culture", label: "Culture", url: "https://www.cgtn.com/subscribe/rss/section/culture.xml" },
+    ],
+  },
+  {
+    value: "cnn",
+    label: "CNN",
+    topics: [{ id: "edition", label: "Edition", url: "http://rss.cnn.com/rss/edition.rss" }],
+  },
+  {
+    value: "guardian",
+    label: "The Guardian",
+    topics: [
+      { id: "world", label: "World", url: "https://www.theguardian.com/world/rss" },
+      { id: "technology", label: "Technology", url: "https://www.theguardian.com/technology/rss" },
+      { id: "environment", label: "Environment", url: "https://www.theguardian.com/environment/rss" },
+    ],
+  },
+  {
+    value: "npr",
+    label: "NPR",
+    topics: [
+      { id: "top-stories", label: "Top Stories", url: "https://feeds.npr.org/1001/rss.xml" },
+      { id: "science", label: "Science", url: "https://feeds.npr.org/1007/rss.xml" },
+    ],
+  },
+  {
+    value: "bbc",
+    label: "BBC",
+    topics: [
+      { id: "world", label: "World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+      { id: "science", label: "Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml" },
+      { id: "technology", label: "Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml" },
+    ],
+  },
 ];
 
 interface FavoriteArticle {
@@ -76,7 +127,9 @@ function saveFavorites(list: FavoriteArticle[]) {
 }
 
 export default function DailyArticle() {
-  const [source, setSource] = useState("chinadaily");
+  const [source, setSource] = useState("cgtn");
+  const [topic, setTopic] = useState("");
+  const [customSources] = useState<CustomRssSource[]>(() => getCustomRssSources());
   const [items, setItems] = useState<NewsItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState("");
@@ -112,22 +165,33 @@ export default function DailyArticle() {
   const [aiOk, setAiOk] = useState(false);
   const [vocabLabel, setVocabLabel] = useState("考研");
 
-  const loadList = useCallback(async (src: string) => {
+  const loadList = useCallback(async (src: string, selectedTopic?: string) => {
     setListLoading(true);
     setListError("");
     try {
-      const res = await fetchNewsList(src, 8);
-      setItems(res.items);
+      if (src.startsWith("custom:")) {
+        const custom = customSources.find((c) => c.id === src.slice("custom:".length));
+        if (!custom) throw new Error("自定义源不存在");
+        const urls = selectedTopic
+          ? custom.topics.filter((t) => t.id === selectedTopic).map((t) => t.url)
+          : custom.topics.map((t) => t.url);
+        if (urls.length === 0) throw new Error("该主题无 RSS 链接");
+        const res = await fetchCustomNews(custom.name, urls, 8);
+        setItems(res.items);
+      } else {
+        const res = await fetchNewsList(src, selectedTopic || undefined, 8);
+        setItems(res.items);
+      }
     } catch (e) {
       setListError(String(e));
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [customSources]);
 
   useEffect(() => {
-    void loadList(source);
-  }, [source, loadList]);
+    void loadList(source, topic);
+  }, [source, topic, loadList]);
 
   // 加载每日一文所需设置状态
   useEffect(() => {
@@ -281,6 +345,21 @@ export default function DailyArticle() {
     }
   };
 
+  const allSources = [
+    ...BUILT_IN_SOURCES.map((s) => ({ value: s.value, label: s.label })),
+    ...customSources.map((c) => ({ value: `custom:${c.id}`, label: c.name })),
+  ];
+  const currentBuiltIn = BUILT_IN_SOURCES.find((s) => s.value === source);
+  const currentCustom = customSources.find((c) => `custom:${c.id}` === source);
+  const currentTopics = source.startsWith("custom:")
+    ? currentCustom?.topics ?? []
+    : currentBuiltIn?.topics ?? [];
+
+  const handleSourceChange = (v: string) => {
+    setSource(v);
+    setTopic("");
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between">
@@ -318,22 +397,37 @@ export default function DailyArticle() {
             <Newspaper className="size-5 text-primary" />
             每日一文
           </CardTitle>
-          <CardDescription>从主流英文媒体获取热点文章，AI 出题 + 生词识别</CardDescription>
+          <CardDescription>CGTN / CNN / Guardian / NPR / BBC + 自定义 RSS，AI 出题 + 生词识别</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Select value={source} onValueChange={setSource}>
+            <Select value={source} onValueChange={handleSourceChange}>
               <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SOURCES.map((s) => (
+                {allSources.map((s) => (
                   <SelectItem key={s.value} value={s.value}>
                     {s.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {currentTopics.length > 1 && (
+              <Select value={topic} onValueChange={setTopic}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="全部主题" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">全部主题</SelectItem>
+                  {currentTopics.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               size="sm"
               variant={showFavorites ? "secondary" : "outline"}

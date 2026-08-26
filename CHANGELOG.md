@@ -16,6 +16,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **自定义 RSS 源导入**：设置页可添加自己的 RSS 订阅链接，同一媒体支持多个主题链接
+
+### Changed
+
+- **每日一文来源调整**：China Daily 替换为 CGTN（World / Opinion / Tech-Sci / Culture）；同一媒体不同订阅链接支持切换内容主题
+- **主页每日一文描述更新**：改为 CGTN / CNN / Guardian / NPR / BBC + 自定义 RSS
+
 ### Planned
 
 - 后续方向：更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等

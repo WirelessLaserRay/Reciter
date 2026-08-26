@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -50,6 +51,7 @@ import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client
 import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
 import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
 import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
+import { getCustomRssSources, saveCustomRssSources, type CustomRssSource } from "@/lib/news";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
@@ -117,6 +119,12 @@ export default function Settings() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // 自定义 RSS 源
+  const [customRssSources, setCustomRssSources] = useState<CustomRssSource[]>(() => getCustomRssSources());
+  const [newRssName, setNewRssName] = useState("");
+  const [newRssText, setNewRssText] = useState("");
+  const [rssMsg, setRssMsg] = useState("");
 
   // 危险区
   const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
@@ -451,6 +459,48 @@ export default function Settings() {
     const r = await pullSnapshot();
     setSyncBusy(false);
     setSyncMsg({ ok: r.ok, text: r.message });
+  };
+
+  const handleAddCustomRss = () => {
+    const name = newRssName.trim();
+    if (!name) {
+      setRssMsg("请填写来源名称");
+      return;
+    }
+    const lines = newRssText.split("\n").map((s) => s.trim()).filter(Boolean);
+    const topics: CustomRssSource["topics"] = [];
+    for (const line of lines) {
+      const sep = line.lastIndexOf("|");
+      if (sep <= 0 || sep === line.length - 1) {
+        setRssMsg(`无效行（应为：主题名|URL）：${line}`);
+        return;
+      }
+      const label = line.slice(0, sep).trim();
+      const url = line.slice(sep + 1).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        setRssMsg(`无效 URL：${url}`);
+        return;
+      }
+      topics.push({ id: "t" + topics.length + "-" + Date.now().toString(36), label, url });
+    }
+    if (topics.length === 0) {
+      setRssMsg("请至少填写一个主题链接");
+      return;
+    }
+    const id = "custom-" + Date.now().toString(36);
+    const next = [...customRssSources, { id, name, topics }];
+    setCustomRssSources(next);
+    saveCustomRssSources(next);
+    setNewRssName("");
+    setNewRssText("");
+    setRssMsg(`已添加自定义 RSS 源「${name}」`);
+  };
+
+  const handleDeleteCustomRss = (id: string) => {
+    const next = customRssSources.filter((c) => c.id !== id);
+    setCustomRssSources(next);
+    saveCustomRssSources(next);
+    setRssMsg("已删除自定义 RSS 源");
   };
 
   const confirmDangerReset = async () => {
@@ -1122,6 +1172,56 @@ export default function Settings() {
                   <p>请先部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN，再填写上面的地址和 Token。</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* 自定义 RSS 源 */}
+          <Card>
+            <CardHeader>
+              <CardTitle>自定义 RSS 源</CardTitle>
+              <CardDescription>可导入自己的 RSS 订阅链接；同一媒体可添加多个主题链接</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-rss-name">来源名称</Label>
+                <Input
+                  id="custom-rss-name"
+                  value={newRssName}
+                  onChange={(e) => setNewRssName(e.target.value)}
+                  placeholder="例如：My Tech News"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-rss-links">主题链接（每行一个：主题名|URL）</Label>
+                <Textarea
+                  id="custom-rss-links"
+                  value={newRssText}
+                  onChange={(e) => setNewRssText(e.target.value)}
+                  rows={4}
+                  placeholder={"World|https://example.com/world.xml\nTech|https://example.com/tech.xml"}
+                />
+              </div>
+              <Button size="sm" onClick={handleAddCustomRss}>
+                添加自定义源
+              </Button>
+              {rssMsg && <p className="text-xs text-muted-foreground">{rssMsg}</p>}
+              {customRssSources.length > 0 && (
+                <div className="space-y-2">
+                  {customRssSources.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {c.topics.map((t) => t.label).join(" / ")}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => handleDeleteCustomRss(c.id)}>
+                        删除
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
