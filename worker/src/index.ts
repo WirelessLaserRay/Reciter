@@ -37,12 +37,15 @@ function isOriginAllowed(origin: string | null): boolean {
 }
 
 function corsHeaders(origin: string): Record<string, string> {
-  return {
-    "Access-Control-Allow-Origin": origin,
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token",
     "Access-Control-Max-Age": "86400",
   };
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
 }
 
 function json(data: unknown, status = 200, cors: Record<string, string>): Response {
@@ -67,16 +70,34 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
     return json({ error: "Unauthorized" }, 401, cors);
   }
 
+  const SNAPSHOT_KEY = "snapshot_data";
+
   if (path === "/api/sync/meta" && request.method === "GET") {
-    const updatedAt = await env.KV_BINDING.get("snapshot_updated_at");
-    return json({ updatedAt: updatedAt ?? null }, 200, cors);
+    const raw = await env.KV_BINDING.get(SNAPSHOT_KEY);
+    let updatedAt: string | null = null;
+    if (raw) {
+      try {
+        updatedAt = (JSON.parse(raw) as { updatedAt?: string }).updatedAt ?? null;
+      } catch {
+        updatedAt = null;
+      }
+    }
+    return json({ updatedAt }, 200, cors);
   }
 
   if (path === "/api/sync/snapshot") {
     if (request.method === "GET") {
-      const snapshot = await env.KV_BINDING.get("snapshot");
-      if (snapshot === null) {
+      const raw = await env.KV_BINDING.get(SNAPSHOT_KEY);
+      if (raw === null) {
         return json({ error: "No snapshot yet" }, 404, cors);
+      }
+      // 兼容旧数据：如果 raw 本身就是备份 JSON，则直接返回；否则取合并结构里的 snapshot
+      let snapshot = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.snapshot === "string") snapshot = parsed.snapshot;
+      } catch {
+        // raw 是旧版直接存储的备份 JSON
       }
       return new Response(snapshot, {
         status: 200,
@@ -95,14 +116,14 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
         return json({ error: "Invalid JSON" }, 400, cors);
       }
       const updatedAt = new Date().toISOString();
-      await env.KV_BINDING.put("snapshot", raw);
-      await env.KV_BINDING.put("snapshot_updated_at", updatedAt);
+      // 合并为单个 Key，避免 KV 最终一致性下 snapshot 与 updated_at 读取不一致
+      const payload = JSON.stringify({ updatedAt, snapshot: raw });
+      await env.KV_BINDING.put(SNAPSHOT_KEY, payload);
       return json({ ok: true, updatedAt }, 200, cors);
     }
 
     if (request.method === "DELETE") {
-      await env.KV_BINDING.delete("snapshot");
-      await env.KV_BINDING.delete("snapshot_updated_at");
+      await env.KV_BINDING.delete(SNAPSHOT_KEY);
       return json({ ok: true }, 200, cors);
     }
   }
@@ -174,8 +195,20 @@ interface NewsItem {
 }
 
 const MAX_ARTICLE_LENGTH = 30000;
-/** 近期 RSS 自带的全文缓存：URL -> 全文（Worker 单实例内存） */
+const RSS_FULL_TEXT_CACHE_MAX = 100;
+/** 近期 RSS 自带的全文缓存：URL -> 全文（Worker 单实例内存，带上限防内存泄漏） */
 const rssFullTextCache = new Map<string, string>();
+
+/** 写入 RSS 全文缓存，超过上限时清理一半最旧条目，防止 Worker 内存膨胀 */
+function setRssFullTextCache(url: string, content: string): void {
+  if (rssFullTextCache.size >= RSS_FULL_TEXT_CACHE_MAX) {
+    const keys = Array.from(rssFullTextCache.keys());
+    for (let i = 0; i < Math.ceil(RSS_FULL_TEXT_CACHE_MAX / 2); i++) {
+      rssFullTextCache.delete(keys[i]);
+    }
+  }
+  rssFullTextCache.set(url, content);
+}
 
 function truncateParagraphs(paragraphs: string[]): string[] {
   let total = 0;
@@ -255,12 +288,53 @@ function stripTags(s: string): string {
   return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 按 <item>...</item> 切分 RSS，CDATA 内的 </item> 不会被误判。
+ * 避免用正则直接解析 XML 导致 CDATA 内容破坏结构。
+ */
+function splitRssItems(xml: string): string[] {
+  const blocks: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let i = 0;
+  let inCdata = false;
+  while (i < xml.length) {
+    if (!inCdata && xml.startsWith("<![CDATA[", i)) {
+      inCdata = true;
+      i += "<![CDATA[".length;
+      continue;
+    }
+    if (inCdata && xml.startsWith("]]>", i)) {
+      inCdata = false;
+      i += 3;
+      continue;
+    }
+    if (!inCdata) {
+      if (xml.startsWith("<item>", i) || xml.startsWith("<item ", i)) {
+        if (depth === 0) start = i;
+        depth++;
+        i += "<item".length;
+        continue;
+      }
+      if (xml.startsWith("</item>", i) && depth > 0) {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          blocks.push(xml.slice(start, i + "</item>".length));
+          start = -1;
+        }
+        i += "</item>".length;
+        continue;
+      }
+    }
+    i++;
+  }
+  return blocks;
+}
+
 function extractRssItems(xml: string, source: string, limit: number): NewsItem[] {
   const items: NewsItem[] = [];
-  const itemRe = /<item>([\s\S]*?)<\/item>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = itemRe.exec(xml)) !== null && items.length < limit) {
-    const block = m[1];
+  for (const block of splitRssItems(xml)) {
+    if (items.length >= limit) break;
     const pick = (tag: string) => {
       const mm = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
       return mm ? decodeXmlEntities(stripTags(unwrapCdata(mm[1]))) : "";
@@ -276,7 +350,7 @@ function extractRssItems(xml: string, source: string, limit: number): NewsItem[]
     const pubDate = pick("pubDate");
     const fullContent = pick("content:encoded") || (description.length > 1000 ? description : "");
     if (title && sourceUrl) {
-      if (fullContent) rssFullTextCache.set(sourceUrl, fullContent);
+      if (fullContent) setRssFullTextCache(sourceUrl, fullContent);
       items.push({ title, link: sourceUrl, description, pubDate, source, content: fullContent || undefined });
     }
   }
@@ -322,6 +396,25 @@ function isGuardianUrl(url: string): boolean {
   return /theguardian\.com/i.test(url);
 }
 
+/** 简单 SSRF 防护：禁止自定义 RSS 请求内网/保留地址 */
+function isBlockedRssUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".local")) return true;
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) {
+      const a = parseInt(ipv4[1], 10);
+      const b = parseInt(ipv4[2], 10);
+      if (a === 10 || a === 127 || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)) {
+        return true;
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 /** 清理正文段落中的噪声 */
 function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
   return paragraphs
@@ -340,8 +433,8 @@ function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
     });
 }
 
-/** NYT 专用提取：JSON-LD articleBody / article 内段落 */
-function extractTimesArticle(html: string): string | null {
+/** 通用提取：JSON-LD articleBody / article 内段落 */
+function extractJsonLdArticle(html: string): string | null {
   const jsonLdBlocks = [
     ...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
   ];
@@ -386,31 +479,41 @@ function detectPaywall(html: string, text: string): boolean {
   ].some((s) => lower.includes(s));
 }
 
-/**
- * 抓取文章正文：
- * fetch 原始 URL → DOMParser → Readability → article.content 结构化解析
- * → Guardian 特殊清洗 → 质量检测 → 返回 paragraphs
- */
-async function fetchArticleDirect(url: string, debug: ArticleDebug): Promise<ArticleExtractResult> {
+async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "googlebot" | "twitter" = "googlebot"): Promise<ArticleExtractResult> {
+  const headers: Record<string, string> = {
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+
+  if (strategy === "googlebot") {
+    headers["User-Agent"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+    headers["Referer"] = "https://www.google.com/";
+    headers["X-Forwarded-For"] = "66.249.66.1";
+  } else if (strategy === "twitter") {
+    // 模拟正常用户从推特点击进入，很多媒体开放了社交媒体的 First Click Free
+    headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    headers["Referer"] = "https://t.co/";
+  }
+
   const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
+    headers,
     redirect: "follow",
+    signal: AbortSignal.timeout(15000),
   });
   debug.fetchStatus = res.status;
 
   // ① 记录真实 status；403/401 = 访问控制/订阅问题
   if (res.status === 401 || res.status === 403) {
-    debug.reason = "Times access control / subscription required (HTTP " + res.status + ")";
-    console.log("[Times] access control", url, res.status);
+    debug.reason = "Access control / subscription required (HTTP " + res.status + ")";
+    console.log(`[${strategy}] access control`, url, res.status);
     throw new Error(debug.reason);
   }
   if (!res.ok) throw new Error("Article fetch failed: " + res.status);
   const html = await res.text();
+  // 防止超大 HTML 导致 linkedom/Readability 消耗过多 CPU/内存
+  if (html.length > 5_000_000) {
+    throw new Error("Article too large");
+  }
 
   const { document } = parseHTML(html);
   // 只移除明确与正文无关的节点；figure/footer/aside/caption 等交给 Readability 和后续清洗处理
@@ -425,23 +528,23 @@ async function fetchArticleDirect(url: string, debug: ArticleDebug): Promise<Art
   debug.readabilityOk = !!article;
   const guardian = isGuardianUrl(url);
 
-  // ③ Readability null → Times 专用 extractor
+  // ③ Readability null → JsonLd 专用 extractor
   if (!article) {
-    debug.timesExtractorUsed = true;
-    const timesText = extractTimesArticle(html);
-    if (timesText && timesText.trim().length >= 200) {
+    debug.timesExtractorUsed = true; // 兼容原有 debug 字段
+    const fallbackText = extractJsonLdArticle(html);
+    if (fallbackText && fallbackText.trim().length >= 200) {
       const paragraphs = truncateParagraphs(
         cleanParagraphs(
-          timesText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
+          fallbackText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
           guardian
         )
       );
-      debug.reason = "Readability null -> Times extractor";
-      console.log("[Times] Readability null, Times extractor OK", url);
+      debug.reason = "Readability null -> JsonLd extractor";
+      console.log("[Fallback] Readability null, JsonLd extractor OK", url);
       return {
         title: "",
         paragraphs,
-        wordCount: timesText.split(/\s+/).filter(Boolean).length,
+        wordCount: fallbackText.split(/\s+/).filter(Boolean).length,
         isFullArticle: isFullEnough(paragraphs),
         debug,
       };
@@ -506,68 +609,88 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
     paywallDetected: false,
     usedJinaFallback: false,
   };
-  try {
-    return await fetchArticleDirect(url, debug);
-  } catch (directError) {
+  
+  const strategies: ("googlebot" | "twitter" | "jina")[] = ["googlebot", "twitter", "jina"];
+  let lastError: Error | null = null;
+  
+  for (const strategy of strategies) {
     try {
-      const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-          Accept: "text/plain",
-        },
-        redirect: "follow",
-      });
-      if (!res.ok) throw new Error("Jina fallback failed: " + res.status);
-      const text = await res.text();
-      const paragraphs = cleanParagraphs(
-        text
-          .split(/\n{2,}/)
-          .map((s) => decodeXmlEntities(stripTags(s)).trim())
-          .filter((s) => s.length >= 2),
-        isGuardianUrl(url)
-      );
-      if (paragraphs.length < 2) throw directError;
+      if (strategy === "jina") {
+        // 策略 3: Jina AI 兜底
+        const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            Accept: "text/plain",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) throw new Error("Jina fallback failed: " + res.status);
+        const text = await res.text();
+        const paragraphs = cleanParagraphs(
+          text.split(/\n{2,}/).map((s) => decodeXmlEntities(stripTags(s)).trim()).filter((s) => s.length >= 2),
+          isGuardianUrl(url)
+        );
+        if (paragraphs.length < 2) throw lastError ?? new Error("Jina failed to extract paragraphs");
 
-      const limited = truncateParagraphs(paragraphs);
-      debug.usedJinaFallback = true;
-      debug.reason = (debug.reason ? debug.reason + " -> " : "") + "Jina fallback";
-      console.log("[Times] Jina fallback OK", url);
-      return {
-        title: "",
-        paragraphs: limited,
-        wordCount: text.split(/\s+/).filter(Boolean).length,
-        isFullArticle: limited.length === paragraphs.length && isFullEnough(paragraphs),
-        debug,
-      };
-    } catch {
-      (directError as Error & { debug?: ArticleDebug }).debug = debug;
-      throw directError;
+        const limited = truncateParagraphs(paragraphs);
+        debug.usedJinaFallback = true;
+        console.log("[Jina] fallback OK", url);
+        return {
+          title: "",
+          paragraphs: limited,
+          wordCount: text.split(/\s+/).filter(Boolean).length,
+          isFullArticle: limited.length === paragraphs.length && isFullEnough(paragraphs),
+          debug,
+        };
+      } else {
+        // 策略 1 & 2: 直接请求
+        return await fetchArticleDirect(url, debug, strategy);
+      }
+    } catch (err) {
+      lastError = err as Error;
+      debug.reason = (debug.reason ? debug.reason + ` -> ` : "") + `${strategy} failed`;
     }
   }
+
+  if (lastError) {
+    (lastError as Error & { debug?: ArticleDebug }).debug = debug;
+    throw lastError;
+  }
+  throw new Error("All fetch strategies failed");
 }
 
-/** 抓取多个 RSS feed 并合并去重排序 */
+/** 抓取多个 RSS feed 并合并去重排序（并发请求，避免串行超时） */
 async function fetchRssFeeds(urls: string[], sourceName: string, limit: number): Promise<NewsItem[]> {
   const all: NewsItem[] = [];
   const seen = new Set<string>();
-  for (const feed of urls) {
+
+  const requests = urls.map(async (feed) => {
     try {
       const res = await fetch(feed, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; Reciter/1.0)" },
+        signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) return null;
       const xml = await res.text();
-      for (const it of extractRssItems(xml, sourceName, limit * 2)) {
+      return extractRssItems(xml, sourceName, limit * 2);
+    } catch {
+      return null; // 单个 feed 失败不阻断其他 feed
+    }
+  });
+
+  const results = await Promise.allSettled(requests);
+  for (const result of results) {
+    if (result.status === "fulfilled" && result.value) {
+      for (const it of result.value) {
         if (!seen.has(it.link)) {
           seen.add(it.link);
           all.push(it);
         }
       }
-    } catch {
-      // 单个 feed 失败不阻断其他 feed
     }
   }
+
   all.sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
   return all.slice(0, limit);
 }
@@ -579,8 +702,8 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
   // 文章正文提取
   if (path === "/api/news/article" && request.method === "GET") {
     const target = url.searchParams.get("url") ?? "";
-    if (!/^https?:\/\//i.test(target)) {
-      return json({ error: "Invalid url" }, 400, cors);
+    if (!/^https?:\/\//i.test(target) || isBlockedRssUrl(target)) {
+      return json({ error: "Invalid or blocked url" }, 400, cors);
     }
     try {
       const result = await fetchArticle(target);
@@ -602,7 +725,7 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       const limit = Math.min(10, Math.max(1, body.limit ?? 8));
       const urls = (body.urls ?? [])
         .map((u) => u.trim())
-        .filter((u) => /^https?:\/\//i.test(u))
+        .filter((u) => /^https?:\/\//i.test(u) && !isBlockedRssUrl(u))
         .slice(0, 20);
       if (urls.length === 0) {
         return json({ error: "No valid urls" }, 400, cors);
@@ -672,6 +795,11 @@ export default {
       return handleNews(request, cors);
     }
 
-    return handleDeepL(request, cors);
+    // DeepL 只允许明确的路径，避免把任意请求都当翻译代理
+    if (url.pathname === "/" || url.pathname === "/api/deepl" || url.pathname === "/translate") {
+      return handleDeepL(request, cors);
+    }
+
+    return new Response("Not Found", { status: 404, headers: cors });
   },
 };

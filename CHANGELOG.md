@@ -29,6 +29,12 @@
 ### Fixed
 
 - **学习队列无限增长**：队列受单轮上限约束，不再因动态补充涨到 150+
+- **Worker RSS 全文缓存内存泄漏**：增加 100 条上限，超限清理最旧条目
+- **Worker RSS 抓取串行超时**：改为 `Promise.allSettled` 并发抓取，并加 10s 超时
+- **Worker DeepL 路由兜底**：仅 `/`、`/api/deepl`、`/translate` 走翻译代理，其余返回 404
+- **Worker RSS 解析健壮性**：改用 CDATA 感知的 item 切分，避免 `</item>` 误判；文章 HTML 超 5MB 拒绝，请求加 15s 超时
+- **Worker KV 快照一致性**：`snapshot` 与 `updated_at` 合并为单个 KV Key，避免最终一致性读到不一致数据
+- **自定义 RSS SSRF 防护**：禁止自定义 RSS 请求内网/保留地址
 
 ### Planned
 
