@@ -142,3 +142,36 @@ export async function getLastAiTestAt(): Promise<number> {
 export async function saveLastAiTestAt(ts: number): Promise<void> {
   await db.setSetting("last_ai_test_at", String(ts));
 }
+
+/** 最大单轮学习数量（默认 100） */
+export async function getMaxSessionCards(): Promise<number> {
+  const raw = await db.getSetting("max_session_cards");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 10 && n <= 500 ? n : 100;
+}
+
+export async function saveMaxSessionCards(n: number): Promise<void> {
+  await db.setSetting("max_session_cards", String(Math.min(500, Math.max(10, Math.round(n)))));
+}
+
+/** 休息锁时长（分钟，默认 15） */
+export async function getRestDurationMinutes(): Promise<number> {
+  const raw = await db.getSetting("rest_duration_minutes");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 1 && n <= 120 ? n : 15;
+}
+
+export async function saveRestDurationMinutes(n: number): Promise<void> {
+  await db.setSetting("rest_duration_minutes", String(Math.min(120, Math.max(1, Math.round(n)))));
+}
+
+/** 休息锁到期时间戳（0 = 无锁） */
+export async function getRestUntil(): Promise<number> {
+  const raw = await db.getSetting("rest_until");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export async function setRestUntil(ts: number): Promise<void> {
+  await db.setSetting("rest_until", String(ts));
+}

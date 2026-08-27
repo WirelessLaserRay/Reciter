@@ -3,7 +3,16 @@ import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
 import { getDayStartDate, parseDayStartHour } from "@/lib/day";
-import { getDeckShuffle, getIgnoredTags, getInterleaveRatio, saveLastStudyContext } from "@/lib/study-prefs";
+import {
+  getDeckShuffle,
+  getIgnoredTags,
+  getInterleaveRatio,
+  getMaxSessionCards,
+  getRestDurationMinutes,
+  getRestUntil,
+  saveLastStudyContext,
+  setRestUntil,
+} from "@/lib/study-prefs";
 import { getEasyDaysConfig, getEasyDaysFactor } from "@/lib/easy-days";
 
 export interface QueueItem {
@@ -131,6 +140,15 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dayStart = getDayStartDate(dayStartHour, now);
       const ignoredTags = await getIgnoredTags();
 
+      // 休息锁：上一轮达到上限后，休息期间禁止开始新学习
+      const restUntil = await getRestUntil();
+      if (restUntil > Date.now()) {
+        const mins = Math.ceil((restUntil - Date.now()) / 60000);
+        set({ loading: false, error: `休息中：请 ${mins} 分钟后再学习`, finished: true });
+        return;
+      }
+      const maxSessionCards = await getMaxSessionCards();
+
       // 1. 到期卡片（Learning/Review/Relearning，可按标签/重点过滤，受每日复习上限约束）
       const reviewLimitRaw = await db.getSetting("daily_review_limit");
       const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
@@ -156,6 +174,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       if (await getDeckShuffle(deckId)) {
         ordered = shuffleRows(ordered);
       }
+
+      // 5. 单轮上限：防止队列无限增长
+      ordered = ordered.slice(0, maxSessionCards);
 
       const queue: QueueItem[] = ordered.map((row) => ({ row, shownAt: Date.now() }));
       set({
@@ -193,6 +214,10 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   ) => {
     const { queue, index, deckId, tagName, keyOnly } = get();
     if (deckId === null || index >= queue.length) return false;
+    const [maxSessionCards, restDurationMinutes] = await Promise.all([
+      getMaxSessionCards(),
+      getRestDurationMinutes(),
+    ]);
 
     const item = queue[index];
     const wasNew = item.row.state === State.New;
@@ -224,6 +249,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       againCardIds: isNewAgain ? new Set(prevStats.againCardIds).add(cardId) : prevStats.againCardIds,
       hardCardIds: isNewHard ? new Set(prevStats.hardCardIds).add(cardId) : prevStats.hardCardIds,
     };
+    const reachedLimit = stats.reviewed >= maxSessionCards;
 
     // Learning/Relearning 或 Again → 按 FSRS 新 due 二分插入正确位置（P0-②，不再一律插队尾）。
     // Learning 步骤未完成时始终重插，直到 FSRS 进入 Review；当前卡保留为历史记录，未来副本唯一，避免重复。
@@ -253,8 +279,8 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     const nextIndex = index + 1;
     let finished = nextIndex >= queueNext.length;
 
-    // 队列接近末尾时，自动补充“刚刚到期”的卡片，避免越学越空（研究文档 P0 建议 1）
-    if (!finished && queueNext.length - nextIndex <= 3) {
+    // 队列接近末尾时，自动补充“刚刚到期”的卡片（受单轮上限约束，避免队列无限增长）
+    if (!finished && !reachedLimit && queueNext.length - nextIndex <= 3) {
       try {
         const ignoredTags = await getIgnoredTags();
         const existingIds = new Set(queueNext.slice(nextIndex).map((q) => q.row.card_id));
@@ -266,8 +292,10 @@ export const useStudyStore = create<StudyState>((set, get) => ({
           20,
           ignoredTags
         );
+        const remainingSlots = Math.max(0, maxSessionCards - queueNext.length);
         const fresh = moreDue
           .filter((r) => !existingIds.has(r.card_id))
+          .slice(0, remainingSlots)
           .map((row) => ({ row, shownAt: Date.now() }));
         if (fresh.length > 0) {
           queueNext.push(...fresh);
@@ -276,6 +304,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       } catch {
         // 补充失败不阻塞评分流程
       }
+    }
+
+    // 达到单轮上限：结束本轮并开启休息锁
+    if (reachedLimit) {
+      finished = true;
+      await setRestUntil(Date.now() + restDurationMinutes * 60000);
     }
 
     set({ queue: queueNext, index: nextIndex, stats, finished });

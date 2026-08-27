@@ -58,15 +58,19 @@ import {
   getIgnoredTags,
   getInterleaveRatio,
   getLearningSteps,
+  getMaxSessionCards,
   getQuickTestMs,
   getRatingMode,
+  getRestDurationMinutes,
   getSummaryInterval,
   saveActiveRecallEnabled,
   saveIgnoredTags,
   saveInterleaveRatio,
   saveLearningSteps,
+  saveMaxSessionCards,
   saveQuickTestMs,
   saveRatingMode,
+  saveRestDurationMinutes,
   saveSummaryInterval,
 } from "@/lib/study-prefs";
 
@@ -85,6 +89,8 @@ export default function Settings() {
   const [summaryInterval, setSummaryInterval] = useState(10);
   const [interleaveRatio, setInterleaveRatio] = useState(5);
   const [quickTestSeconds, setQuickTestSeconds] = useState(5);
+  const [maxSessionCards, setMaxSessionCards] = useState(100);
+  const [restDurationMinutes, setRestDurationMinutes] = useState(15);
   const [learningSteps, setLearningSteps] = useState("1m,10m");
   const [leechThreshold, setLeechThreshold] = useState(3);
   const [ignoredTags, setIgnoredTags] = useState("");
@@ -136,7 +142,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -147,6 +153,8 @@ export default function Settings() {
         getSummaryInterval(),
         getInterleaveRatio(),
         getQuickTestMs(),
+        getMaxSessionCards(),
+        getRestDurationMinutes(),
         getLearningSteps(),
         db.getSetting("leech_threshold"),
         getIgnoredTags(),
@@ -171,6 +179,8 @@ export default function Settings() {
       setSummaryInterval(si);
       setInterleaveRatio(ir);
       setQuickTestSeconds(Math.round(qt / 1000));
+      setMaxSessionCards(msc);
+      setRestDurationMinutes(rdm);
       setLearningSteps(ls);
       const ltN = lt ? parseInt(lt, 10) : 3;
       if (Number.isFinite(ltN) && ltN > 0) setLeechThreshold(ltN);
@@ -323,6 +333,22 @@ export default function Settings() {
     setQuickTestSeconds(n);
     if (!dbReady) return;
     await saveQuickTestMs(n * 1000);
+    flashSaved();
+  };
+
+  const handleMaxSessionCardsChange = async (v: number) => {
+    const n = Math.min(500, Math.max(10, v || 100));
+    setMaxSessionCards(n);
+    if (!dbReady) return;
+    await saveMaxSessionCards(n);
+    flashSaved();
+  };
+
+  const handleRestDurationChange = async (v: number) => {
+    const n = Math.min(120, Math.max(1, v || 15));
+    setRestDurationMinutes(n);
+    if (!dbReady) return;
+    await saveRestDurationMinutes(n);
     flashSaved();
   };
 
@@ -741,6 +767,42 @@ export default function Settings() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   阈值内答对提示「建议记得」，仍需确认评分后进入下一张
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="max-session-cards">最大单轮学习数量</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="max-session-cards"
+                    type="number"
+                    min={10}
+                    max={500}
+                    value={maxSessionCards}
+                    onChange={(e) => handleMaxSessionCardsChange(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">张</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  达到上限后提醒休息，并开启学习锁（默认 100）
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="rest-duration-minutes">休息锁时长</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="rest-duration-minutes"
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={restDurationMinutes}
+                    onChange={(e) => handleRestDurationChange(parseInt(e.target.value, 10) || 0)}
+                  />
+                  <span className="text-sm text-muted-foreground">分钟</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  达到单轮上限后，休息期间无法开始新学习（默认 15 分钟）
                 </p>
               </div>
 

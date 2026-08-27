@@ -36,6 +36,7 @@ import {
   getLearningSteps,
   getQuickTestMs,
   getRatingMode,
+  getRestUntil,
   getSummaryInterval,
   saveDeckShuffle,
   saveLastAiTestAt,
@@ -187,6 +188,8 @@ function StudySession({
   const [phoneticMap, setPhoneticMap] = useState<Record<number, string>>({});
   // P2-⑨：熟练卡秒答阈值（毫秒，可在设置中调整）
   const [quickMs, setQuickMs] = useState(5000);
+  // 单轮上限休息提示
+  const [restLabel, setRestLabel] = useState("");
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
   const [deckDistractors, setDeckDistractors] = useState<{ front: string; back: string }[]>([]);
 
@@ -275,6 +278,21 @@ function StudySession({
     })();
     return () => { cancelled = true; };
   }, [item]);
+
+  // 本轮结束：如果处于休息锁，显示休息提示
+  useEffect(() => {
+    if (!finished) {
+      setRestLabel("");
+      return;
+    }
+    (async () => {
+      const until = await getRestUntil().catch(() => 0);
+      if (until > Date.now()) {
+        const mins = Math.ceil((until - Date.now()) / 60000);
+        setRestLabel(`已达本轮学习上限，建议休息 ${mins} 分钟`);
+      }
+    })().catch(() => {});
+  }, [finished]);
 
   // 加载学习偏好与 AI 配置
   useEffect(() => {
@@ -470,6 +488,9 @@ function StudySession({
                 "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
               )}
             </CardDescription>
+            {restLabel && (
+              <p className="text-sm font-medium text-amber-600">{restLabel}</p>
+            )}
             {done > 0 && (
               <p className="text-xs text-muted-foreground">本次学习时长：{sessionDuration}</p>
             )}
