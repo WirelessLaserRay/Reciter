@@ -69,6 +69,12 @@ pub fn run() {
             sql: include_str!("../migrations/009_phonetic.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 10,
+            description: "add meaning_primary/meaning_secondary/ignored to cards",
+            sql: include_str!("../migrations/010_meaning_ignore.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
