@@ -1,5 +1,6 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { db } from "@/lib/db";
+import { splitMeaningText } from "./meaning";
 
 export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
 
@@ -137,10 +138,24 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
     { role: "user", content: prompt },
   ]);
   const parsed = extractJsonObject<{ primary?: string; secondary?: string }>(raw);
-  return {
-    primary: parsed.primary?.trim() || back.trim(),
-    secondary: parsed.secondary?.trim() || "",
-  };
+  const primary = parsed.primary?.trim() || "";
+  const secondary = parsed.secondary?.trim() || "";
+  const combinedLen = (primary + secondary).replace(/\s+/g, "").length;
+  const originalLen = back.replace(/\s+/g, "").length;
+  // 防丢失：AI 结果为空或明显比原释义短很多时，回退为整条释义作为主要释义
+  if (!primary || (originalLen > 0 && combinedLen < originalLen * 0.5)) {
+    return splitMeaningText(back);
+  }
+  // 词性继承：从原释义提取词性，若 AI 结果缺少词性则补上
+  const posMatch = back.match(
+    /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i
+  );
+  const pos = posMatch ? posMatch[0] : "";
+  const hasPos = (s: string) =>
+    /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\./i.test(s);
+  const finalPrimary = pos && primary && !hasPos(primary) ? `${pos} ${primary}` : primary;
+  const finalSecondary = pos && secondary && !hasPos(secondary) ? `${pos} ${secondary}` : secondary;
+  return { primary: finalPrimary, secondary: finalSecondary };
 }
 
 /** 讲解单个生词（词性/释义/例句/翻译） */
