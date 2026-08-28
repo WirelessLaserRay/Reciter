@@ -701,6 +701,7 @@ export default function Settings() {
               <CardDescription>修改后立即生效（下次加载队列时应用）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <h3 className="text-sm font-semibold text-muted-foreground">基础学习</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>目标记忆率（desired retention）</Label>
@@ -778,6 +779,7 @@ export default function Settings() {
                 </p>
               </div>
 
+              <h3 className="text-sm font-semibold text-muted-foreground">队列与休息</h3>
               <div className="space-y-2">
                 <Label htmlFor="leech-threshold">弱词收录阈值（遗忘次数）</Label>
                 <div className="flex items-center gap-2">
@@ -909,6 +911,7 @@ export default function Settings() {
                 />
               </div>
 
+              <h3 className="text-sm font-semibold text-muted-foreground">发音与翻译</h3>
               <div className="space-y-2">
                 <Label htmlFor="tts-source">发音来源</Label>
                 <Select value={ttsSource} onValueChange={(v) => void saveTTSSetting(v as TTSSource)}>
@@ -1036,6 +1039,7 @@ export default function Settings() {
                     />
                   </div>
 
+                  <h3 className="text-sm font-semibold text-muted-foreground">学习节奏</h3>
                   <div className="space-y-2">
                     <Label htmlFor="summary-interval">迷你小结间隔</Label>
                     <div className="flex items-center gap-2">
