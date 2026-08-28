@@ -202,7 +202,7 @@ export class AIClient {
       direction: params.direction ?? "看释义选单词",
     });
     const content = await this.chat([
-      { role: "system", content: "你是 Reciter 英语学习应用的题目生成器，严格按模板输出。" },
+      { role: "system", content: "你是 Reciter 英语学习应用的题目生成器。严格按用户提供的模板格式输出题目，不得偏离格式要求，不得添加模板之外的内容。" },
       { role: "user", content: prompt },
     ]);
     return { question: content };
@@ -217,7 +217,7 @@ export class AIClient {
       userAnswer: params.userAnswer,
     });
     const content = await this.chat([
-      { role: "system", content: "你是 Reciter 英语学习应用的评分助手，严格按格式输出。" },
+      { role: "system", content: "你是 Reciter 英语学习应用的评分助手。评分必须为 1-4 的整数，严格按 **评分**: 和 **评语**: 格式输出，不得添加其他内容。" },
       { role: "user", content: prompt },
     ]);
     return parseGradeResult(content);

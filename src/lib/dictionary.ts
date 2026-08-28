@@ -39,7 +39,8 @@ async function generatePhonetic(word: string): Promise<string> {
     const client = new AIClient(cfg);
     if (!client.isReady) return "";
     const raw = await client.chat([
-      { role: "user", content: `请给出英语单词 "${word}" 的英式或美式 IPA 音标，只输出音标本身，例如 /əˈbændən/。` },
+      { role: "system", content: "你是音标查询工具。只输出 IPA 音标本身（如 /əˈbændən/），不要输出引号、解释、词性或任何其他内容。" },
+      { role: "user", content: `请给出英语单词 "${word}" 的 IPA 音标（英式或美式均可），只输出音标。` },
     ]);
     const cleaned = raw.trim().replace(/^["'“”]|["'“”]$/g, "");
     return /^[\/\[]/.test(cleaned) || /[ˈˌa-zæɒɔɪʊʌəɜːiːuːɑːeɪaɪɔɪəʊ]/i.test(cleaned) ? cleaned : "";
@@ -229,7 +230,8 @@ async function translateWithAI(text: string): Promise<string> {
   const client = new AIClient(cfg);
   if (!client.isReady) return "";
   const raw = await client.chat([
-    { role: "user", content: `请将下面英文例句翻译成中文，只输出中文翻译。\n\n${text}` },
+    { role: "system", content: "你是英文翻译工具。只输出中文译文，不要添加引号、标注、解释或原文。" },
+    { role: "user", content: `请将下面的英文翻译成中文，只输出中文译文：\n\n${text}` },
   ]);
   return raw.trim().replace(/^["'“”]|["'“”]$/g, "");
 }
@@ -294,9 +296,10 @@ async function generateExample(word: string): Promise<Example | null> {
   const client = new AIClient(cfg);
   if (!client.isReady) return null;
   const raw = await client.chat([
+    { role: "system", content: "你是英语例句生成工具。严格以 JSON 格式输出，不要使用 markdown 代码块包裹，不要输出 JSON 以外的任何内容。" },
     {
       role: "user",
-      content: `请为英语单词/短语 "${word}" 生成一个简洁的英文例句，并给出中文翻译。只输出 JSON：{"text":"英文例句","translation":"中文翻译"}`,
+      content: `请为英语单词/短语 "${word}" 生成一个简洁、地道的英文例句，并给出中文翻译。只输出 JSON：{"text":"英文例句","translation":"中文翻译"}`,
     },
   ]);
   try {
