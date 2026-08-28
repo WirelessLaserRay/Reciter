@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
@@ -48,8 +48,6 @@ export default function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const location = useLocation();
-  const isDailyArticle = location.pathname.startsWith("/daily-article");
   return (
     <aside
       className={cn(
@@ -65,8 +63,8 @@ export default function Sidebar({
         </div>
         <div className="sidebar-collapse-text">
           <div className="sidebar-collapse-text-inner leading-tight">
-            <div className="text-sm font-semibold">{isDailyArticle ? "每日一文" : "Reciter"}</div>
-            <div className="text-xs text-muted-foreground">{isDailyArticle ? "英语阅读" : "英语学习与记忆"}</div>
+            <div className="text-sm font-semibold">Reciter</div>
+            <div className="text-xs text-muted-foreground">英语学习与记忆</div>
           </div>
         </div>
       </div>
