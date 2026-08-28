@@ -10,6 +10,7 @@ import {
   getMaxSessionCards,
   getRestDurationMinutes,
   getRestUntil,
+  isTagIgnored,
   saveLastStudyContext,
   setRestUntil,
 } from "@/lib/study-prefs";
@@ -104,6 +105,8 @@ interface StudyState {
   finished: boolean;
 
   loadQueue: (deckId: number, tag?: string, keyOnly?: boolean) => Promise<void>;
+  /** 是否存在未完成的学习会话 */
+  hasActiveSession: () => boolean;
   /** 评分当前卡片，返回是否还有下一张；opts 支持 AI 测试来源与题目/答案记录 */
   rate: (
     grade: 1 | 2 | 3 | 4,
@@ -175,6 +178,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
         ordered = shuffleRows(ordered);
       }
 
+      // 4.1 正则/模糊忽略标签过滤
+      ordered = ordered.filter((row) => !isTagIgnored(row.tags, ignoredTags));
+
       // 5. 单轮上限：防止队列无限增长
       ordered = ordered.slice(0, maxSessionCards);
 
@@ -195,6 +201,11 @@ export const useStudyStore = create<StudyState>((set, get) => ({
     } catch (e) {
       set({ loading: false, error: String(e) });
     }
+  },
+
+  hasActiveSession: () => {
+    const s = get();
+    return s.queue.length > 0 && !s.finished && s.index < s.queue.length;
   },
 
   markShown: () => {

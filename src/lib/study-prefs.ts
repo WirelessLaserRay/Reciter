@@ -110,10 +110,17 @@ export async function saveDeckShuffle(deckId: number, enabled: boolean): Promise
   await db.setSetting(`deck_shuffle_${deckId}`, enabled ? "true" : "false");
 }
 
-/** 学习忽略标签：这些标签的卡片不会进入默认学习队列 */
+/** 学习忽略标签：支持正则模糊匹配，一行一个；兼容旧逗号/顿号分隔 */
 export async function getIgnoredTags(): Promise<string[]> {
   const raw = await db.getSetting("ignored_tags");
   if (!raw) return [];
+  // 新格式：每行一个正则/标签
+  if (raw.includes("\n")) {
+    return raw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
   try {
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
@@ -127,6 +134,25 @@ export async function getIgnoredTags(): Promise<string[]> {
 
 export async function saveIgnoredTags(tags: string[]): Promise<void> {
   await db.setSetting("ignored_tags", JSON.stringify(tags.map((t) => t.trim()).filter(Boolean)));
+}
+
+/** 判断卡片 tags JSON 是否命中任一忽略规则（正则优先，正则无效时按普通子串匹配） */
+export function isTagIgnored(tagsJson: string, patterns: string[]): boolean {
+  let tags: string[] = [];
+  try {
+    const parsed = JSON.parse(tagsJson);
+    if (Array.isArray(parsed)) tags = parsed.map(String);
+  } catch {
+    tags = [];
+  }
+  return patterns.some((pattern) => {
+    try {
+      const re = new RegExp(pattern, "i");
+      return tags.some((tag) => re.test(tag));
+    } catch {
+      return tags.some((tag) => tag.includes(pattern));
+    }
+  });
 }
 
 /** AI 测试提醒间隔（默认 5 天） */

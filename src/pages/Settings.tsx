@@ -244,10 +244,9 @@ export default function Settings() {
   const saveIgnoredTagsSetting = async (v: string) => {
     setIgnoredTags(v);
     if (!dbReady) return;
-    const tags = v
-      .split(/[,，、;；]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const tags = v.includes("\n")
+      ? v.split("\n").map((s) => s.trim()).filter(Boolean)
+      : v.split(/[,，、;；]/).map((s) => s.trim()).filter(Boolean);
     await saveIgnoredTags(tags);
     flashSaved();
   };
@@ -722,15 +721,16 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ignored-tags">学习忽略标签</Label>
-                <Input
+                <Label htmlFor="ignored-tags">学习忽略标签（支持正则，一行一个）</Label>
+                <Textarea
                   id="ignored-tags"
-                  placeholder="如：词组、熟词生义（用 、 或逗号分隔）"
+                  rows={4}
+                  placeholder={"词组\n熟词生义\n^临时|^测试$"}
                   value={ignoredTags}
                   onChange={(e) => saveIgnoredTagsSetting(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  带这些标签的卡片不会进入主页「今日学习」默认队列
+                  带这些标签的卡片不会进入主页「今日学习」默认队列；支持正则模糊匹配
                 </p>
               </div>
 

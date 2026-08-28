@@ -363,13 +363,16 @@ export default function DailyArticle() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">每日一文</h2>
+          <p className="text-sm text-muted-foreground">CGTN / CNN / Guardian / NPR / BBC + 自定义 RSS</p>
+        </div>
         <Button asChild variant="ghost" size="sm">
           <Link to="/">
             <ArrowLeft className="size-4" />
             返回主页
           </Link>
         </Button>
-        <span className="text-sm text-muted-foreground">每日一文</span>
       </div>
 
       <Card className={(!workerOk || !aiOk) ? "border-amber-500/40" : ""}>

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention, getLeechThreshold } from "@/lib/settings";
@@ -190,6 +191,8 @@ function StudySession({
   const [quickMs, setQuickMs] = useState(5000);
   // 单轮上限休息提示
   const [restLabel, setRestLabel] = useState("");
+  // 中途退出确认
+  const [exitOpen, setExitOpen] = useState(false);
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
   const [deckDistractors, setDeckDistractors] = useState<{ front: string; back: string }[]>([]);
 
@@ -541,11 +544,9 @@ function StudySession({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
       <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/decks">
-            <ArrowLeft className="size-4" />
-            退出
-          </Link>
+        <Button variant="ghost" size="sm" onClick={() => setExitOpen(true)}>
+          <ArrowLeft className="size-4" />
+          退出
         </Button>
         <div className="text-sm">
           <span className="font-medium">{deckName}</span>
@@ -671,6 +672,20 @@ function StudySession({
           </div>
         )
       )}
+
+      {/* 中途退出确认 */}
+      <ConfirmDialog
+        open={exitOpen}
+        onOpenChange={setExitOpen}
+        title="确认退出学习？"
+        description="当前学习进度会保留在内存中，之后可选择「继续旧学习队列」；退出不会丢失已评分记录。"
+        confirmLabel="退出"
+        cancelLabel="继续学习"
+        onConfirm={() => {
+          setExitOpen(false);
+          navigate("/decks");
+        }}
+      />
     </div>
   );
 }
@@ -831,6 +846,8 @@ export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
   const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string; ai?: boolean; smart?: boolean } | null>(null);
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
+  const [pendingStart, setPendingStart] = useState<{ id: number; tag?: string; keyOnly?: boolean } | null>(null);
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
   const tagParam = searchParams.get("tag");
@@ -897,15 +914,45 @@ export default function Study() {
 
   if (pendingDeck) {
     return (
-      <TagPicker
-        deckId={pendingDeck.id}
-        deckName={pendingDeck.name}
-        onPick={(tag, keyOnly) => {
-          loadQueue(pendingDeck.id, tag, keyOnly);
-          setPendingDeck(null);
-        }}
-        onBack={() => setPendingDeck(null)}
-      />
+      <>
+        <TagPicker
+          deckId={pendingDeck.id}
+          deckName={pendingDeck.name}
+          onPick={(tag, keyOnly) => {
+            if (useStudyStore.getState().hasActiveSession()) {
+              setPendingStart({ id: pendingDeck.id, tag, keyOnly });
+              setResumeOpen(true);
+            } else {
+              loadQueue(pendingDeck.id, tag, keyOnly);
+              setPendingDeck(null);
+            }
+          }}
+          onBack={() => setPendingDeck(null)}
+        />
+        <ConfirmDialog
+          open={resumeOpen}
+          onOpenChange={setResumeOpen}
+          title="已有未完成的学习"
+          description="检测到未完成的学习队列。要放弃它并开始新学习，还是继续旧队列？"
+          confirmLabel="放弃并开始新学习"
+          cancelLabel="继续旧学习"
+          destructive
+          onConfirm={() => {
+            useStudyStore.getState().reset();
+            if (pendingStart) {
+              loadQueue(pendingStart.id, pendingStart.tag, pendingStart.keyOnly);
+            }
+            setPendingStart(null);
+            setPendingDeck(null);
+            setResumeOpen(false);
+          }}
+          onCancel={() => {
+            setPendingStart(null);
+            setPendingDeck(null);
+            setResumeOpen(false);
+          }}
+        />
+      </>
     );
   }
 
