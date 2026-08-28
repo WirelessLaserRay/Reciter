@@ -210,11 +210,11 @@ function setRssFullTextCache(url: string, content: string): void {
   rssFullTextCache.set(url, content);
 }
 
-function truncateParagraphs(paragraphs: string[]): string[] {
+function truncateParagraphs(paragraphs: string[], maxLength = MAX_ARTICLE_LENGTH): string[] {
   let total = 0;
   const out: string[] = [];
   for (const p of paragraphs) {
-    if (total + p.length > MAX_ARTICLE_LENGTH) break;
+    if (total + p.length > maxLength) break;
     out.push(p);
     total += p.length;
   }
@@ -479,7 +479,12 @@ function detectPaywall(html: string, text: string): boolean {
   ].some((s) => lower.includes(s));
 }
 
-async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "googlebot" | "twitter" = "googlebot"): Promise<ArticleExtractResult> {
+async function fetchArticleDirect(
+  url: string,
+  debug: ArticleDebug,
+  strategy: "googlebot" | "twitter" = "googlebot",
+  maxLength = MAX_ARTICLE_LENGTH
+): Promise<ArticleExtractResult> {
   const headers: Record<string, string> = {
     Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
@@ -537,7 +542,8 @@ async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "g
         cleanParagraphs(
           fallbackText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
           guardian
-        )
+        ),
+        maxLength
       );
       debug.reason = "Readability null -> JsonLd extractor";
       console.log("[Fallback] Readability null, JsonLd extractor OK", url);
@@ -575,7 +581,8 @@ async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "g
             .map((s) => decodeXmlEntities(stripTags(s)).trim())
             .filter(Boolean),
           guardian
-        )
+        ),
+        maxLength
       );
       return {
         title: article.title ?? "",
@@ -588,7 +595,7 @@ async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "g
     throw new Error(debug.reason);
   }
 
-  const limited = truncateParagraphs(paragraphs);
+  const limited = truncateParagraphs(paragraphs, maxLength);
   return {
     title: article.title ?? "",
     paragraphs: limited,
@@ -601,7 +608,7 @@ async function fetchArticleDirect(url: string, debug: ArticleDebug, strategy: "g
 /**
  * 正文入口：优先直接抓取 + Readability；失败时用 Jina Reader 兜底（解决 NYT 等反爬/付费墙 502）
  */
-async function fetchArticle(url: string): Promise<ArticleExtractResult> {
+async function fetchArticle(url: string, maxLength = MAX_ARTICLE_LENGTH): Promise<ArticleExtractResult> {
   const debug: ArticleDebug = {
     fetchStatus: 0,
     readabilityOk: false,
@@ -633,7 +640,7 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
         );
         if (paragraphs.length < 2) throw lastError ?? new Error("Jina failed to extract paragraphs");
 
-        const limited = truncateParagraphs(paragraphs);
+        const limited = truncateParagraphs(paragraphs, maxLength);
         debug.usedJinaFallback = true;
         console.log("[Jina] fallback OK", url);
         return {
@@ -645,7 +652,7 @@ async function fetchArticle(url: string): Promise<ArticleExtractResult> {
         };
       } else {
         // 策略 1 & 2: 直接请求
-        return await fetchArticleDirect(url, debug, strategy);
+        return await fetchArticleDirect(url, debug, strategy, maxLength);
       }
     } catch (err) {
       lastError = err as Error;
@@ -706,7 +713,11 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       return json({ error: "Invalid or blocked url" }, 400, cors);
     }
     try {
-      const result = await fetchArticle(target);
+      const maxLengthRaw = url.searchParams.get("maxLength");
+      const maxLength = maxLengthRaw
+        ? Math.min(100000, Math.max(1000, parseInt(maxLengthRaw, 10) || MAX_ARTICLE_LENGTH))
+        : MAX_ARTICLE_LENGTH;
+      const result = await fetchArticle(target, maxLength);
       return json(result, 200, cors);
     } catch (e) {
       const err = e as Error & { debug?: ArticleDebug };

@@ -51,7 +51,7 @@ import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client
 import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
 import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
 import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
-import { getCustomRssSources, saveCustomRssSources, type CustomRssSource } from "@/lib/news";
+import { getCustomRssSources, getArticleMaxLength, saveCustomRssSources, type CustomRssSource } from "@/lib/news";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
@@ -128,6 +128,7 @@ export default function Settings() {
 
   // 自定义 RSS 源
   const [customRssSources, setCustomRssSources] = useState<CustomRssSource[]>(() => getCustomRssSources());
+  const [articleMaxLength, setArticleMaxLength] = useState(30000);
   const [newRssName, setNewRssName] = useState("");
   const [newRssText, setNewRssText] = useState("");
   const [rssMsg, setRssMsg] = useState("");
@@ -142,7 +143,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd, aml] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -166,6 +167,7 @@ export default function Settings() {
         getDeepLCorsProxy(),
         getSyncConfig(),
         getVocabStandard(),
+        getArticleMaxLength(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -194,6 +196,7 @@ export default function Settings() {
       setSyncEndpoint(syncCfg.endpoint);
       setSyncToken(syncCfg.token);
       setVocabStandard(vocabStd);
+      setArticleMaxLength(aml);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
@@ -403,6 +406,14 @@ export default function Settings() {
     setVocabStandard(v);
     if (!dbReady) return;
     await saveVocabStandard(v);
+    flashAiSaved();
+  };
+
+  const handleArticleMaxLengthChange = async (v: number) => {
+    const n = Math.min(100000, Math.max(1000, v || 30000));
+    setArticleMaxLength(n);
+    if (!dbReady) return;
+    await db.setSetting("article_max_length", String(n));
     flashAiSaved();
   };
 
@@ -1125,6 +1136,21 @@ export default function Settings() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Worker 地址可使用「跨端同步地址」或「DeepL CORS 代理地址」；AI 接口在「AI 接口」区域配置。
+              </p>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="article-max-length" className="shrink-0">文章截断字符数</Label>
+                <Input
+                  id="article-max-length"
+                  type="number"
+                  min={1000}
+                  max={100000}
+                  value={articleMaxLength}
+                  onChange={(e) => handleArticleMaxLengthChange(parseInt(e.target.value, 10) || 0)}
+                />
+                <span className="text-sm text-muted-foreground">字符</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                每日一文正文超过该长度会截断（默认 30000）
               </p>
               <Button asChild size="sm" variant="outline">
                 <Link to="/daily-article">前往每日一文</Link>

@@ -57,6 +57,13 @@ function trimSlash(s: string): string {
   return s.trim().replace(/\/+$/, "");
 }
 
+/** 获取每日一文正文截断字符数（默认 30000） */
+export async function getArticleMaxLength(): Promise<number> {
+  const raw = await db.getSetting("article_max_length");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 1000 && n <= 100000 ? n : 30000;
+}
+
 /** 获取 Worker 基础地址：优先同步地址，其次 DeepL CORS 代理地址 */
 export async function getWorkerBaseUrl(): Promise<string> {
   const [syncEndpoint, deeplProxy] = await Promise.all([
@@ -229,8 +236,9 @@ export async function fetchArticleContent(articleUrl: string): Promise<ArticleRe
 
   const base = await getWorkerBaseUrl();
   if (!base) throw new Error("请先在设置中配置 Worker 地址（同步地址或 DeepL CORS 代理）");
+  const maxLength = await getArticleMaxLength();
   const res = await httpFetch(
-    `${base}/api/news/article?url=${encodeURIComponent(articleUrl)}`,
+    `${base}/api/news/article?url=${encodeURIComponent(articleUrl)}&maxLength=${maxLength}`,
     { headers: { Accept: "application/json" } }
   );
   if (!res.ok) {
