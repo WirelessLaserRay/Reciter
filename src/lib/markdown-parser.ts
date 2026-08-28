@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
 import type { Root, Heading, ListItem, Blockquote } from "mdast";
 import { extractPhoneticFromText } from "@/lib/phonetic";
+import { splitMeaningText } from "./meaning";
 
 /** 解析出的待导入卡片 */
 export interface ParsedCard {
@@ -17,6 +18,10 @@ export interface ParsedCard {
   highlights: string[]; // ==xx== 挖空素材
   /** 重点标记：列表项以 **黑体** 开头（如 - **word n. 释义**），识别为重点词/词组 */
   isKey: boolean;
+  /** 主要释义（加粗部分） */
+  meaningPrimary: string;
+  /** 次要释义（非加粗部分） */
+  meaningSecondary: string;
 }
 
 export interface ParseResult {
@@ -158,6 +163,8 @@ export function parseMarkdown(content: string): ParseResult {
       return; // 文件内重复，保留首条
     }
     seen.set(key, raw);
+    const rawBack = raw.slice(raw.indexOf(front) + front.length);
+    const meaning = splitMeaningText(rawBack || back);
     cards.push({
       front,
       back,
@@ -168,6 +175,8 @@ export function parseMarkdown(content: string): ParseResult {
       tags: currentSection ? [currentSection] : [],
       highlights,
       isKey,
+      meaningPrimary: meaning.primary,
+      meaningSecondary: meaning.secondary,
     });
   };
 

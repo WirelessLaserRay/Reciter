@@ -1,5 +1,6 @@
 import { parseMarkdown, type ParsedCard, type ParseResult } from "./markdown-parser";
 import { extractPhoneticFromText } from "@/lib/phonetic";
+import { splitMeaningText } from "./meaning";
 
 export type ImportFormat = "markdown" | "csv" | "json" | "txt";
 
@@ -106,7 +107,8 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags, highlights: [], isKey });
+    const meaning = splitMeaningText(back);
+    cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags, highlights: [], isKey, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
@@ -156,7 +158,8 @@ export function parseJSON(content: string): ParseResult {
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back: finalBack, markdown, phonetic, deckName, folder, tags, highlights: [], isKey });
+    const meaning = splitMeaningText(finalBack);
+    cards.push({ front, back: finalBack, markdown, phonetic, deckName, folder, tags, highlights: [], isKey, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
@@ -194,7 +197,8 @@ export function parseTXT(content: string, defaultDeck = "手动导入"): ParseRe
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags: [], highlights: [], isKey: false });
+    const meaning = splitMeaningText(back);
+    cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags: [], highlights: [], isKey: false, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }

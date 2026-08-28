@@ -80,6 +80,15 @@ export const MIGRATIONS: MigrationDef[] = [
       return cols.some((c) => c.name === "phonetic");
     },
   },
+  {
+    version: 10,
+    description: "add meaning_primary/meaning_secondary/ignored to cards",
+    sql: "ALTER TABLE cards ADD COLUMN meaning_primary TEXT DEFAULT ''; ALTER TABLE cards ADD COLUMN meaning_secondary TEXT DEFAULT ''; ALTER TABLE cards ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0;",
+    alreadyApplied: async (backend) => {
+      const cols = await backend.select<{ name: string }[]>("PRAGMA table_info(cards)");
+      return cols.some((c) => c.name === "meaning_primary");
+    },
+  },
 ];
 
 const META_TABLE = "_reciter_migrations";

@@ -51,6 +51,8 @@ interface PreviewRow {
   sourceType: "markdown" | "csv" | "json" | "manual";
   tags: string[];
   isKey: boolean;
+  meaningPrimary: string;
+  meaningSecondary: string;
   status: "new" | "exists" | "duplicate";
   checked: boolean;
 }
@@ -127,6 +129,8 @@ export default function Import() {
           sourceType: parsed.format === "txt" ? "manual" : parsed.format,
           tags: c.tags,
           isKey: c.isKey,
+          meaningPrimary: c.meaningPrimary ?? "",
+          meaningSecondary: c.meaningSecondary ?? "",
           status: rowStatus,
           checked: dup ? false : parsed.format === "json" ? rowStatus === "new" : true,
         });
@@ -322,6 +326,8 @@ export default function Import() {
           sourceType: r.sourceType,
           tags: r.tags,
           isKey: r.isKey ? 1 : 0,
+          meaningPrimary: r.meaningPrimary ?? "",
+          meaningSecondary: r.meaningSecondary ?? "",
         },
         existing
       );

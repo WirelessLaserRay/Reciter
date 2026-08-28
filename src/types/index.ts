@@ -26,6 +26,9 @@ export interface Card {
   is_key: number; // 1=重点词（Markdown 黑体释义识别），0=普通
   weak_source: string; // ''=自动(遗忘阈值收录)，'manual'=手动加入弱词本
   weak_dismissed: number; // 1=已从弱词本移除，0=正常
+  meaning_primary: string; // 主要释义（加粗部分）
+  meaning_secondary: string; // 次要释义（非加粗部分）
+  ignored: number; // 1=学习中忽略，0=正常
   created_at: string;
   updated_at: string;
 }

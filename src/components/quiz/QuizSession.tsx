@@ -231,6 +231,9 @@ export default function QuizSession({
             is_key: c.is_key,
             weak_source: c.weak_source,
             weak_dismissed: c.weak_dismissed,
+            meaning_primary: c.meaning_primary,
+            meaning_secondary: c.meaning_secondary,
+            ignored: c.ignored,
             created_at: c.created_at,
             updated_at: c.updated_at,
           }));

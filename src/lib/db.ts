@@ -21,6 +21,9 @@ export interface StudyCardRow {
   phonetic: string;
   tags: string;
   is_key: number;
+  meaning_primary: string;
+  meaning_secondary: string;
+  ignored: number;
   state: number;
   stability: number;
   difficulty: number;
@@ -357,6 +360,9 @@ class ReciterDB {
       tags?: string[];
       isKey?: number;
       weakSource?: string;
+      meaningPrimary?: string;
+      meaningSecondary?: string;
+      ignored?: number;
     },
     knownExisting?: Set<string>
   ): Promise<UpsertResult> {
@@ -364,8 +370,8 @@ class ReciterDB {
     const wasKnown = knownExisting ? knownExisting.has(opts.front) : false;
     const tags = JSON.stringify(opts.tags ?? []);
     const rows = await db.select<{ id: number }[]>(
-      `INSERT INTO cards (deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO cards (deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, meaning_primary, meaning_secondary, ignored, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(deck_id, front) DO UPDATE SET
          back = excluded.back,
          markdown_content = excluded.markdown_content,
@@ -374,9 +380,12 @@ class ReciterDB {
          tags = excluded.tags,
          is_key = excluded.is_key,
          weak_source = excluded.weak_source,
+         meaning_primary = excluded.meaning_primary,
+         meaning_secondary = excluded.meaning_secondary,
+         ignored = excluded.ignored,
          updated_at = excluded.updated_at
        RETURNING id`,
-      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.phonetic ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, opts.weakSource ?? "", nowIso(), nowIso()]
+      [opts.deckId, opts.front, opts.back, opts.markdown ?? "", opts.phonetic ?? "", opts.sourceType ?? "manual", tags, opts.isKey ?? 0, opts.weakSource ?? "", opts.meaningPrimary ?? "", opts.meaningSecondary ?? "", opts.ignored ?? 0, nowIso(), nowIso()]
     );
     const cardId = rows[0].id;
     if (knownExisting && !wasKnown) knownExisting.add(opts.front);
@@ -390,7 +399,7 @@ class ReciterDB {
   /** 编辑卡片（front/back/tags/weak_source/phonetic） */
   async updateCard(
     id: number,
-    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "phonetic" | "is_key" | "weak_source" | "weak_dismissed">>
+    data: Partial<Pick<Card, "front" | "back" | "tags" | "markdown_content" | "phonetic" | "is_key" | "weak_source" | "weak_dismissed" | "meaning_primary" | "meaning_secondary" | "ignored">>
   ): Promise<void> {
     const sets: string[] = [];
     const params: (string | number)[] = [];
@@ -402,6 +411,9 @@ class ReciterDB {
     if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
     if (data.weak_source !== undefined) { sets.push("weak_source = ?"); params.push(data.weak_source); }
     if (data.weak_dismissed !== undefined) { sets.push("weak_dismissed = ?"); params.push(data.weak_dismissed); }
+    if (data.meaning_primary !== undefined) { sets.push("meaning_primary = ?"); params.push(data.meaning_primary); }
+    if (data.meaning_secondary !== undefined) { sets.push("meaning_secondary = ?"); params.push(data.meaning_secondary); }
+    if (data.ignored !== undefined) { sets.push("ignored = ?"); params.push(data.ignored); }
     if (sets.length === 0) return;
     params.push(nowIso());
     sets.push("updated_at = ?");
@@ -509,7 +521,7 @@ class ReciterDB {
   async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
-              c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
+              c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -622,11 +634,12 @@ class ReciterDB {
     if (limit !== undefined) params.push(limit);
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
+              c.meaning_primary, c.meaning_secondary, c.ignored,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
+       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
        ORDER BY
           CASE WHEN cs.state IN (1, 3) THEN 0 ELSE 1 END,
           cs.due ASC, c.id ASC${limitSql}`,
@@ -652,11 +665,12 @@ class ReciterDB {
     ];
     return this.requireDb().select<StudyCardRow[]>(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
+              c.meaning_primary, c.meaning_secondary, c.ignored,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
+       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
        ORDER BY c.id ASC
        LIMIT ?`,
       params
@@ -766,7 +780,7 @@ class ReciterDB {
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
       `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
-              c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
+              c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
@@ -830,9 +844,9 @@ class ReciterDB {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
     await this.requireDb().execute(
-      `INSERT INTO cards (id, deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, weak_dismissed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.phonetic ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.created_at, c.updated_at]
+      `INSERT INTO cards (id, deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, weak_dismissed, meaning_primary, meaning_secondary, ignored, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.phonetic ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.meaning_primary ?? "", c.meaning_secondary ?? "", c.ignored ?? 0, c.created_at, c.updated_at]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,
