@@ -688,11 +688,12 @@ function StudySession({
         open={exitOpen}
         onOpenChange={setExitOpen}
         title="确认退出学习？"
-        description="当前学习进度会保留在内存中，之后可选择「继续旧学习队列」；退出不会丢失已评分记录。"
+        description="退出后回到词库选择，当前未完成队列将清空。已评分记录不会丢失。"
         confirmLabel="退出"
         cancelLabel="继续学习"
         onConfirm={() => {
           setExitOpen(false);
+          useStudyStore.getState().reset();
           navigate("/decks");
         }}
       />
@@ -856,8 +857,6 @@ export default function Study() {
   const { deckId, loading, error, loadQueue } = useStudyStore();
   const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string; ai?: boolean; smart?: boolean } | null>(null);
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
-  const [pendingStart, setPendingStart] = useState<{ id: number; tag?: string; keyOnly?: boolean } | null>(null);
-  const [resumeOpen, setResumeOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
   const tagParam = searchParams.get("tag");
@@ -924,45 +923,16 @@ export default function Study() {
 
   if (pendingDeck) {
     return (
-      <>
-        <TagPicker
-          deckId={pendingDeck.id}
-          deckName={pendingDeck.name}
-          onPick={(tag, keyOnly) => {
-            if (useStudyStore.getState().hasActiveSession()) {
-              setPendingStart({ id: pendingDeck.id, tag, keyOnly });
-              setResumeOpen(true);
-            } else {
-              loadQueue(pendingDeck.id, tag, keyOnly);
-              setPendingDeck(null);
-            }
-          }}
-          onBack={() => setPendingDeck(null)}
-        />
-        <ConfirmDialog
-          open={resumeOpen}
-          onOpenChange={setResumeOpen}
-          title="已有未完成的学习"
-          description="检测到未完成的学习队列。要放弃它并开始新学习，还是继续旧队列？"
-          confirmLabel="放弃并开始新学习"
-          cancelLabel="继续旧学习"
-          destructive
-          onConfirm={() => {
-            useStudyStore.getState().reset();
-            if (pendingStart) {
-              loadQueue(pendingStart.id, pendingStart.tag, pendingStart.keyOnly);
-            }
-            setPendingStart(null);
-            setPendingDeck(null);
-            setResumeOpen(false);
-          }}
-          onCancel={() => {
-            setPendingStart(null);
-            setPendingDeck(null);
-            setResumeOpen(false);
-          }}
-        />
-      </>
+      <TagPicker
+        deckId={pendingDeck.id}
+        deckName={pendingDeck.name}
+        onPick={(tag, keyOnly) => {
+          useStudyStore.getState().reset();
+          loadQueue(pendingDeck.id, tag, keyOnly);
+          setPendingDeck(null);
+        }}
+        onBack={() => setPendingDeck(null)}
+      />
     );
   }
 

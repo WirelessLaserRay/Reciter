@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { BookOpen, CalendarClock, FileUp, GraduationCap, Newspaper, PlayCircle, Quote, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Card,
   CardContent,
@@ -42,8 +41,7 @@ export default function Dashboard() {
   const [nextAiTestLabel, setNextAiTestLabel] = useState("");
   const [quote, setQuote] = useState(() => getDailyQuote());
   const [examInfo, setExamInfo] = useState<{ date: string; days: number; dailyTarget: number | null } | null>(null);
-  const [resumeOpen, setResumeOpen] = useState(false);
-  const [pendingStudy, setPendingStudy] = useState<{ deckId: number; tag?: string; keyOnly?: boolean } | null>(null);
+
 
   useEffect(() => {
     if (!dbReady) return;
@@ -100,13 +98,9 @@ export default function Dashboard() {
   }, [dbReady, refresh]);
 
   const startStudy = async (deckId: number, tag?: string, keyOnly?: boolean) => {
-    if (useStudyStore.getState().hasActiveSession()) {
-      setPendingStudy({ deckId, tag, keyOnly });
-      setResumeOpen(true);
-    } else {
-      await loadQueue(deckId, tag, keyOnly);
-      navigate("/study");
-    }
+    useStudyStore.getState().reset();
+    await loadQueue(deckId, tag, keyOnly);
+    navigate("/study");
   };
 
   const aiTestDeck = recommendedDeck ?? decks.find((d) => (cardCounts[d.id] ?? 0) > 0) ?? null;
@@ -382,29 +376,6 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      <ConfirmDialog
-        open={resumeOpen}
-        onOpenChange={setResumeOpen}
-        title="已有未完成的学习"
-        description="检测到未完成的学习队列。要放弃它并开始新学习，还是继续旧队列？"
-        confirmLabel="放弃并开始新学习"
-        cancelLabel="继续旧学习"
-        destructive
-        onConfirm={() => {
-          if (pendingStudy) {
-            useStudyStore.getState().reset();
-            void loadQueue(pendingStudy.deckId, pendingStudy.tag, pendingStudy.keyOnly);
-            navigate("/study");
-          }
-          setPendingStudy(null);
-          setResumeOpen(false);
-        }}
-        onCancel={() => {
-          setPendingStudy(null);
-          setResumeOpen(false);
-          navigate("/study");
-        }}
-      />
     </div>
   );
 }

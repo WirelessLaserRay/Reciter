@@ -131,6 +131,8 @@ export default function DailyArticle() {
   const [topic, setTopic] = useState("");
   const [customSources] = useState<CustomRssSource[]>(() => getCustomRssSources());
   const [items, setItems] = useState<NewsItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState("");
 
@@ -176,11 +178,13 @@ export default function DailyArticle() {
           ? custom.topics.filter((t) => t.id === selectedTopic).map((t) => t.url)
           : custom.topics.map((t) => t.url);
         if (urls.length === 0) throw new Error("该主题无 RSS 链接");
-        const res = await fetchCustomNews(custom.name, urls, 8);
+        const res = await fetchCustomNews(custom.name, urls, 50);
         setItems(res.items);
+        setPage(1);
       } else {
-        const res = await fetchNewsList(src, selectedTopic || undefined, 8);
+        const res = await fetchNewsList(src, selectedTopic || undefined, 50);
         setItems(res.items);
+        setPage(1);
       }
     } catch (e) {
       setListError(String(e));
@@ -355,6 +359,13 @@ export default function DailyArticle() {
     ? currentCustom?.topics ?? []
     : currentBuiltIn?.topics ?? [];
 
+  const pageSize = 10;
+  const sortedItems = [...items].sort((a, b) =>
+    sortOrder === "desc" ? (a.pubDate < b.pubDate ? 1 : -1) : a.pubDate > b.pubDate ? 1 : -1
+  );
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
+  const pageItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
+
   const handleSourceChange = (v: string) => {
     setSource(v);
     setTopic("");
@@ -470,8 +481,22 @@ export default function DailyArticle() {
               {!listLoading && items.length === 0 && !listError && (
                 <p className="text-sm text-muted-foreground">暂无文章，请尝试切换来源或稍后刷新。</p>
               )}
+              {items.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">共 {sortedItems.length} 条</span>
+                  <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "desc" | "asc")}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="desc">最新优先</SelectItem>
+                      <SelectItem value="asc">最早优先</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="grid gap-2">
-                {items.map((it) => (
+                {pageItems.map((it) => (
                   <Button
                     key={it.link}
                     variant="outline"
@@ -489,6 +514,17 @@ export default function DailyArticle() {
                   </Button>
                 ))}
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                    上一页
+                  </Button>
+                  <span className="text-xs text-muted-foreground">{page} / {totalPages}</span>
+                  <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                    下一页
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </CardContent>
@@ -535,9 +571,26 @@ export default function DailyArticle() {
               )}
               {content && (
                 <div className="space-y-4">
-                  <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
-                    {content}
-                  </div>
+                  {translation ? (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <h3 className="mb-2 text-sm font-semibold text-muted-foreground">英文原文</h3>
+                        <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                          {content}
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="mb-2 text-sm font-semibold text-muted-foreground">中文翻译</h3>
+                        <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                          {translation}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                      {content}
+                    </div>
+                  )}
                   <div className="border-t pt-4">
                     <Button
                       variant="outline"
@@ -548,11 +601,6 @@ export default function DailyArticle() {
                       {translating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
                       {translation ? "已显示全文翻译" : "全文翻译"}
                     </Button>
-                    {translation && (
-                      <div className="mt-3 whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-7">
-                        {translation}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}

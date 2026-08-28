@@ -733,7 +733,7 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
   if (path === "/api/news/custom" && request.method === "POST") {
     try {
       const body = (await request.json()) as { name?: string; urls?: string[]; limit?: number };
-      const limit = Math.min(10, Math.max(1, body.limit ?? 8));
+      const limit = Math.min(50, Math.max(1, body.limit ?? 30));
       const urls = (body.urls ?? [])
         .map((u) => u.trim())
         .filter((u) => /^https?:\/\//i.test(u) && !isBlockedRssUrl(u))
@@ -756,7 +756,7 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
   if (path === "/api/news" && request.method === "GET") {
     const source = url.searchParams.get("source") ?? "cgtn";
     const topic = url.searchParams.get("topic") ?? "";
-    const limit = Math.min(10, Math.max(1, parseInt(url.searchParams.get("limit") ?? "8", 10) || 8));
+    const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") ?? "30", 10) || 30));
     const cfg = NEWS_SOURCES[source];
     if (!cfg) {
       return json({ error: "Unknown source", sources: Object.keys(NEWS_SOURCES) }, 400, cors);

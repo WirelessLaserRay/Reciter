@@ -74,7 +74,7 @@ export async function getWorkerBaseUrl(): Promise<string> {
 }
 
 /** 拉取内置 RSS 新闻列表；topic 为空时拉取该媒体全部主题 */
-export async function fetchNewsList(source: string, topic?: string, limit = 8): Promise<NewsListResult> {
+export async function fetchNewsList(source: string, topic?: string, limit = 50): Promise<NewsListResult> {
   const base = await getWorkerBaseUrl();
   if (!base) throw new Error("请先在设置中配置 Worker 地址（同步地址或 DeepL CORS 代理）");
   const params = new URLSearchParams({ source, limit: String(limit) });
@@ -90,7 +90,7 @@ export async function fetchNewsList(source: string, topic?: string, limit = 8): 
 export async function fetchCustomNews(
   name: string,
   urls: string[],
-  limit = 8
+  limit = 50
 ): Promise<NewsListResult> {
   const base = await getWorkerBaseUrl();
   if (!base) throw new Error("请先在设置中配置 Worker 地址（同步地址或 DeepL CORS 代理）");

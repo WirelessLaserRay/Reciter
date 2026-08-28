@@ -48,20 +48,6 @@ import {
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
-import {
-  DEFAULT_PROMPTS,
-  PROMPT_TYPES,
-  STRATEGY_PROMPTS,
-  STRATEGY_TYPES,
-  getPromptTemplate,
-  savePromptTemplate,
-  resetPromptTemplate,
-  getStrategyPrompt,
-  saveStrategyPrompt,
-  resetStrategyPrompt,
-  type PromptType,
-  type AIStrategy,
-} from "@/lib/ai-prompts";
 import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
 import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
 import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
@@ -127,10 +113,7 @@ export default function Settings() {
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
-  // AI 提示词管理
-  const [promptTarget, setPromptTarget] = useState("cloze");
-  const [promptContent, setPromptContent] = useState("");
-  const [promptMsg, setPromptMsg] = useState("");
+
   const [vocabStandard, setVocabStandard] = useState<VocabStandard>("考研");
 
   // 数据备份
@@ -222,23 +205,6 @@ export default function Settings() {
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
-
-  // 加载当前提示词内容
-  useEffect(() => {
-    if (!dbReady) return;
-    (async () => {
-      try {
-        if (promptTarget.startsWith("strategy:")) {
-          const s = promptTarget.slice("strategy:".length) as AIStrategy;
-          setPromptContent(await getStrategyPrompt(s));
-        } else {
-          setPromptContent(await getPromptTemplate(promptTarget as PromptType));
-        }
-      } catch {
-        setPromptContent("");
-      }
-    })().catch(() => {});
-  }, [dbReady, promptTarget]);
 
   const flashSaved = () => {
     setSaved(true);
@@ -450,36 +416,6 @@ export default function Settings() {
     if (!dbReady) return;
     await db.setSetting("article_max_length", String(n));
     flashAiSaved();
-  };
-
-  const handleSavePrompt = async () => {
-    try {
-      if (promptTarget.startsWith("strategy:")) {
-        await saveStrategyPrompt(promptTarget.slice("strategy:".length) as AIStrategy, promptContent);
-      } else {
-        await savePromptTemplate(promptTarget as PromptType, promptContent);
-      }
-      setPromptMsg("已保存");
-    } catch (e) {
-      setPromptMsg(String(e));
-    }
-  };
-
-  const handleResetPrompt = async () => {
-    try {
-      if (promptTarget.startsWith("strategy:")) {
-        const s = promptTarget.slice("strategy:".length) as AIStrategy;
-        await resetStrategyPrompt(s);
-        setPromptContent(STRATEGY_PROMPTS[s]);
-      } else {
-        const t = promptTarget as PromptType;
-        await resetPromptTemplate(t);
-        setPromptContent(DEFAULT_PROMPTS[t].default);
-      }
-      setPromptMsg("已恢复默认");
-    } catch (e) {
-      setPromptMsg(String(e));
-    }
   };
 
   const testAI = async () => {
@@ -1227,58 +1163,6 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>AI 提示词管理</CardTitle>
-              <CardDescription>在线编辑 AI 出题/判分/策略提示词，可随时恢复默认</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Select value={promptTarget} onValueChange={setPromptTarget}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PROMPT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {DEFAULT_PROMPTS[t].label}
-                    </SelectItem>
-                  ))}
-                  {STRATEGY_TYPES.map((s) => (
-                    <SelectItem key={s} value={`strategy:${s}`}>
-                      策略·{s === "teach" ? "首次教学" : s === "recognition" ? "识别巩固" : s === "production" ? "产出练习" : "顽固词攻克"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Textarea
-                rows={10}
-                className="font-mono text-xs"
-                value={promptContent}
-                onChange={(e) => setPromptContent(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => void handleSavePrompt()}>
-                  保存
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => void handleResetPrompt()}>
-                  恢复默认
-                </Button>
-              </div>
-              {promptMsg && <p className="text-xs text-muted-foreground">{promptMsg}</p>}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>AI 出题与判分</CardTitle>
-              <CardDescription>
-                内置模板自动生效，无需手动配置
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>· 出题与判分 Prompt 已内置 JSON 结构化模板，按学习状态自动选择策略，无需手动配置。</p>
-            </CardContent>
-          </Card>
         </TabsContent>
         {/* 数据备份 */}
         <TabsContent value="data" className="space-y-4">
