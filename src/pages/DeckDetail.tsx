@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
+import { aiSplitMeaning } from "@/lib/vocab";
 import { batchFetchPhonetics } from "@/lib/dictionary";
 import { speak } from "@/lib/tts";
 import MasteryOverview from "@/components/deck/MasteryOverview";
@@ -40,12 +41,18 @@ export default function DeckDetail() {
   const [topWeak, setTopWeak] = useState<DeckWeakWord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showIgnored, setShowIgnored] = useState(false);
+  const [aiScanning, setAiScanning] = useState(false);
+  const [aiScanProgress, setAiScanProgress] = useState({ done: 0, total: 0 });
+  const [aiScanMsg, setAiScanMsg] = useState("");
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [adding, setAdding] = useState(false);
   const [editTarget, setEditTarget] = useState<CardType | null>(null);
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
+  const [editMeaningPrimary, setEditMeaningPrimary] = useState("");
+  const [editMeaningSecondary, setEditMeaningSecondary] = useState("");
   const [editTags, setEditTags] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [editKey, setEditKey] = useState(false);
@@ -108,6 +115,8 @@ export default function DeckDetail() {
     setEditTarget(c);
     setEditFront(c.front);
     setEditBack(c.back);
+    setEditMeaningPrimary(c.meaning_primary ?? "");
+    setEditMeaningSecondary(c.meaning_secondary ?? "");
     setEditTags(tagsOf(c).join("、"));
     setEditKey(c.is_key === 1);
   };
@@ -123,6 +132,8 @@ export default function DeckDetail() {
       await db.updateCard(editTarget.id, {
         front: editFront.trim(),
         back: editBack.trim(),
+        meaning_primary: editMeaningPrimary.trim(),
+        meaning_secondary: editMeaningSecondary.trim(),
         tags: JSON.stringify(tagArr),
         is_key: editKey ? 1 : 0,
       });
@@ -142,6 +153,36 @@ export default function DeckDetail() {
     await db.deleteCard(confirmDeleteTarget.id);
     setConfirmDeleteTarget(null);
     load(true);
+  };
+
+  const restoreCard = async (card: CardType) => {
+    await db.updateCard(card.id, { ignored: 0 });
+    load(true);
+  };
+
+  const runAiScan = async () => {
+    if (aiScanning || cards.length === 0) return;
+    setAiScanning(true);
+    setAiScanMsg("");
+    setAiScanProgress({ done: 0, total: cards.length });
+    try {
+      let done = 0;
+      for (const c of cards) {
+        try {
+          const { primary, secondary } = await aiSplitMeaning(c.front, c.back);
+          await db.updateCard(c.id, { meaning_primary: primary, meaning_secondary: secondary });
+        } catch {
+          // 单张失败跳过
+        }
+        done++;
+        setAiScanProgress({ done, total: cards.length });
+      }
+      setAiScanMsg("AI 扫描完成");
+    } catch (e) {
+      setAiScanMsg(String(e));
+    } finally {
+      setAiScanning(false);
+    }
   };
 
   const addToWeakBook = (card: CardType) => {
@@ -193,6 +234,7 @@ export default function DeckDetail() {
   const deferredSearch = useDeferredValue(search);
   const filtered = cards.filter(
     (c) =>
+      (showIgnored ? c.ignored === 1 : c.ignored === 0) &&
       (!deferredSearch || c.front.toLowerCase().includes(deferredSearch.toLowerCase()) || c.back.includes(deferredSearch)) &&
       (!keyFilter || c.is_key === 1)
   );
@@ -243,12 +285,35 @@ export default function DeckDetail() {
           <Badge variant="secondary">{cards.length} 张卡片</Badge>
           <span>已学习 {progress.learned}</span>
           <span>待复习 {progress.due}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void runAiScan()}
+            disabled={aiScanning}
+            title="按当前词汇标准拆分主要/次要释义"
+          >
+            {aiScanning ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+            AI 扫描释义
+          </Button>
+          {aiScanning && (
+            <span className="text-xs text-muted-foreground">
+              {aiScanProgress.done}/{aiScanProgress.total}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant={showIgnored ? "secondary" : "outline"}
+            onClick={() => setShowIgnored((v) => !v)}
+          >
+            {showIgnored ? "查看正常" : "已忽略"}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate(`/study?quiz=${deckId}`)}>
             <ClipboardList className="size-3.5" />
             高级测试
           </Button>
         </div>
       </div>
+      {aiScanMsg && <p className="text-xs text-muted-foreground">{aiScanMsg}</p>}
 
       <div>
         <h2 className="text-2xl font-bold">{deck.name}</h2>
@@ -383,8 +448,11 @@ export default function DeckDetail() {
                             </div>
                           </div>
                         </td>
-                        <td className="max-w-md truncate px-3 py-2 text-muted-foreground" title={c.back}>
-                          {c.back}
+                        <td className="max-w-md px-3 py-2" title={c.back}>
+                          <div className="truncate font-medium">{c.meaning_primary || c.back}</div>
+                          {c.meaning_secondary && (
+                            <div className="truncate text-muted-foreground">{c.meaning_secondary}</div>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           {tags.map((t) => (
@@ -403,6 +471,17 @@ export default function DeckDetail() {
                           >
                             <AlertTriangle className="size-3.5" />
                           </Button>
+                          {c.ignored === 1 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-green-600"
+                              onClick={() => restoreCard(c)}
+                              title="恢复卡片"
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -446,6 +525,14 @@ export default function DeckDetail() {
             <div className="space-y-1.5">
               <Label htmlFor="edit-back">释义</Label>
               <Input id="edit-back" value={editBack} onChange={(e) => setEditBack(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-primary">主要释义（加粗展示）</Label>
+              <Input id="edit-primary" value={editMeaningPrimary} onChange={(e) => setEditMeaningPrimary(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-secondary">次要释义（第二栏）</Label>
+              <Input id="edit-secondary" value={editMeaningSecondary} onChange={(e) => setEditMeaningSecondary(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-tags">标签（用 、 或逗号分隔）</Label>

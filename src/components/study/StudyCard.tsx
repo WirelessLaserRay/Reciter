@@ -218,6 +218,20 @@ function RevealContext({ row }: { row: StudyCardRow }) {
   );
 }
 
+/** 主要释义加粗 + 次要释义第二栏 */
+function MeaningBlock({ row, className }: { row: StudyCardRow; className?: string }) {
+  const primary = row.meaning_primary || row.back;
+  const secondary = row.meaning_secondary;
+  return (
+    <div className={cn("space-y-0.5", className)}>
+      <div className="font-semibold whitespace-pre-wrap break-words">{primary}</div>
+      {secondary && (
+        <div className="whitespace-pre-wrap break-words text-muted-foreground">{secondary}</div>
+      )}
+    </div>
+  );
+}
+
 /** 同族词提示（P3-⑬：从全词库干扰项池中匹配共享词干） */
 function RelatedWordsChips({ front, fronts }: { front: string; fronts: string[] }) {
   const related = findRelatedWords(front, fronts);
@@ -289,9 +303,7 @@ function ClassicFlipView(props: ModeViewProps) {
           </div>
           {/* 背面：释义 + 原文语境 + 同族词 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-            <div className="text-center text-2xl font-semibold whitespace-pre-wrap break-words">
-              {row.back}
-            </div>
+            <MeaningBlock row={row} className="text-center text-2xl" />
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
             <RevealContext row={row} />
@@ -423,9 +435,7 @@ function ActiveRecallView(props: ModeViewProps) {
           <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
             <CardMetaBadges row={row} />
             <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-            <div className="max-w-md text-center text-2xl font-semibold whitespace-pre-wrap break-words">
-              {row.back}
-            </div>
+            <MeaningBlock row={row} className="max-w-md text-center text-2xl" />
             {recallResult && (
               <p className={recallResult.match ? "text-sm text-green-600" : "text-sm text-amber-600"}>
                 {recallResult.match
@@ -493,9 +503,7 @@ function NewCardTeachView(props: ModeViewProps) {
     <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
       <CardMetaBadges row={row} />
       <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-      <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
-        {row.back}
-      </div>
+      <MeaningBlock row={row} className="max-w-lg text-center text-xl" />
       <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
       <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
       <p className="text-sm text-muted-foreground">
@@ -701,9 +709,7 @@ function AiDrillView(props: ModeViewProps) {
       <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border border-amber-500/30 bg-card p-8">
         <CardMetaBadges row={row} />
         <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-        <div className="max-w-lg text-center text-xl font-semibold whitespace-pre-wrap break-words">
-          {row.back}
-        </div>
+        <MeaningBlock row={row} className="max-w-lg text-center text-xl" />
         {config.showMarkdown && (
           <div className="w-full max-w-lg">
             <MarkdownContext markdownContent={row.markdown_content} word={row.front} />

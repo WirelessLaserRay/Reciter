@@ -107,6 +107,10 @@ interface StudyState {
   loadQueue: (deckId: number, tag?: string, keyOnly?: boolean) => Promise<void>;
   /** 是否存在未完成的学习会话 */
   hasActiveSession: () => boolean;
+  /** 跳过当前卡：不评分，移到本轮稍后位置 */
+  skip: () => boolean;
+  /** 忽略当前卡：标记 ignored=1，不再进入默认学习队列 */
+  ignore: () => Promise<boolean>;
   /** 评分当前卡片，返回是否还有下一张；opts 支持 AI 测试来源与题目/答案记录 */
   rate: (
     grade: 1 | 2 | 3 | 4,
@@ -206,6 +210,29 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   hasActiveSession: () => {
     const s = get();
     return s.queue.length > 0 && !s.finished && s.index < s.queue.length;
+  },
+
+  skip: () => {
+    const { queue, index } = get();
+    if (index >= queue.length || queue.length <= 1) return false;
+    const q = [...queue];
+    const [item] = q.splice(index, 1);
+    const insertAt = Math.min(q.length, index + 10);
+    q.splice(insertAt, 0, item);
+    set({ queue: q });
+    return index < q.length;
+  },
+
+  ignore: async () => {
+    const { queue, index, deckId } = get();
+    if (deckId === null || index >= queue.length) return false;
+    const item = queue[index];
+    await db.updateCard(item.row.card_id, { ignored: 1 });
+    const q = [...queue];
+    q.splice(index, 1);
+    const finished = index >= q.length;
+    set({ queue: q, finished });
+    return !finished;
   },
 
   markShown: () => {

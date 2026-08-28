@@ -122,6 +122,27 @@ export async function recognizeNewWords(
   return extractJsonArray<NewWord>(raw).slice(0, limit);
 }
 
+/** AI 按当前标准拆分释义为主要/次要 */
+export async function aiSplitMeaning(front: string, back: string): Promise<{ primary: string; secondary: string }> {
+  const client = await getClient();
+  const standard = await getVocabStandard();
+  const prompt = [
+    `你是英语词汇老师。请按${standard}标准，把单词 "${front}" 的释义拆成“主要释义”和“次要释义”。`,
+    "主要释义为最常用/最重要含义，次要释义为其他含义；如果只有一层含义，secondary 填空字符串。",
+    `原始释义：${back}`,
+    '只输出 JSON：{"primary":"...","secondary":"..."}',
+  ].join("\n");
+  const raw = await client.chat([
+    { role: "system", content: "你是 Reciter 释义拆分助手，严格按 JSON 输出。" },
+    { role: "user", content: prompt },
+  ]);
+  const parsed = extractJsonObject<{ primary?: string; secondary?: string }>(raw);
+  return {
+    primary: parsed.primary?.trim() || back.trim(),
+    secondary: parsed.secondary?.trim() || "",
+  };
+}
+
 /** 讲解单个生词（词性/释义/例句/翻译） */
 export async function explainWord(word: string): Promise<WordExplanation> {
   const client = await getClient();

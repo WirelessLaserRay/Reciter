@@ -170,7 +170,7 @@ function StudySession({
   /** 标签学习完成后的针对性测试入口（选择/填空为主） */
   onStartTagQuiz?: (deckId: number, tag: string) => void;
 }) {
-  const { deckId, deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset } = useStudyStore();
+  const { deckId, deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset, skip, ignore } = useStudyStore();
   const navigate = useNavigate();
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
@@ -574,6 +574,16 @@ function StudySession({
           className="h-full rounded-full bg-primary transition-all duration-300"
           style={{ width: total > 0 ? ((index / total) * 100).toFixed(1) + "%" : "0%" }}
         />
+      </div>
+
+      {/* 跳过 / 忽略 */}
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="outline" onClick={() => skip()}>
+          跳过
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void ignore()}>
+          忽略
+        </Button>
       </div>
 
       <div className="flex items-start gap-4">
