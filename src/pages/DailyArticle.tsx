@@ -240,7 +240,7 @@ export default function DailyArticle() {
     setGenerating(true);
     setQuestionError("");
     try {
-      const qs = await generateArticleQuestions(content, 3);
+      const qs = await generateArticleQuestions(content);
       setQuestions(qs);
       setSelectedOptions(qs.map(() => null));
       setShowQuizAnswers(false);
