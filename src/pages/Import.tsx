@@ -95,6 +95,7 @@ export default function Import() {
   >({});
   const refreshDecks = useDeckStore((s) => s.refresh);
   const [importProgress, setImportProgress] = useState({ phase: "" as "" | "phonetic" | "db", done: 0, total: 0 });
+  const [autoPhonetic, setAutoPhonetic] = useState(false);
 
   /** 解析结果 → 冲突检测（DB 匹配）→ 预览 */
   const handleParsed = async (name: string, parsed: ImportFileResult) => {
@@ -268,7 +269,7 @@ export default function Import() {
     // Phase 1: 批量获取缺少音标的单词的音标（并发 + 进度）
     const needPhonetic = selected.filter((r) => !r.phonetic).map((r) => r.front);
     let phoneticMap = new Map<string, string>();
-    if (needPhonetic.length > 0) {
+    if (autoPhonetic && needPhonetic.length > 0) {
       setImportProgress({ phase: "phonetic", done: 0, total: needPhonetic.length });
       phoneticMap = await batchFetchPhonetics(needPhonetic, (done, total) => {
         setImportProgress({ phase: "phonetic", done, total });
@@ -639,11 +640,22 @@ export default function Import() {
             </CardContent>
           </Card>
 
-          <div className="flex items-center justify-end gap-3">
-            <Button variant="outline" onClick={reset}>取消</Button>
-            <Button onClick={confirmImport} disabled={checkedCount === 0}>
-              确认导入（{checkedCount} 张）
-            </Button>
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={autoPhonetic}
+                onChange={(e) => setAutoPhonetic(e.target.checked)}
+                className="size-4 accent-primary"
+              />
+              导入时自动获取缺失音标（默认关闭）
+            </label>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={reset}>取消</Button>
+              <Button onClick={confirmImport} disabled={checkedCount === 0}>
+                确认导入（{checkedCount} 张）
+              </Button>
+            </div>
           </div>
         </div>
       )}
