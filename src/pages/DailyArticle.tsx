@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -148,6 +149,8 @@ export default function DailyArticle() {
   const [questionError, setQuestionError] = useState("");
 
   const [newWords, setNewWords] = useState<NewWord[] | null>(null);
+  const [manualWords, setManualWords] = useState<NewWord[]>([]);
+  const [manualWordInput, setManualWordInput] = useState("");
   const [recognizing, setRecognizing] = useState(false);
   const [wordError, setWordError] = useState("");
   const [explanation, setExplanation] = useState<WordExplanation | null>(null);
@@ -262,6 +265,20 @@ export default function DailyArticle() {
     }
   };
 
+  const handleAddManualWord = () => {
+    const word = manualWordInput.trim();
+    if (!word) return;
+    const exists =
+      manualWords.some((w) => w.word.toLowerCase() === word.toLowerCase()) ||
+      (newWords ?? []).some((w) => w.word.toLowerCase() === word.toLowerCase());
+    if (exists) {
+      setManualWordInput("");
+      return;
+    }
+    setManualWords((prev) => [...prev, { word, pos: "", meaning: "" }]);
+    setManualWordInput("");
+  };
+
   const handleExplainWord = async (word: string) => {
     setExplaining(true);
     setExplanation(null);
@@ -310,12 +327,12 @@ export default function DailyArticle() {
   };
 
   const importWordsToDeck = async () => {
-    if (!newWords || newWords.length === 0) return;
+    if (allNewWords.length === 0) return;
     setImportingWords(true);
     setImportMsg("");
     try {
-      const deckName = await addWordsToDeck(newWords);
-      setImportMsg(`已导入 ${newWords.length} 个生词到「${deckName}」`);
+      const deckName = await addWordsToDeck(allNewWords);
+      setImportMsg(`已导入 ${allNewWords.length} 个生词到「${deckName}」`);
     } catch (e) {
       setImportMsg(String(e));
     } finally {
@@ -358,6 +375,8 @@ export default function DailyArticle() {
   const currentTopics = source.startsWith("custom:")
     ? currentCustom?.topics ?? []
     : currentBuiltIn?.topics ?? [];
+
+  const allNewWords = [...(newWords ?? []), ...manualWords];
 
   const pageSize = 10;
   const sortedItems = [...items].sort((a, b) =>
@@ -571,22 +590,25 @@ export default function DailyArticle() {
               )}
               {content && (
                 <div className="space-y-4">
-                  {translation ? (
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      <div>
-                        <h3 className="mb-2 text-sm font-semibold text-muted-foreground">英文原文</h3>
-                        <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
-                          {content}
-                        </div>
+                  {translation ? (() => {
+                    const en = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+                    const zh = translation.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+                    const len = Math.max(en.length, zh.length);
+                    return (
+                      <div className="space-y-4">
+                        {Array.from({ length: len }, (_, i) => (
+                          <div key={i} className="grid gap-2 border-b pb-3 lg:grid-cols-2">
+                            <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                              {en[i] || ""}
+                            </div>
+                            <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                              {zh[i] || ""}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-semibold text-muted-foreground">中文翻译</h3>
-                        <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
-                          {translation}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
+                    );
+                  })() : (
                     <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
                       {content}
                     </div>
@@ -635,9 +657,9 @@ export default function DailyArticle() {
                 {sidebarTab === "words" ? (
                   <>
                     {wordError && <p className="text-xs text-red-600">{wordError}</p>}
-                    {!newWords && (
+                    {allNewWords.length === 0 && (
                       <p className="text-xs text-muted-foreground">
-                        点击「识别生词」从当前文章中提取生词。
+                        点击「识别生词」或手动添加，将生词收录到列表。
                       </p>
                     )}
                     <Button
@@ -650,11 +672,24 @@ export default function DailyArticle() {
                       {recognizing ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
                       识别生词
                     </Button>
-                    {newWords && (
+                    <div className="flex gap-2">
+                      <Input
+                        value={manualWordInput}
+                        onChange={(e) => setManualWordInput(e.target.value)}
+                        placeholder="手动添加生词"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddManualWord();
+                        }}
+                      />
+                      <Button size="sm" onClick={handleAddManualWord} disabled={!manualWordInput.trim()}>
+                        添加
+                      </Button>
+                    </div>
+                    {allNewWords.length > 0 && (
                       <div className="space-y-2">
-                        {newWords.map((w) => (
+                        {allNewWords.map((w, i) => (
                           <button
-                            key={w.word}
+                            key={w.word + i}
                             type="button"
                             className="flex w-full items-start justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                             onClick={() => handleExplainWord(w.word)}
@@ -667,7 +702,7 @@ export default function DailyArticle() {
                         ))}
                       </div>
                     )}
-                    {newWords && newWords.length > 0 && (
+                    {allNewWords.length > 0 && (
                       <Button
                         size="sm"
                         className="w-full"
