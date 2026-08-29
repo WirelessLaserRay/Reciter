@@ -26,6 +26,23 @@ import { cn } from "@/lib/utils";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
 
+/** 自然排序：名称中的数字按数值比较（如 "第2课" < "第10课"） */
+function naturalCompare(a: string, b: string): number {
+  const re = /(\d+)|(\D+)/g;
+  const pa = a.match(re) ?? [];
+  const pb = b.match(re) ?? [];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? "";
+    const y = pb[i] ?? "";
+    if (x === y) continue;
+    const nx = Number(x);
+    const ny = Number(y);
+    if (!Number.isNaN(nx) && !Number.isNaN(ny)) return nx - ny;
+    return x.localeCompare(y);
+  }
+  return a.localeCompare(b);
+}
+
 export default function DeckList() {
   const { decks, cardCounts, loading, error, refresh } = useDeckStore();
   const dbReady = useDbStore((s) => s.ready);
@@ -244,7 +261,7 @@ export default function DeckList() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   {decks
                     .filter((d) => (d.folder || "") === folder)
-                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .sort((a, b) => naturalCompare(a.name, b.name))
                     .map((d) => (
                       <Card key={d.id} className="group relative">
                         <CardHeader className="pb-2">
