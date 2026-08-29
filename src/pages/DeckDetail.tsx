@@ -221,7 +221,12 @@ export default function DeckDetail() {
         }
       }
       await load(true);
-      setNotice({ title: "音标补齐完成", description: `已为 ${filled} 个单词补齐音标。` });
+      setNotice({
+        title: filled > 0 ? "音标补齐完成" : "音标补齐结果",
+        description: filled > 0
+          ? `已为 ${filled} 个单词补齐音标。`
+          : "未找到可补齐的音标（可能是词组，或词典/AI 接口无结果）",
+      });
     } catch (e) {
       setNotice({ title: "操作失败", description: String(e), destructive: true });
     } finally {

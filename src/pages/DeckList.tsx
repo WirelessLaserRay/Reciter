@@ -97,10 +97,29 @@ export default function DeckList() {
     setRenameBusy(true);
     setRenameError(null);
     try {
+      const folder = renameFolder.trim();
+      let finalName = renameName.trim();
+      // 同文件夹下重名时自动追加 _1/_2，避免 UNIQUE 约束报错
+      const conflict = decks.some(
+        (d) => d.id !== renameTarget.id && (d.folder || "") === folder && d.name === finalName
+      );
+      if (conflict) {
+        let i = 1;
+        let candidate = `${finalName}_${i}`;
+        while (
+          decks.some(
+            (d) => d.id !== renameTarget.id && (d.folder || "") === folder && d.name === candidate
+          )
+        ) {
+          i++;
+          candidate = `${finalName}_${i}`;
+        }
+        finalName = candidate;
+      }
       await db.updateDeck(renameTarget.id, {
-        name: renameName.trim(),
+        name: finalName,
         description: renameDesc.trim(),
-        folder: renameFolder.trim(),
+        folder,
         new_cards_per_day: renameQuota > 0 ? renameQuota : 20,
       });
       setRenameTarget(null);
