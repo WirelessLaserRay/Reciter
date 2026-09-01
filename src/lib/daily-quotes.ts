@@ -1,11 +1,13 @@
-/** 每日一句：英文名言 / 写作实用句子，本地数据库缓存 + 每周同步 Quotable API */
+/** 每日一句：英文名言 / 写作实用句子，本地数据库缓存 + 每周同步 ZenQuotes API */
 import { db } from "@/lib/db";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isTauri } from "@/lib/env";
 
 export interface DailyQuote {
   text: string;
   translation: string;
   author: string;
-  source?: "local" | "quotable";
+  source?: "local" | "zenquotes" | "quotable";
 }
 
 const QUOTES: DailyQuote[] = [
@@ -74,24 +76,31 @@ async function writeCache(date: Date, quote: DailyQuote): Promise<void> {
   }
 }
 
-async function fetchQuotableQuote(): Promise<DailyQuote | null> {
+/** 环境自适应 fetch：Tauri 走 plugin-http（绕过 CORS）；Web 走 window.fetch */
+const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
+
+async function fetchZenQuote(): Promise<DailyQuote | null> {
   const endpoints = [
-    "https://api.quotable.io/random",
-    "https://api.quotable.io/quotes/random",
+    "https://zenquotes.io/api/random",
+    "https://zenquotes.io/api/today",
   ];
   for (const url of endpoints) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      const res = await httpFetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) continue;
-      const data = (await res.json()) as {
+      const data = await res.json();
+      const item = (Array.isArray(data) ? data[0] : data) as {
+        q?: string;
         content?: string;
         quote?: string;
+        a?: string;
         author?: string;
-      };
-      const text = (data.content || data.quote || "").trim();
-      const author = (data.author || "").trim();
+      } | null;
+      if (!item) continue;
+      const text = (item.q || item.content || item.quote || "").trim();
+      const author = (item.a || item.author || "").trim();
       if (text) {
-        return { text, translation: "", author, source: "quotable" };
+        return { text, translation: "", author, source: "zenquotes" };
       }
     } catch {
       // try next endpoint
@@ -121,7 +130,7 @@ async function translateWithAI(quote: DailyQuote): Promise<string> {
 /**
  * 获取每日一句：
  * 1. 优先读取本地数据库缓存（同一自然周内不重复请求 API）；
- * 2. 每周首次访问时尝试 Quotable API 获取随机英文名言，并用 AI 生成中文翻译；
+ * 2. 每周首次访问时尝试 ZenQuotes API 获取随机英文名言，并用 AI 生成中文翻译；
  * 3. 任意环节失败时回退到本地名言库，并把结果写入数据库缓存。
  */
 export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuote> {
@@ -130,7 +139,7 @@ export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuo
     return { text: cached.text, translation: cached.translation, author: cached.author, source: cached.source };
   }
 
-  let quote = await fetchQuotableQuote();
+  let quote = await fetchZenQuote();
   if (quote) {
     try {
       quote.translation = await translateWithAI(quote);
@@ -146,7 +155,7 @@ export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuo
   return local;
 }
 
-/** 清空每日一句数据库缓存（用于手动刷新/测试 Quotable） */
+/** 清空每日一句数据库缓存（用于手动刷新/测试 ZenQuotes） */
 export async function clearDailyQuoteCache(): Promise<void> {
   try {
     await db.setSetting("daily_quote_cache", "");
@@ -157,13 +166,13 @@ export async function clearDailyQuoteCache(): Promise<void> {
 
 /**
  * 手动换一句：
- * 清空本周缓存后重新请求 Quotable API；
+ * 清空本周缓存后重新请求 ZenQuotes API；
  * 若 API 不可用，则从本地名句库随机换一句并写入缓存，保证界面立即变化。
  */
 export async function refreshDailyQuote(date: Date = new Date()): Promise<DailyQuote> {
   await clearDailyQuoteCache();
 
-  const quote = await fetchQuotableQuote();
+  const quote = await fetchZenQuote();
   if (quote) {
     try {
       quote.translation = await translateWithAI(quote);

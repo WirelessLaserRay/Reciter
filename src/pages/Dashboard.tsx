@@ -175,7 +175,7 @@ export default function Dashboard() {
             <Quote className="size-4 text-primary" />
             每日一句
             <span className="text-[10px] font-normal text-muted-foreground">
-              {quote.source === "quotable" ? "Quotable" : "本地"}
+              {quote.source === "zenquotes" ? "ZenQuotes" : quote.source === "quotable" ? "Quotable" : "本地"}
             </span>
           </CardTitle>
           <Button size="sm" variant="ghost" onClick={handleRefreshQuote} disabled={quoteRefreshing}>
