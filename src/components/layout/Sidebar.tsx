@@ -47,6 +47,7 @@ export default function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const brandIconSrc = import.meta.env.BASE_URL + "icon.png";
   return (
     <aside
       className={cn(
@@ -58,7 +59,7 @@ export default function Sidebar({
       {/* 品牌区 */}
       <div className={cn("flex h-14 items-center border-b border-sidebar-border transition-all duration-300", collapsed ? "justify-center px-2" : "gap-2 px-4")}>
         <img
-          src="/icon.png"
+          src={brandIconSrc}
           alt="Reciter"
           className="size-8 shrink-0 rounded-lg object-contain"
         />
@@ -118,7 +119,7 @@ export default function Sidebar({
         </Button>
         <div className="sidebar-collapse-text mt-2 justify-center">
           <div className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground">
-            Reciter v0.16.1 · Phase 7
+            Reciter v0.16.2 · Phase 7
           </div>
         </div>
       </div>
