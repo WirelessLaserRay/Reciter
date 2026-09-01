@@ -22,8 +22,8 @@ import {
   getLastStudyContext,
   type LastStudyContext,
 } from "@/lib/study-prefs";
-import { getDailyQuote } from "@/lib/daily-quotes";
-import { getDailyNewTarget, getDaysUntilExam, getExamConfig } from "@/lib/exam-planner";
+import { fetchDailyQuote, getDailyQuote } from "@/lib/daily-quotes";
+import { getDailyNewTarget, getDaysUntilExam, getExamConfig, getSavedAIStudyPlan } from "@/lib/exam-planner";
 import type { Deck } from "@/types";
 
 export default function Dashboard() {
@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [nextAiTestLabel, setNextAiTestLabel] = useState("");
   const [quote, setQuote] = useState(() => getDailyQuote());
   const [examInfo, setExamInfo] = useState<{ date: string; days: number; dailyTarget: number | null } | null>(null);
+  const [aiPlan, setAiPlan] = useState("");
 
 
   useEffect(() => {
@@ -69,9 +70,10 @@ export default function Dashboard() {
       setLastContext(last);
       setWeakCount(weak);
       setDueByDeck(deckDue);
-      setQuote(getDailyQuote());
+      setQuote(await fetchDailyQuote());
 
       const examCfg = await getExamConfig();
+      setAiPlan(await getSavedAIStudyPlan());
       if (examCfg.date) {
         setExamInfo({
           date: examCfg.date,
@@ -166,7 +168,9 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
-          <p className="mt-1 text-sm text-muted-foreground">{quote.translation}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {quote.translation || "（未配置 AI，暂无中文翻译）"}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">— {quote.author}</p>
         </CardContent>
       </Card>
@@ -204,6 +208,13 @@ export default function Dashboard() {
               {examInfo.dailyTarget !== null && ` · 建议每日新学 ${examInfo.dailyTarget} 张`}
             </CardDescription>
           </CardHeader>
+          {aiPlan && (
+            <CardContent>
+              <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm leading-relaxed">
+                {aiPlan}
+              </pre>
+            </CardContent>
+          )}
         </Card>
       )}
 

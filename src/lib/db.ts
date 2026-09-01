@@ -738,6 +738,19 @@ class ReciterDB {
     return rows[0]?.cnt ?? 0;
   }
 
+  /** 指定词库中的新卡片数（state = 0；空列表返回 0） */
+  async getNewCountByDecks(deckIds: number[]): Promise<number> {
+    if (deckIds.length === 0) return 0;
+    const placeholders = deckIds.map(() => "?").join(",");
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(*) AS cnt FROM card_states cs
+       JOIN cards c ON c.id = cs.card_id
+       WHERE cs.state = 0 AND c.deck_id IN (${placeholders})`,
+      deckIds
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
   /** 各词库今日待复习数（可忽略标签） */
   async getDeckDueCounts(before: string, ignoreTags: string[] = []): Promise<Record<number, number>> {
     const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(

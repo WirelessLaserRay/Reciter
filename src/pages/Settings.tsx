@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Database, Download, Loader2, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Database, Download, Loader2, Sparkles, Upload, XCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
+import { useDeckStore } from "@/stores/useDeckStore";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
@@ -73,6 +74,14 @@ import {
   saveRestDurationMinutes,
   saveSummaryInterval,
 } from "@/lib/study-prefs";
+import {
+  clearAIStudyPlan,
+  generateAIStudyPlan,
+  getExamConfig,
+  getSavedAIStudyPlan,
+  saveAIStudyPlan,
+  saveExamConfig,
+} from "@/lib/exam-planner";
 
 export default function Settings() {
   const theme = useThemeStore((s) => s.theme);
@@ -103,6 +112,14 @@ export default function Settings() {
   const [deeplTesting, setDeeplTesting] = useState(false);
   const [deeplTestResult, setDeeplTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // 考试规划
+  const { decks, cardCounts, refresh: refreshDecks } = useDeckStore();
+  const [examDate, setExamDate] = useState("");
+  const [examDeckIds, setExamDeckIds] = useState<number[]>([]);
+  const [examAiPlan, setExamAiPlan] = useState("");
+  const [examPlanning, setExamPlanning] = useState(false);
+  const [examPlanMsg, setExamPlanMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // AI 配置
   const [setupOpen, setSetupOpen] = useState(false);
@@ -144,7 +161,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd, aml] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd, aml, examCfg, examPlan] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -169,6 +186,8 @@ export default function Settings() {
         getSyncConfig(),
         getVocabStandard(),
         getArticleMaxLength(),
+        getExamConfig(),
+        getSavedAIStudyPlan(),
       ]);
       const rv = r ? parseFloat(r) : 0.9;
       if (Number.isFinite(rv)) setRetention(Math.min(0.95, Math.max(0.8, rv)));
@@ -198,10 +217,14 @@ export default function Settings() {
       setSyncToken(syncCfg.token);
       setVocabStandard(vocabStd);
       setArticleMaxLength(aml);
+      setExamDate(examCfg.date ?? "");
+      setExamDeckIds(examCfg.deckIds);
+      setExamAiPlan(examPlan);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
       setAiModel(aiCfg.model);
       setAiTemp(aiCfg.temperature);
+      await refreshDecks();
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
@@ -383,6 +406,49 @@ export default function Settings() {
     if (!dbReady) return;
     await saveSummaryInterval(n);
     flashSaved();
+  };
+
+  // ============ 考试规划动作 ============
+  const toggleExamDeck = (id: number) => {
+    setExamDeckIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const saveExamPlanning = async () => {
+    if (!dbReady) return;
+    if (!examDate) {
+      setExamPlanMsg({ ok: false, text: "请先选择考试日期" });
+      return;
+    }
+    await saveExamConfig({ date: examDate, deckIds: examDeckIds });
+    setExamPlanMsg({ ok: true, text: "考试规划已保存，主页倒计时已更新" });
+    flashSaved();
+  };
+
+  const handleGenerateAIExamPlan = async () => {
+    if (!dbReady) return;
+    if (!examDate) {
+      setExamPlanMsg({ ok: false, text: "请先选择考试日期" });
+      return;
+    }
+    setExamPlanning(true);
+    setExamPlanMsg(null);
+    try {
+      const plan = await generateAIStudyPlan({ date: examDate, deckIds: examDeckIds }, decks);
+      setExamAiPlan(plan);
+      await saveAIStudyPlan(plan);
+      setExamPlanMsg({ ok: true, text: "AI 学习计划已生成并保存" });
+    } catch (e) {
+      setExamPlanMsg({ ok: false, text: String(e) });
+    } finally {
+      setExamPlanning(false);
+    }
+  };
+
+  const handleClearAIExamPlan = async () => {
+    setExamAiPlan("");
+    if (!dbReady) return;
+    await clearAIStudyPlan();
+    setExamPlanMsg({ ok: true, text: "AI 学习计划已清除" });
   };
 
   // ============ AI 动作 ============
@@ -995,6 +1061,104 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* 考试规划 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarClock className="size-4 text-primary" />
+                考试规划
+              </CardTitle>
+              <CardDescription>
+                设置考试日期与目标词库，主页显示倒计时与建议每日新学量；可用 AI 生成备考计划
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="exam-date">考试日期</Label>
+                <Input
+                  id="exam-date"
+                  type="date"
+                  value={examDate}
+                  onChange={(e) => setExamDate(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  建议每日新学量 = 所选词库未学新卡数 ÷ 剩余天数
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>目标词库（不选 = 全部词库）</Label>
+                {decks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">暂无词库，请先创建词库</p>
+                ) : (
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {decks.map((d) => (
+                      <label
+                        key={d.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={examDeckIds.includes(d.id)}
+                          onChange={() => toggleExamDeck(d.id)}
+                        />
+                        <span className="min-w-0 truncate">
+                          {d.folder ? `${d.folder}/${d.name}` : d.name}
+                        </span>
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                          {cardCounts?.[d.id] ?? 0} 张
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {decks.length > 0 && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setExamDeckIds(decks.map((d) => d.id))}>
+                      全选
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setExamDeckIds([])}>
+                      清空
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={saveExamPlanning} disabled={!dbReady || !examDate}>
+                  保存考试规划
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateAIExamPlan}
+                  disabled={examPlanning || !dbReady || !examDate}
+                >
+                  {examPlanning ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                  {examPlanning ? "AI 规划中…" : "AI 生成学习计划"}
+                </Button>
+                {examAiPlan && (
+                  <Button size="sm" variant="ghost" onClick={handleClearAIExamPlan}>
+                    清除计划
+                  </Button>
+                )}
+              </div>
+
+              {examPlanMsg && (
+                <p className={examPlanMsg.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                  {examPlanMsg.text}
+                </p>
+              )}
+
+              {examAiPlan && (
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <p className="mb-2 text-sm font-semibold">AI 备考计划</p>
+                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed">{examAiPlan}</pre>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
