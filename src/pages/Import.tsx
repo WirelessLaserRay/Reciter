@@ -96,6 +96,7 @@ export default function Import() {
   const refreshDecks = useDeckStore((s) => s.refresh);
   const [importProgress, setImportProgress] = useState({ phase: "" as "" | "phonetic" | "db", done: 0, total: 0 });
   const [autoPhonetic, setAutoPhonetic] = useState(false);
+  const [backgroundPhonetic, setBackgroundPhonetic] = useState(false);
 
   /** 解析结果 → 冲突检测（DB 匹配）→ 预览 */
   const handleParsed = async (name: string, parsed: ImportFileResult) => {
@@ -266,17 +267,9 @@ export default function Import() {
     setStage("importing");
     const selected = rows.filter((r) => r.checked);
 
-    // Phase 1: 批量获取缺少音标的单词的音标（并发 + 进度）
-    const needPhonetic = selected.filter((r) => !r.phonetic).map((r) => r.front);
-    let phoneticMap = new Map<string, string>();
-    if (autoPhonetic && needPhonetic.length > 0) {
-      setImportProgress({ phase: "phonetic", done: 0, total: needPhonetic.length });
-      phoneticMap = await batchFetchPhonetics(needPhonetic, (done, total) => {
-        setImportProgress({ phase: "phonetic", done, total });
-      });
-    }
+    const imported: { row: PreviewRow; deckId: number }[] = [];
 
-    // Phase 2: 写入数据库（带进度）
+    // Phase: 写入数据库（带进度）
     setImportProgress({ phase: "db", done: 0, total: selected.length });
     let created = 0;
     let updated = 0;
@@ -316,7 +309,7 @@ export default function Import() {
         }
       }
       decksTouched.add(target.label);
-      const phonetic = r.phonetic || phoneticMap.get(r.front) || "";
+      const phonetic = r.phonetic || "";
       const res = await db.upsertCard(
         {
           deckId,
@@ -332,11 +325,47 @@ export default function Import() {
         },
         existing
       );
+      imported.push({ row: r, deckId });
       if (res.created) created++;
       else updated++;
       if ((idx + 1) % 10 === 0 || idx === selected.length - 1) {
         setImportProgress({ phase: "db", done: idx + 1, total: selected.length });
       }
+    }
+    // 后台补齐音标：不阻塞导入完成，勾选后自动在后台执行
+    const needPhonetic = imported.filter((x) => !x.row.phonetic).map((x) => x.row.front);
+    if (autoPhonetic && needPhonetic.length > 0) {
+      setBackgroundPhonetic(true);
+      void (async () => {
+        try {
+          const map = await batchFetchPhonetics(needPhonetic, (done, total) => {
+            setImportProgress({ phase: "phonetic", done, total });
+          });
+          for (const { row, deckId } of imported) {
+            const p = map.get(row.front);
+            if (p) {
+              await db.upsertCard(
+                {
+                  deckId,
+                  front: row.front,
+                  back: row.back,
+                  phonetic: p,
+                  markdown: row.markdown,
+                  sourceType: row.sourceType,
+                  tags: row.tags,
+                  isKey: row.isKey ? 1 : 0,
+                  meaningPrimary: row.meaningPrimary ?? "",
+                  meaningSecondary: row.meaningSecondary ?? "",
+                },
+                undefined
+              );
+            }
+          }
+        } finally {
+          setImportProgress({ phase: "", done: 0, total: 0 });
+          setBackgroundPhonetic(false);
+        }
+      })();
     }
     const skipped = rows.length - selected.length;
     setResult({ created, updated, skipped, decks: decksTouched.size });
@@ -703,6 +732,9 @@ export default function Import() {
               跳过 <span className="font-semibold text-foreground">{result.skipped}</span> 张
               · 涉及 {result.decks} 个词库
             </CardDescription>
+            {backgroundPhonetic && (
+              <p className="text-xs text-amber-600">音标补齐正在后台进行，可先离开此页面。</p>
+            )}
             <div className="flex gap-3">
               <Button onClick={reset}>继续导入</Button>
               <Button asChild variant="outline">

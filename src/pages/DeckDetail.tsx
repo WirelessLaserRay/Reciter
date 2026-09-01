@@ -376,8 +376,13 @@ export default function DeckDetail() {
             </p>
             <Button size="sm" onClick={fillMissingPhonetics} disabled={phoneticBusy}>
               {phoneticBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-              自动补齐音标
+              {phoneticBusy ? "后台补齐中" : "自动补齐音标"}
             </Button>
+            {phoneticBusy && phoneticProgress && (
+              <p className="w-full text-xs text-muted-foreground">
+                后台补齐音标中：{phoneticProgress.done} / {phoneticProgress.total}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -576,36 +581,7 @@ export default function DeckDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* 音标补齐进度遮罩 */}
-      {phoneticBusy && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md">
-            <CardContent className="flex flex-col items-center gap-4 py-10">
-              <Loader2 className="size-10 animate-spin text-primary" />
-              <p className="text-sm font-medium">正在补齐音标，可能需要较长时间</p>
-              <p className="text-xs text-muted-foreground">请勿切换页面或关闭窗口</p>
-              <p className="text-sm text-muted-foreground">
-                {phoneticProgress
-                  ? `已获取音标 ${phoneticProgress.done} / ${phoneticProgress.total}`
-                  : "准备中…"}
-              </p>
-              {phoneticProgress && phoneticProgress.total > 0 && (
-                <div className="w-64">
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-[width] duration-200"
-                      style={{ width: `${Math.round((phoneticProgress.done / phoneticProgress.total) * 100)}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-center text-xs text-muted-foreground">
-                    {Math.round((phoneticProgress.done / phoneticProgress.total) * 100)}%
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* 音标补齐改为后台进行，进度显示在缺失音标提示卡片内 */}
 
       {/* 统一提示框 */}
       <ConfirmDialog

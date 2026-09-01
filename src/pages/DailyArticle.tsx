@@ -379,8 +379,12 @@ export default function DailyArticle() {
   const allNewWords = [...(newWords ?? []), ...manualWords];
 
   const pageSize = 10;
+  const timeOf = (s: string) => {
+    const t = new Date(s).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
   const sortedItems = [...items].sort((a, b) =>
-    sortOrder === "desc" ? (a.pubDate < b.pubDate ? 1 : -1) : a.pubDate > b.pubDate ? 1 : -1
+    sortOrder === "desc" ? timeOf(b.pubDate) - timeOf(a.pubDate) : timeOf(a.pubDate) - timeOf(b.pubDate)
   );
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const pageItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
@@ -597,11 +601,11 @@ export default function DailyArticle() {
                     return (
                       <div className="space-y-4">
                         {Array.from({ length: len }, (_, i) => (
-                          <div key={i} className="grid gap-2 border-b pb-3 lg:grid-cols-2">
-                            <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                          <div key={i} className="grid min-w-0 gap-2 border-b pb-3 lg:grid-cols-2">
+                            <div className="min-w-0 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90">
                               {en[i] || ""}
                             </div>
-                            <div className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">
+                            <div className="min-w-0 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90">
                               {zh[i] || ""}
                             </div>
                           </div>
