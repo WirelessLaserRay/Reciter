@@ -9,7 +9,6 @@ import {
   FileUp,
   GraduationCap,
   LayoutDashboard,
-  Languages,
   Newspaper,
   Settings,
 } from "lucide-react";
@@ -58,9 +57,11 @@ export default function Sidebar({
     >
       {/* 品牌区 */}
       <div className={cn("flex h-14 items-center border-b border-sidebar-border transition-all duration-300", collapsed ? "justify-center px-2" : "gap-2 px-4")}>
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Languages className="size-4" />
-        </div>
+        <img
+          src="/icon.png"
+          alt="Reciter"
+          className="size-8 shrink-0 rounded-lg object-contain"
+        />
         <div className="sidebar-collapse-text">
           <div className="sidebar-collapse-text-inner leading-tight">
             <div className="text-sm font-semibold">Reciter</div>
