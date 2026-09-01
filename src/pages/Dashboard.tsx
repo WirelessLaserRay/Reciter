@@ -22,7 +22,7 @@ import {
   getLastStudyContext,
   type LastStudyContext,
 } from "@/lib/study-prefs";
-import { fetchDailyQuote, getDailyQuote } from "@/lib/daily-quotes";
+import { fetchDailyQuote, getDailyQuote, refreshDailyQuote } from "@/lib/daily-quotes";
 import { getDailyNewTarget, getDaysUntilExam, getExamConfig, getSavedAIStudyPlan } from "@/lib/exam-planner";
 import type { Deck } from "@/types";
 
@@ -40,6 +40,7 @@ export default function Dashboard() {
   const [aiTestDue, setAiTestDue] = useState(true);
   const [nextAiTestLabel, setNextAiTestLabel] = useState("");
   const [quote, setQuote] = useState(() => getDailyQuote());
+  const [quoteRefreshing, setQuoteRefreshing] = useState(false);
   const [examInfo, setExamInfo] = useState<{ date: string; days: number; dailyTarget: number | null } | null>(null);
   const [aiPlan, setAiPlan] = useState("");
 
@@ -123,6 +124,15 @@ export default function Dashboard() {
     weekday: "long",
   });
 
+  const handleRefreshQuote = async () => {
+    setQuoteRefreshing(true);
+    try {
+      setQuote(await refreshDailyQuote());
+    } finally {
+      setQuoteRefreshing(false);
+    }
+  };
+
   const deckCount = decks.length;
   const cardTotal = Object.values(cardCounts).reduce((a, b) => a + b, 0);
 
@@ -160,11 +170,18 @@ export default function Dashboard() {
 
       {/* 每日一句 */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <CardTitle className="flex items-center gap-2">
             <Quote className="size-4 text-primary" />
             每日一句
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {quote.source === "quotable" ? "Quotable" : "本地"}
+            </span>
           </CardTitle>
+          <Button size="sm" variant="ghost" onClick={handleRefreshQuote} disabled={quoteRefreshing}>
+            <RotateCcw className={quoteRefreshing ? "size-4 animate-spin" : "size-4"} />
+            换一句
+          </Button>
         </CardHeader>
         <CardContent>
           <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
@@ -201,10 +218,10 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <GraduationCap className="size-4 text-blue-500" />
-              考试倒计时
+              距离考试还有 {examInfo.days} 天
             </CardTitle>
             <CardDescription>
-              目标日期 {examInfo.date} · 剩余 {examInfo.days} 天
+              目标日期 {examInfo.date}
               {examInfo.dailyTarget !== null && ` · 建议每日新学 ${examInfo.dailyTarget} 张`}
             </CardDescription>
           </CardHeader>

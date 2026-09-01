@@ -145,3 +145,36 @@ export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuo
   await writeCache(date, local);
   return local;
 }
+
+/** 清空每日一句数据库缓存（用于手动刷新/测试 Quotable） */
+export async function clearDailyQuoteCache(): Promise<void> {
+  try {
+    await db.setSetting("daily_quote_cache", "");
+  } catch {
+    // 忽略缓存清理失败
+  }
+}
+
+/**
+ * 手动换一句：
+ * 清空本周缓存后重新请求 Quotable API；
+ * 若 API 不可用，则从本地名句库随机换一句并写入缓存，保证界面立即变化。
+ */
+export async function refreshDailyQuote(date: Date = new Date()): Promise<DailyQuote> {
+  await clearDailyQuoteCache();
+
+  const quote = await fetchQuotableQuote();
+  if (quote) {
+    try {
+      quote.translation = await translateWithAI(quote);
+    } catch {
+      quote.translation = "";
+    }
+    await writeCache(date, quote);
+    return quote;
+  }
+
+  const local = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  await writeCache(date, local);
+  return local;
+}
