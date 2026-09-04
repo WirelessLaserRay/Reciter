@@ -846,7 +846,15 @@ class ReciterDB {
   async restoreDeck(d: Deck): Promise<void> {
     await this.requireDb().execute(
       "INSERT INTO decks (id, folder, name, description, new_cards_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [d.id, d.folder ?? "", d.name, d.description ?? "", d.new_cards_per_day, d.created_at, d.updated_at]
+      [
+        d.id,
+        d.folder ?? "",
+        d.name ?? "未命名词库",
+        d.description ?? "",
+        d.new_cards_per_day ?? 20,
+        d.created_at ?? nowIso(),
+        d.updated_at ?? nowIso(),
+      ]
     );
   }
 
@@ -857,18 +865,52 @@ class ReciterDB {
   async restoreCard(c: Card & CardState): Promise<void> {
     const cardId = (c as { card_id?: number }).card_id ?? (c as { id: number }).id;
     if (cardId === undefined) throw new Error("备份卡片缺少 card_id 字段");
+    let tagsStr = "[]";
+    if (typeof c.tags === "string") {
+      tagsStr = c.tags;
+    } else if (Array.isArray(c.tags)) {
+      tagsStr = JSON.stringify(c.tags);
+    }
     await this.requireDb().execute(
       `INSERT INTO cards (id, deck_id, front, back, markdown_content, phonetic, source_type, tags, is_key, weak_source, weak_dismissed, meaning_primary, meaning_secondary, ignored, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cardId, c.deck_id, c.front, c.back, c.markdown_content ?? "", c.phonetic ?? "", c.source_type, c.tags, c.is_key ?? 0, c.weak_source ?? "", c.weak_dismissed ?? 0, c.meaning_primary ?? "", c.meaning_secondary ?? "", c.ignored ?? 0, c.created_at, c.updated_at]
+      [
+        cardId,
+        c.deck_id,
+        c.front ?? "",
+        c.back ?? "",
+        c.markdown_content ?? "",
+        c.phonetic ?? "",
+        c.source_type ?? "manual",
+        tagsStr,
+        c.is_key ?? 0,
+        c.weak_source ?? "",
+        c.weak_dismissed ?? 0,
+        c.meaning_primary ?? "",
+        c.meaning_secondary ?? "",
+        c.ignored ?? 0,
+        c.created_at ?? nowIso(),
+        c.updated_at ?? nowIso(),
+      ]
     );
     await this.requireDb().execute(
       `INSERT INTO card_states (card_id, state, stability, difficulty, due, last_review, elapsed_days,
               scheduled_days, learning_steps, reps, lapses, desired_retention, algorithm_version)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        cardId, c.state, c.stability, c.difficulty, c.due, c.last_review, c.elapsed_days,
-        c.scheduled_days, c.learning_steps, c.reps, c.lapses, c.desired_retention, c.algorithm_version,
+        cardId,
+        c.state ?? 0,
+        c.stability ?? 0,
+        c.difficulty ?? 0,
+        c.due ?? nowIso(),
+        c.last_review ?? null,
+        c.elapsed_days ?? 0,
+        c.scheduled_days ?? 0,
+        c.learning_steps ?? 0,
+        c.reps ?? 0,
+        c.lapses ?? 0,
+        c.desired_retention ?? 0.9,
+        c.algorithm_version ?? "FSRS-5",
       ]
     );
   }
@@ -877,19 +919,35 @@ class ReciterDB {
     await this.requireDb().execute(
       `INSERT INTO review_logs (id, card_id, grade, reviewed_at, response_time_ms, source, ai_question, ai_answer)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [l.id, l.card_id, l.grade, l.reviewed_at, l.response_time_ms, l.source, l.ai_question, l.ai_answer]
+      [
+        l.id,
+        l.card_id,
+        l.grade ?? 3,
+        l.reviewed_at ?? nowIso(),
+        l.response_time_ms ?? null,
+        l.source ?? "review",
+        l.ai_question ?? null,
+        l.ai_answer ?? null,
+      ]
     );
   }
 
   async restoreSetting(key: string, value: string): Promise<void> {
-    await this.requireDb().execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", [key, value]);
+    await this.requireDb().execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, value]);
   }
 
   async restoreDailyStat(s: DailyStats): Promise<void> {
     await this.requireDb().execute(
-      `INSERT OR IGNORE INTO daily_stats (date, new_count, review_count, again_count, total_time_ms, retention_rate)
+      `INSERT OR REPLACE INTO daily_stats (date, new_count, review_count, again_count, total_time_ms, retention_rate)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [s.date, s.new_count, s.review_count, s.again_count, s.total_time_ms, s.retention_rate]
+      [
+        s.date,
+        s.new_count ?? 0,
+        s.review_count ?? 0,
+        s.again_count ?? 0,
+        s.total_time_ms ?? 0,
+        s.retention_rate ?? 0,
+      ]
     );
   }
 

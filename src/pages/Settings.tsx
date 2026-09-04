@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Database,
   Download,
+  History,
   Languages,
   Loader2,
   Newspaper,
@@ -66,8 +67,25 @@ import {
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
-import { exportToJSON, importFromJSON, readBackupFile } from "@/lib/backup";
-import { getSyncConfig, saveSyncConfig, testSyncConnection, pushSnapshot, pullSnapshot } from "@/lib/sync";
+import {
+  exportToJSON,
+  importFromJSON,
+  readBackupFile,
+  getSafetyBackupInfo,
+  restoreBackupData,
+  type BackupData,
+  type SafetyBackupMeta,
+} from "@/lib/backup";
+import {
+  getSyncConfig,
+  saveSyncConfig,
+  testSyncConnection,
+  pushSnapshot,
+  pullSnapshot,
+  getSyncMetaInfo,
+  undoSyncRestore,
+  type SyncMetaInfo,
+} from "@/lib/sync";
 import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
 import { getCustomRssSources, getArticleMaxLength, saveCustomRssSources, type CustomRssSource } from "@/lib/news";
 import AISetupWizard from "@/components/ai/AISetupWizard";
@@ -160,6 +178,11 @@ export default function Settings() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [syncMeta, setSyncMeta] = useState<SyncMetaInfo | null>(null);
+  const [safetyInfo, setSafetyInfo] = useState<SafetyBackupMeta | null>(null);
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<{ remoteUpdatedAt: string | null; localLastSync: string | null } | null>(null);
+  const [pullConfirmOpen, setPullConfirmOpen] = useState(false);
 
   // 自定义 RSS 源
   const [customRssSources, setCustomRssSources] = useState<CustomRssSource[]>(() => getCustomRssSources());
@@ -168,11 +191,12 @@ export default function Settings() {
   const [newRssText, setNewRssText] = useState("");
   const [rssMsg, setRssMsg] = useState("");
 
-  // 危险区
+  // 危险区与导入
   const [dangerTarget, setDangerTarget] = useState<"progress" | "stats" | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [confirmImportOpen, setConfirmImportOpen] = useState(false);
   const [backupPreview, setBackupPreview] = useState<{ decks: number; cards: number; reviews: number } | null>(null);
+  const [pendingBackupData, setPendingBackupData] = useState<BackupData | null>(null);
 
   // 加载设置
   useEffect(() => {
@@ -242,9 +266,21 @@ export default function Settings() {
       setAiModel(aiCfg.model);
       setAiTemp(aiCfg.temperature);
       await refreshDecks();
+      await refreshSyncStatus();
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
+
+  const refreshSyncStatus = async () => {
+    try {
+      const [meta, sInfo] = await Promise.all([
+        getSyncMetaInfo(),
+        getSafetyBackupInfo(),
+      ]);
+      if (meta.ok) setSyncMeta(meta);
+      setSafetyInfo(sInfo);
+    } catch {}
+  };
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -544,6 +580,7 @@ export default function Settings() {
     try {
       const data = await readBackupFile();
       if (!data) return;
+      setPendingBackupData(data);
       setBackupPreview({
         decks: data.decks.length,
         cards: data.cards.length,
@@ -557,16 +594,22 @@ export default function Settings() {
 
   const confirmImport = async () => {
     setConfirmImportOpen(false);
-    setBackupPreview(null);
     setBackupBusy(true);
-    const r = await importFromJSON();
+    const r = pendingBackupData
+      ? await restoreBackupData(pendingBackupData, { reason: "pre_restore" })
+      : await importFromJSON();
+    setPendingBackupData(null);
+    setBackupPreview(null);
     setBackupBusy(false);
     setBackupMsg({ ok: r.ok, text: r.message });
+    await refreshDecks();
+    await refreshSyncStatus();
   };
 
   const handleSaveSync = async () => {
     await saveSyncConfig(syncEndpoint, syncToken);
     setSyncMsg({ ok: true, text: "同步设置已保存" });
+    await refreshSyncStatus();
   };
 
   const handleTestSync = async () => {
@@ -575,22 +618,49 @@ export default function Settings() {
     const r = await testSyncConnection();
     setSyncTesting(false);
     setSyncMsg({ ok: r.ok, text: r.message });
+    await refreshSyncStatus();
   };
 
-  const handlePushSync = async () => {
+  const handlePushSync = async (force = false) => {
     setSyncBusy(true);
     setSyncMsg(null);
-    const r = await pushSnapshot();
+    const r = await pushSnapshot({ force });
     setSyncBusy(false);
+    if (r.conflict) {
+      setConflictInfo({
+        remoteUpdatedAt: r.remoteUpdatedAt ?? null,
+        localLastSync: r.localLastSync ?? null,
+      });
+      setConflictDialogOpen(true);
+      return;
+    }
     setSyncMsg({ ok: r.ok, text: r.message });
+    await refreshSyncStatus();
   };
 
-  const handlePullSync = async () => {
+  const handlePullSyncClick = () => {
+    setPullConfirmOpen(true);
+  };
+
+  const confirmPullSync = async () => {
+    setPullConfirmOpen(false);
     setSyncBusy(true);
     setSyncMsg(null);
     const r = await pullSnapshot();
     setSyncBusy(false);
     setSyncMsg({ ok: r.ok, text: r.message });
+    await refreshDecks();
+    await refreshSyncStatus();
+  };
+
+  const handleUndoRestore = async () => {
+    setSyncBusy(true);
+    setSyncMsg(null);
+    const r = await undoSyncRestore();
+    setSyncBusy(false);
+    setSyncMsg({ ok: r.ok, text: r.message });
+    await refreshDecks();
+    await refreshSyncStatus();
   };
 
   const handleAddCustomRss = () => {
@@ -1540,11 +1610,11 @@ export default function Settings() {
                   {syncTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
                   测试连接
                 </Button>
-                <Button size="sm" onClick={handlePushSync} disabled={syncBusy || syncTesting}>
+                <Button size="sm" onClick={() => handlePushSync(false)} disabled={syncBusy || syncTesting}>
                   {syncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
                   上传快照到云端
                 </Button>
-                <Button variant="secondary" size="sm" onClick={handlePullSync} disabled={syncBusy || syncTesting}>
+                <Button variant="secondary" size="sm" onClick={handlePullSyncClick} disabled={syncBusy || syncTesting}>
                   {syncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                   从云端下载快照
                 </Button>
@@ -1555,10 +1625,47 @@ export default function Settings() {
                   {syncMsg.text}
                 </p>
               )}
+              {/* 安全快照撤销条 */}
+              {safetyInfo && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
+                  <div className="flex items-center gap-2">
+                    <History className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>
+                      存在覆盖前本地安全快照（{new Date(safetyInfo.savedAt).toLocaleString()} · {safetyInfo.deckCount} 词库 / {safetyInfo.cardCount} 卡片）
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 border-amber-300 text-xs hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40"
+                    onClick={handleUndoRestore}
+                    disabled={syncBusy}
+                  >
+                    撤销上次覆盖恢复
+                  </Button>
+                </div>
+              )}
+              {/* 同步状态元数据 */}
+              {syncMeta && (
+                <div className="grid grid-cols-1 gap-2 rounded-md border bg-muted/30 p-2.5 text-xs text-muted-foreground sm:grid-cols-2">
+                  <div>
+                    云端最新快照：
+                    <span className="font-medium text-foreground ml-1">
+                      {syncMeta.remoteUpdatedAt ? new Date(syncMeta.remoteUpdatedAt).toLocaleString() : "暂无快照"}
+                    </span>
+                  </div>
+                  <div>
+                    本机上次同步：
+                    <span className="font-medium text-foreground ml-1">
+                      {syncMeta.localLastSyncTime ? new Date(syncMeta.localLastSyncTime).toLocaleString() : "尚未记录"}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Database className="mt-0.5 size-3.5 shrink-0" />
                 <div>
-                  <p>上传会用本地完整快照覆盖云端；下载会用云端完整快照覆盖本地。</p>
+                  <p><b>安全防线已启用</b>：上传前自动检测多端冲突；下载或覆盖恢复前会自动生成本地安全快照，随时可一键撤销回退。</p>
                   <p>需先在 Cloudflare 部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN。</p>
                 </div>
               </div>
@@ -1670,14 +1777,52 @@ export default function Settings() {
         title="导入恢复"
         description={
           backupPreview
-            ? `备份内容：${backupPreview.decks} 词库 / ${backupPreview.cards} 卡片 / ${backupPreview.reviews} 复习记录。导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！`
-            : "导入将清空现有数据并恢复为备份内容，确定继续？此操作不可撤销！"
+            ? `备份内容：${backupPreview.decks} 词库 / ${backupPreview.cards} 卡片 / ${backupPreview.reviews} 复习记录。导入将清空现有数据并恢复为备份内容。系统会在覆盖前自动生成本地安全快照，随时可一键撤销。确定继续？`
+            : "导入将清空现有数据并恢复为备份内容。系统会在覆盖前自动生成本地安全快照，随时可一键撤销。确定继续？"
         }
         destructive
         confirmLabel="确认导入"
         cancelLabel="取消"
         onConfirm={confirmImport}
         onCancel={() => setConfirmImportOpen(false)}
+      />
+
+      {/* 推送冲突确认弹窗 */}
+      <ConfirmDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+        title="云端检测到更新的快照"
+        description={
+          conflictInfo ? (
+            <div className="space-y-2 text-xs">
+              <p>检测到其他设备在此期间已向云端提交了新进度：</p>
+              <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                <li>云端快照时间：<b className="text-foreground">{conflictInfo.remoteUpdatedAt ? new Date(conflictInfo.remoteUpdatedAt).toLocaleString() : "未知"}</b></li>
+                <li>本机记录同步：<b className="text-foreground">{conflictInfo.localLastSync ? new Date(conflictInfo.localLastSync).toLocaleString() : "尚未记录"}</b></li>
+              </ul>
+              <p className="text-destructive font-medium pt-1">
+                若强制上传，云端上的新进度将被当前设备的本地数据完全覆盖！是否继续？
+              </p>
+            </div>
+          ) : "云端检测到更新的快照，若继续将覆盖云端数据，是否继续？"
+        }
+        destructive
+        confirmLabel="强制覆盖云端"
+        cancelLabel="取消"
+        onConfirm={() => handlePushSync(true)}
+        onCancel={() => setConflictDialogOpen(false)}
+      />
+
+      {/* 拉取下载覆盖确认弹窗 */}
+      <ConfirmDialog
+        open={pullConfirmOpen}
+        onOpenChange={setPullConfirmOpen}
+        title="下载云端快照并覆盖本地"
+        description="从云端下载快照将更新本地数据。系统会在覆盖前自动为当前本地数据创建一份安全快照，如果误操作可随时在设置页一键撤销回滚。确定开始下载？"
+        confirmLabel="确认下载覆盖"
+        cancelLabel="取消"
+        onConfirm={confirmPullSync}
+        onCancel={() => setPullConfirmOpen(false)}
       />
 
       <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />

@@ -40,6 +40,7 @@ function corsHeaders(origin: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token",
+    "Access-Control-Expose-Headers": "X-Snapshot-Updated-At",
     "Access-Control-Max-Age": "86400",
   };
   if (origin) {
@@ -93,15 +94,26 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       }
       // 兼容旧数据：如果 raw 本身就是备份 JSON，则直接返回；否则取合并结构里的 snapshot
       let snapshot = raw;
+      let updatedAt: string | null = null;
       try {
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.snapshot === "string") snapshot = parsed.snapshot;
+        if (parsed && typeof parsed.snapshot === "string") {
+          snapshot = parsed.snapshot;
+          updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
+        }
       } catch {
         // raw 是旧版直接存储的备份 JSON
       }
+      const responseHeaders: Record<string, string> = {
+        ...cors,
+        "Content-Type": "application/json",
+      };
+      if (updatedAt) {
+        responseHeaders["X-Snapshot-Updated-At"] = updatedAt;
+      }
       return new Response(snapshot, {
         status: 200,
-        headers: { ...cors, "Content-Type": "application/json" },
+        headers: responseHeaders,
       });
     }
 
