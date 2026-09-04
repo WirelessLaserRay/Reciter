@@ -279,21 +279,21 @@ class ReciterDB {
     return rows[0] ?? null;
   }
 
-  /** 词库内全部标签（去重，用于按标签筛选学习；使用 json_each 精确解析） */
+  /** 词库内全部标签（去重，用于按标签筛选学习；使用 json_each 精确解析，自动排除例句标签） */
   async getDeckTags(deckId: number): Promise<string[]> {
     const rows = await this.requireDb().select<{ tag: string }[]>(
       `SELECT DISTINCT j.value AS tag FROM cards c, json_each(c.tags) j
-       WHERE c.deck_id = ? ORDER BY tag`,
+       WHERE c.deck_id = ? AND j.value NOT LIKE 'ex:%' AND j.value NOT LIKE '例句:%' ORDER BY tag`,
       [deckId]
     );
     return rows.map((r) => r.tag).filter(Boolean);
   }
 
-  /** 词库内各标签卡片数（按标签学习入口用；使用 json_each 精确解析） */
+  /** 词库内各标签卡片数（按标签学习入口用；使用 json_each 精确解析，自动排除例句标签） */
   async getDeckTagsWithCount(deckId: number): Promise<{ tag: string; count: number }[]> {
     const rows = await this.requireDb().select<{ tag: string; count: number }[]>(
       `SELECT j.value AS tag, COUNT(*) AS count FROM cards c, json_each(c.tags) j
-       WHERE c.deck_id = ? GROUP BY j.value ORDER BY tag`,
+       WHERE c.deck_id = ? AND j.value NOT LIKE 'ex:%' AND j.value NOT LIKE '例句:%' GROUP BY j.value ORDER BY tag`,
       [deckId]
     );
     return rows;

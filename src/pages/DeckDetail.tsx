@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BookOpen, ClipboardList, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,13 +21,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { db, type DeckWeakWord, type MasteryDistribution } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
-import { aiSplitMeaning } from "@/lib/vocab";
-import { batchFetchPhonetics } from "@/lib/dictionary";
 import { speak } from "@/lib/tts";
 import MasteryOverview from "@/components/deck/MasteryOverview";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useTaskStore } from "@/stores/useTaskStore";
+import {
+  getPureTags,
+  getCardExamples,
+  setCardExamplesToTags,
+  matchExamplesForCard,
+  type CardExampleItem,
+} from "@/lib/card-examples";
 import type { Card as CardType, Deck } from "@/types";
 
 export default function DeckDetail() {
@@ -42,9 +53,20 @@ export default function DeckDetail() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showIgnored, setShowIgnored] = useState(false);
-  const [aiScanning, setAiScanning] = useState(false);
-  const [aiScanProgress, setAiScanProgress] = useState({ done: 0, total: 0 });
-  const [aiScanMsg, setAiScanMsg] = useState("");
+  const tasks = useTaskStore((s) => s.tasks);
+  const startPhoneticEnrichment = useTaskStore((s) => s.startPhoneticEnrichment);
+  const startMeaningSplit = useTaskStore((s) => s.startMeaningSplit);
+  const startExampleMatching = useTaskStore((s) => s.startExampleMatching);
+  const cancelTask = useTaskStore((s) => s.cancelTask);
+
+  const phoneticTask = tasks[`phonetic_${deckId}`];
+  const meaningTask = tasks[`meaning_split_${deckId}`];
+  const exampleTask = tasks[`match_examples_${deckId}`];
+
+  const phoneticBusy = phoneticTask?.status === "running";
+  const aiScanning = meaningTask?.status === "running";
+  const exampleBusy = exampleTask?.status === "running";
+
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [adding, setAdding] = useState(false);
@@ -54,13 +76,13 @@ export default function DeckDetail() {
   const [editMeaningPrimary, setEditMeaningPrimary] = useState("");
   const [editMeaningSecondary, setEditMeaningSecondary] = useState("");
   const [editTags, setEditTags] = useState("");
+  const [editExamples, setEditExamples] = useState<CardExampleItem[]>([]);
+  const [matchingSingleExample, setMatchingSingleExample] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editKey, setEditKey] = useState(false);
   const [notice, setNotice] = useState<{ title: string; description?: string; destructive?: boolean } | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<CardType | null>(null);
   const [confirmWeakTarget, setConfirmWeakTarget] = useState<CardType | null>(null);
-  const [phoneticBusy, setPhoneticBusy] = useState(false);
-  const [phoneticProgress, setPhoneticProgress] = useState<{ done: number; total: number } | null>(null);
   const [keyFilter, setKeyFilter] = useState(false);
 
   /**
@@ -92,6 +114,17 @@ export default function DeckDetail() {
     if (Number.isFinite(deckId)) load();
   }, [deckId, load]);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<{ deckId: number }>;
+      if (custom.detail?.deckId === deckId) {
+        load(true);
+      }
+    };
+    window.addEventListener("reciter:deck-data-updated", handler);
+    return () => window.removeEventListener("reciter:deck-data-updated", handler);
+  }, [deckId, load]);
+
   const addCard = async () => {
     if (!front.trim() || !back.trim()) return;
     setAdding(true);
@@ -117,8 +150,31 @@ export default function DeckDetail() {
     setEditBack(c.back);
     setEditMeaningPrimary(c.meaning_primary ?? "");
     setEditMeaningSecondary(c.meaning_secondary ?? "");
-    setEditTags(tagsOf(c).join("、"));
+    setEditTags(getPureTags(c.tags).join("、"));
+    setEditExamples(getCardExamples(c.tags));
     setEditKey(c.is_key === 1);
+  };
+
+  const handleMatchSingleExample = async () => {
+    if (!editFront.trim()) return;
+    setMatchingSingleExample(true);
+    try {
+      const ex = await matchExamplesForCard({
+        front: editFront.trim(),
+        back: editBack.trim(),
+        meaning_primary: editMeaningPrimary.trim(),
+        meaning_secondary: editMeaningSecondary.trim(),
+      });
+      if (ex.length > 0) {
+        setEditExamples(ex);
+      } else {
+        setNotice({ title: "未匹配到例句", description: "未获取到该词的不同释义例句，可能是网络异常或词典/AI 接口无结果" });
+      }
+    } catch (err) {
+      setNotice({ title: "匹配失败", description: String(err), destructive: true });
+    } finally {
+      setMatchingSingleExample(false);
+    }
   };
 
   const saveEdit = async () => {
@@ -129,12 +185,13 @@ export default function DeckDetail() {
         .split(/[、,，;；]/)
         .map((t) => t.trim())
         .filter(Boolean);
+      const combinedTags = setCardExamplesToTags(tagArr, editExamples);
       await db.updateCard(editTarget.id, {
         front: editFront.trim(),
         back: editBack.trim(),
         meaning_primary: editMeaningPrimary.trim(),
         meaning_secondary: editMeaningSecondary.trim(),
-        tags: JSON.stringify(tagArr),
+        tags: JSON.stringify(combinedTags),
         is_key: editKey ? 1 : 0,
       });
       setEditTarget(null);
@@ -160,29 +217,9 @@ export default function DeckDetail() {
     load(true);
   };
 
-  const runAiScan = async () => {
-    if (aiScanning || cards.length === 0) return;
-    setAiScanning(true);
-    setAiScanMsg("");
-    setAiScanProgress({ done: 0, total: cards.length });
-    try {
-      let done = 0;
-      for (const c of cards) {
-        try {
-          const { primary, secondary } = await aiSplitMeaning(c.front, c.back);
-          await db.updateCard(c.id, { meaning_primary: primary, meaning_secondary: secondary });
-        } catch {
-          // 单张失败跳过
-        }
-        done++;
-        setAiScanProgress({ done, total: cards.length });
-      }
-      setAiScanMsg("AI 扫描完成");
-    } catch (e) {
-      setAiScanMsg(String(e));
-    } finally {
-      setAiScanning(false);
-    }
+  const runAiScan = () => {
+    if (!deck) return;
+    startMeaningSplit(deckId, deck.name);
   };
 
   const addToWeakBook = (card: CardType) => {
@@ -203,36 +240,14 @@ export default function DeckDetail() {
     }
   };
 
-  const fillMissingPhonetics = async () => {
-    if (phoneticBusy) return;
-    setPhoneticBusy(true);
-    try {
-      const missing = cards.filter((c) => !c.phonetic);
-      setPhoneticProgress({ done: 0, total: missing.length });
-      const phoneticMap = await batchFetchPhonetics(missing.map((c) => c.front), (done, total) => {
-        setPhoneticProgress({ done, total });
-      });
-      let filled = 0;
-      for (const c of missing) {
-        const p = phoneticMap.get(c.front);
-        if (p) {
-          await db.updateCard(c.id, { phonetic: p });
-          filled++;
-        }
-      }
-      await load(true);
-      setNotice({
-        title: filled > 0 ? "音标补齐完成" : "音标补齐结果",
-        description: filled > 0
-          ? `已为 ${filled} 个单词补齐音标。`
-          : "未找到可补齐的音标（可能是词组，或词典/AI 接口无结果）",
-      });
-    } catch (e) {
-      setNotice({ title: "操作失败", description: String(e), destructive: true });
-    } finally {
-      setPhoneticBusy(false);
-      setPhoneticProgress(null);
-    }
+  const fillMissingPhonetics = () => {
+    if (!deck) return;
+    startPhoneticEnrichment(deckId, deck.name);
+  };
+
+  const matchExamples = () => {
+    if (!deck) return;
+    startExampleMatching(deckId, deck.name);
   };
 
   const missingPhoneticCount = cards.filter((c) => !c.phonetic).length;
@@ -243,15 +258,6 @@ export default function DeckDetail() {
       (!deferredSearch || c.front.toLowerCase().includes(deferredSearch.toLowerCase()) || c.back.includes(deferredSearch)) &&
       (!keyFilter || c.is_key === 1)
   );
-
-  const tagsOf = (c: CardType): string[] => {
-    try {
-      const t = JSON.parse(c.tags);
-      return Array.isArray(t) ? t : [];
-    } catch {
-      return [];
-    }
-  };
 
   if (loading) {
     return (
@@ -293,18 +299,47 @@ export default function DeckDetail() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void runAiScan()}
+            onClick={runAiScan}
             disabled={aiScanning}
             title="按当前词汇标准拆分主要/次要释义"
           >
             {aiScanning ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-            AI 扫描释义
+            {aiScanning ? `扫描释义 (${meaningTask?.done ?? 0}/${meaningTask?.total ?? 0})` : "AI 扫描释义"}
           </Button>
           {aiScanning && (
-            <span className="text-xs text-muted-foreground">
-              {aiScanProgress.done}/{aiScanProgress.total}
-            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10"
+              onClick={() => cancelTask(meaningTask!.id)}
+              title="取消释义扫描"
+            >
+              取消
+            </Button>
           )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={matchExamples}
+            disabled={exampleBusy}
+            title="为词库卡片自动匹配最多 3 句不同释义的英文例句并写入标签"
+          >
+            {exampleBusy ? <Loader2 className="size-3.5 animate-spin" /> : <BookOpen className="size-3.5" />}
+            {exampleBusy ? `匹配例句 (${exampleTask?.done ?? 0}/${exampleTask?.total ?? 0})` : "匹配例句"}
+          </Button>
+          {exampleBusy && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10"
+              onClick={() => cancelTask(exampleTask!.id)}
+              title="取消例句匹配"
+            >
+              取消
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant={showIgnored ? "secondary" : "outline"}
@@ -318,7 +353,11 @@ export default function DeckDetail() {
           </Button>
         </div>
       </div>
-      {aiScanMsg && <p className="text-xs text-muted-foreground">{aiScanMsg}</p>}
+      {(meaningTask?.message || exampleTask?.message || phoneticTask?.message) && (
+        <p className="text-xs text-muted-foreground">
+          {meaningTask?.message || exampleTask?.message || phoneticTask?.message}
+        </p>
+      )}
 
       <div>
         <h2 className="text-2xl font-bold">{deck.name}</h2>
@@ -368,19 +407,42 @@ export default function DeckDetail() {
       </Card>
 
       {/* 缺少音标提示 */}
-      {missingPhoneticCount > 0 && (
+      {(missingPhoneticCount > 0 || phoneticBusy) && (
         <Card className="border-amber-500/30">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
             <p className="text-sm">
-              有 <span className="font-semibold text-amber-500">{missingPhoneticCount}</span> 个单词缺少音标
+              {phoneticBusy ? (
+                <>
+                  正在为该词库补齐音标（已处理{" "}
+                  <span className="font-semibold text-amber-500">{phoneticTask?.done ?? 0}</span> /{" "}
+                  {phoneticTask?.total ?? 0}）
+                </>
+              ) : (
+                <>
+                  有 <span className="font-semibold text-amber-500">{missingPhoneticCount}</span> 个单词缺少音标
+                </>
+              )}
             </p>
-            <Button size="sm" onClick={fillMissingPhonetics} disabled={phoneticBusy}>
-              {phoneticBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-              {phoneticBusy ? "后台补齐中" : "自动补齐音标"}
-            </Button>
-            {phoneticBusy && phoneticProgress && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={fillMissingPhonetics} disabled={phoneticBusy}>
+                {phoneticBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                {phoneticBusy ? "后台补齐中" : "自动补齐音标"}
+              </Button>
+              {phoneticBusy && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10"
+                  onClick={() => cancelTask(phoneticTask!.id)}
+                >
+                  取消
+                </Button>
+              )}
+            </div>
+            {phoneticBusy && phoneticTask && (
               <p className="w-full text-xs text-muted-foreground">
-                后台补齐音标中：{phoneticProgress.done} / {phoneticProgress.total}
+                后台补齐音标中：{phoneticTask.done} / {phoneticTask.total}
+                {phoneticTask.currentWord ? `（当前单词：${phoneticTask.currentWord}）` : ""}
               </p>
             )}
           </CardContent>
@@ -433,7 +495,8 @@ export default function DeckDetail() {
                 </thead>
                 <tbody>
                   {filtered.map((c) => {
-                    const tags = tagsOf(c);
+                    const pureTags = getPureTags(c.tags);
+                    const cardExamples = getCardExamples(c.tags);
                     return (
                       <tr key={c.id} className="border-t">
                         <td className="max-w-44 px-3 py-2 font-medium" title={c.front}>
@@ -465,11 +528,36 @@ export default function DeckDetail() {
                           )}
                         </td>
                         <td className="px-3 py-2">
-                          {tags.map((t) => (
-                            <Badge key={t} variant="secondary" className="mr-1 text-[10px]">
-                              {t}
-                            </Badge>
-                          ))}
+                          <div className="flex flex-wrap items-center gap-1">
+                            {pureTags.map((t) => (
+                              <Badge key={t} variant="secondary" className="text-[10px]">
+                                {t}
+                              </Badge>
+                            ))}
+                            {cardExamples.length > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className="cursor-pointer border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] hover:bg-blue-500/20"
+                                  >
+                                    <BookOpen className="mr-0.5 inline size-2.5" />
+                                    {cardExamples.length}例句
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs space-y-1.5 p-2.5 text-xs">
+                                  <p className="font-semibold text-primary">已匹配不同释义例句：</p>
+                                  {cardExamples.map((ex, idx) => (
+                                    <div key={idx} className="border-b border-border/50 pb-1 last:border-0 last:pb-0">
+                                      {ex.sense && <span className="font-medium text-amber-600 dark:text-amber-400 mr-1">[{ex.sense}]</span>}
+                                      <span className="text-foreground">“{ex.en}”</span>
+                                      {ex.cn && <div className="text-[11px] text-muted-foreground">{ex.cn}</div>}
+                                    </div>
+                                  ))}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-right">
                           <Button
@@ -552,6 +640,58 @@ export default function DeckDetail() {
                 value={editTags}
                 onChange={(e) => setEditTags(e.target.value)}
               />
+            </div>
+
+            {/* 多释义例句标签 */}
+            <div className="space-y-2 rounded-md border p-3 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <BookOpen className="size-3.5 text-primary" />
+                  <span>匹配例句标签（最多 3 句不同释义）</span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={handleMatchSingleExample}
+                  disabled={matchingSingleExample || !editFront.trim()}
+                >
+                  {matchingSingleExample ? <Loader2 className="size-3 animate-spin mr-1" /> : <Sparkles className="size-3 mr-1" />}
+                  {matchingSingleExample ? "匹配中..." : "AI 匹配例句"}
+                </Button>
+              </div>
+              {editExamples.length === 0 ? (
+                <p className="text-xs text-muted-foreground">暂无匹配例句标签。可点击右上角「AI 匹配例句」自动生成并写入标签。</p>
+              ) : (
+                <div className="space-y-2">
+                  {editExamples.map((ex, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-2 rounded border bg-background/50 p-2 text-xs">
+                      <div className="space-y-0.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          {ex.sense && (
+                            <span className="rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                              {ex.sense}
+                            </span>
+                          )}
+                          <span className="font-medium truncate">“{ex.en}”</span>
+                        </div>
+                        {ex.cn && <p className="text-muted-foreground truncate">{ex.cn}</p>}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setEditExamples((prev) => prev.filter((_, i) => i !== idx))}
+                        title="移除此句"
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <label className="flex cursor-pointer items-center justify-between rounded-md border p-3">
               <div>

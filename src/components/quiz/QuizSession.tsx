@@ -32,6 +32,7 @@ import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { adaptAIQuestion } from "@/lib/ai-adapter";
 import { pickSimilarWords } from "@/lib/similar-words";
 import { cn } from "@/lib/utils";
+import { getPureTags } from "@/lib/card-examples";
 import { optionIndexFromNumberKey } from "@/lib/shortcuts";
 import type { Card as CardType } from "@/types";
 
@@ -183,7 +184,7 @@ export default function QuizSession({
   /** 词库内全部标签（分组），用于"考察范围"筛选 */
   const allTags = useMemo(() => {
     const set = new Set<string>();
-    for (const c of cards) for (const t of tagsOf(c.tags)) set.add(t);
+    for (const c of cards) for (const t of getPureTags(c.tags)) set.add(t);
     return [...set].sort();
   }, [cards]);
 
@@ -191,7 +192,7 @@ export default function QuizSession({
   const pool = useMemo(() => {
     if (tagFilter === "__key__") return cards.filter((c) => c.is_key === 1);
     if (tagFilter === "__learned__") return cards.filter((c) => learnedCardIds.has(c.id));
-    return tagFilter === "all" ? cards : cards.filter((c) => tagsOf(c.tags).includes(tagFilter));
+    return tagFilter === "all" ? cards : cards.filter((c) => getPureTags(c.tags).includes(tagFilter));
   }, [cards, tagFilter, learnedCardIds]);
 
   const keyCount = useMemo(() => cards.filter((c) => c.is_key === 1).length, [cards]);

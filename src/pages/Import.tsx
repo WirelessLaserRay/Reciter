@@ -37,7 +37,7 @@ import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
 import { generateCardsFromText } from "@/lib/ai-generate";
-import { batchFetchPhonetics } from "@/lib/dictionary";
+import { useTaskStore } from "@/stores/useTaskStore";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -334,40 +334,17 @@ export default function Import() {
         setImportProgress({ phase: "db", done: idx + 1, total: selected.length });
       }
     }
-    // 后台补齐音标：不阻塞导入完成，勾选后自动在后台执行
+    // 后台补齐音标：使用全局任务中心，切换页面绝不中断
     const needPhonetic = imported.filter((x) => !x.row.phonetic).map((x) => x.row.front);
     if (autoPhonetic && needPhonetic.length > 0) {
       setBackgroundPhonetic(true);
-      void (async () => {
-        try {
-          const map = await batchFetchPhonetics(needPhonetic, (done, total) => {
-            setImportProgress({ phase: "phonetic", done, total });
-          });
-          for (const { row, deckId } of imported) {
-            const p = map.get(row.front);
-            if (p) {
-              await db.upsertCard(
-                {
-                  deckId,
-                  front: row.front,
-                  back: row.back,
-                  phonetic: p,
-                  markdown: row.markdown,
-                  sourceType: row.sourceType,
-                  tags: row.tags,
-                  isKey: row.isKey ? 1 : 0,
-                  meaningPrimary: row.meaningPrimary ?? "",
-                  meaningSecondary: row.meaningSecondary ?? "",
-                },
-                undefined
-              );
-            }
-          }
-        } finally {
-          setImportProgress({ phase: "", done: 0, total: 0 });
-          setBackgroundPhonetic(false);
-        }
-      })();
+      const deckMap = new Map<number, string>();
+      for (const { row, deckId } of imported) {
+        deckMap.set(deckId, row.deckName || "词库");
+      }
+      for (const [deckId, deckName] of deckMap.entries()) {
+        void useTaskStore.getState().startPhoneticEnrichment(deckId, deckName);
+      }
     }
     const skipped = rows.length - selected.length;
     setResult({ created, updated, skipped, decks: decksTouched.size });

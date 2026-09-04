@@ -2,6 +2,7 @@
 import { db } from "@/lib/db";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@/lib/env";
+import { getAIConfig, AIClient } from "@/lib/ai-client";
 
 export interface DailyQuote {
   text: string;
@@ -40,27 +41,27 @@ export function getDailyQuote(date: Date = new Date()): DailyQuote {
   return QUOTES[day % QUOTES.length];
 }
 
-/** 当前自然周的周一（本地时区）作为缓存周期标识 */
-function weekKey(date: Date): string {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = (d.getDay() + 6) % 7; // 周一=0 ... 周日=6
-  d.setDate(d.getDate() - day);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dayOfMonth = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dayOfMonth}`;
+/** 当前自然日的本地日期键（YYYY-MM-DD）作为缓存周期标识 */
+export function dayKey(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 interface CachedQuote extends DailyQuote {
-  week: string;
+  date: string;
 }
 
 async function readCache(date: Date): Promise<CachedQuote | null> {
   try {
     const raw = await db.getSetting("daily_quote_cache");
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedQuote;
-    if (parsed.week === weekKey(date) && parsed.text) return parsed;
+    const parsed = JSON.parse(raw) as Partial<CachedQuote>;
+    // 每日更新：精确匹配当日日期 YYYY-MM-DD，若为旧版周缓存或非今日则返回 null
+    if (parsed.date === dayKey(date) && parsed.text) {
+      return parsed as CachedQuote;
+    }
   } catch {
     // DB 未就绪或缓存损坏，忽略
   }
@@ -69,7 +70,7 @@ async function readCache(date: Date): Promise<CachedQuote | null> {
 
 async function writeCache(date: Date, quote: DailyQuote): Promise<void> {
   try {
-    const payload: CachedQuote = { ...quote, week: weekKey(date) };
+    const payload: CachedQuote = { ...quote, date: dayKey(date) };
     await db.setSetting("daily_quote_cache", JSON.stringify(payload));
   } catch {
     // 缓存失败不影响展示
@@ -81,8 +82,8 @@ const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) =
 
 async function fetchZenQuote(): Promise<DailyQuote | null> {
   const endpoints = [
-    "https://zenquotes.io/api/random",
     "https://zenquotes.io/api/today",
+    "https://zenquotes.io/api/random",
   ];
   for (const url of endpoints) {
     try {
@@ -109,29 +110,50 @@ async function fetchZenQuote(): Promise<DailyQuote | null> {
   return null;
 }
 
-async function translateWithAI(quote: DailyQuote): Promise<string> {
-  const { getAIConfig, AIClient } = await import("@/lib/ai-client");
-  const cfg = await getAIConfig();
-  if (!cfg.enabled || !cfg.baseURL.trim() || !cfg.model.trim()) return "";
-  const client = new AIClient(cfg);
-  const translation = await client.chat([
-    {
-      role: "system",
-      content: "你是专业的英语名言翻译。将用户提供的英文名言翻译成自然、简洁、有文采的中文，只输出译文，不要输出引号、注释或额外解释。",
-    },
-    {
-      role: "user",
-      content: `English: ${quote.text}\nAuthor: ${quote.author || "Unknown"}`,
-    },
-  ]);
-  return (translation || "").trim();
+async function translateQuote(quote: DailyQuote): Promise<string> {
+  try {
+    const cfg = await getAIConfig();
+    if (cfg.enabled && cfg.baseURL.trim() && cfg.model.trim()) {
+      const client = new AIClient(cfg);
+      const translation = await client.chat([
+        {
+          role: "system",
+          content: "你是专业的英语名言翻译。将用户提供的英文名言翻译成自然、简洁、有文采的中文，只输出译文，不要输出引号、注释或额外解释。",
+        },
+        {
+          role: "user",
+          content: `English: ${quote.text}\nAuthor: ${quote.author || "Unknown"}`,
+        },
+      ]);
+      const res = (translation || "").trim();
+      if (res) return res;
+    }
+  } catch {
+    // AI 翻译失败，尝试免费公共翻译兜底
+  }
+
+  try {
+    const res = await httpFetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(quote.text)}&langpair=en|zh-CN`,
+      { signal: AbortSignal.timeout(5_000) }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { responseData?: { translatedText?: string } };
+      const t = (data.responseData?.translatedText || "").trim();
+      if (t && !t.startsWith("MYMEMORY WARNING")) return t;
+    }
+  } catch {
+    // 忽略兜底失败
+  }
+
+  return "";
 }
 
 /**
  * 获取每日一句：
- * 1. 优先读取本地数据库缓存（同一自然周内不重复请求 API）；
- * 2. 每周首次访问时尝试 ZenQuotes API 获取随机英文名言，并用 AI 生成中文翻译；
- * 3. 任意环节失败时回退到本地名言库，并把结果写入数据库缓存。
+ * 1. 优先读取本地数据库缓存（每日缓存，跨日自动过期）；
+ * 2. 每日首次访问时尝试 ZenQuotes API 获取当日名言，并自动生成中文翻译；
+ * 3. 任意环节失败时按日轮换回退到本地名言库，并把结果写入数据库缓存。
  */
 export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuote> {
   const cached = await readCache(date);
@@ -141,11 +163,7 @@ export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuo
 
   let quote = await fetchZenQuote();
   if (quote) {
-    try {
-      quote.translation = await translateWithAI(quote);
-    } catch {
-      quote.translation = "";
-    }
+    quote.translation = await translateQuote(quote);
     await writeCache(date, quote);
     return quote;
   }
@@ -166,7 +184,7 @@ export async function clearDailyQuoteCache(): Promise<void> {
 
 /**
  * 手动换一句：
- * 清空本周缓存后重新请求 ZenQuotes API；
+ * 清空当日缓存后重新请求 ZenQuotes API；
  * 若 API 不可用，则从本地名句库随机换一句并写入缓存，保证界面立即变化。
  */
 export async function refreshDailyQuote(date: Date = new Date()): Promise<DailyQuote> {
@@ -174,11 +192,7 @@ export async function refreshDailyQuote(date: Date = new Date()): Promise<DailyQ
 
   const quote = await fetchZenQuote();
   if (quote) {
-    try {
-      quote.translation = await translateWithAI(quote);
-    } catch {
-      quote.translation = "";
-    }
+    quote.translation = await translateQuote(quote);
     await writeCache(date, quote);
     return quote;
   }

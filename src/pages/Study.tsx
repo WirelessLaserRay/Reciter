@@ -45,6 +45,7 @@ import {
 import { resolveStudyMode } from "@/lib/study-mode";
 import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
 import { getDisplayPhonetic } from "@/lib/phonetic";
+import { getCardExamples } from "@/lib/card-examples";
 import { preloadSpeech } from "@/lib/tts";
 import StudyCard from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
@@ -247,7 +248,9 @@ function StudySession({
     for (let i = index; i < Math.min(queue.length, index + 3); i++) {
       const row = queue[i]?.row;
       if (!row) continue;
-      void fetchExamples(row.front).catch(() => {});
+      if (getCardExamples(row.tags).length === 0) {
+        void fetchExamples(row.front).catch(() => {});
+      }
       void preloadSpeech(row.front).catch(() => {});
       if (!row.phonetic) {
         void fetchPhonetic(row.front)

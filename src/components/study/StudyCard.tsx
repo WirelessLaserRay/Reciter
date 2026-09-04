@@ -22,6 +22,7 @@ import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
 import { speak } from "@/lib/tts";
 import { DictionaryExample } from "./DictionaryExample";
+import { getPureTags } from "@/lib/card-examples";
 import { findRelatedWords } from "@/lib/word-family";
 import { pickSimilarWords } from "@/lib/similar-words";
 import { optionIndexFromNumberKey } from "@/lib/shortcuts";
@@ -62,19 +63,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function tagsOf(raw: string): string[] {
-  try {
-    const t = JSON.parse(raw);
-    return Array.isArray(t) ? t : [];
-  } catch {
-    return [];
-  }
-}
-
 // ============ 共享子组件 ============
 
 function CardMetaBadges({ row }: { row: StudyCardRow }) {
-  const tags = tagsOf(row.tags);
+  const tags = getPureTags(row.tags);
   return (
     <div className="flex flex-wrap justify-center gap-1.5">
       {row.is_key === 1 && (
@@ -307,7 +299,7 @@ function ClassicFlipView(props: ModeViewProps) {
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
             <RevealContext row={row} />
-            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
             <p className="text-xs text-muted-foreground">背面 · 释义</p>
           </div>
         </div>
@@ -455,7 +447,7 @@ function ActiveRecallView(props: ModeViewProps) {
                 {recallInput.trim() || "（未填写）"}
               </p>
             </div>
-            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
           </div>
           <RatingButtons
             ratingMode={ratingMode}
@@ -505,7 +497,7 @@ function NewCardTeachView(props: ModeViewProps) {
       <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
       <MeaningBlock row={row} className="max-w-lg text-center text-xl" />
       <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-      <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
+      <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
       <p className="text-sm text-muted-foreground">
         先看释义，开始记忆后稍后会随队列突击测试
       </p>
@@ -677,7 +669,7 @@ function QuickTestView(props: ModeViewProps) {
           <>
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
             <RevealContext row={row} />
-            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
+            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
           </>
         )}
       </div>
@@ -715,7 +707,7 @@ function AiDrillView(props: ModeViewProps) {
             <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
           </div>
         )}
-        <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} />
+        <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
         <div className="flex max-w-lg items-start gap-2 rounded-md bg-amber-500/10 p-3 text-left text-sm text-amber-600">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <p>

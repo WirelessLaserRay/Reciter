@@ -15,7 +15,7 @@ export interface DictionaryResult {
 
 const cache = new Map<string, Promise<DictionaryResult>>();
 const phoneticCache = new Map<string, Promise<string>>();
-const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
+export const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
 
 /**
  * 规范化用于查音标的单词：
@@ -236,7 +236,7 @@ async function translateWithAI(text: string): Promise<string> {
   return raw.trim().replace(/^["'“”]|["'“”]$/g, "");
 }
 
-async function translateText(text: string): Promise<string> {
+export async function translateText(text: string): Promise<string> {
   const provider = await getTranslationProvider();
   if (provider === "deepl") {
     const t = await translateWithDeepL(text);

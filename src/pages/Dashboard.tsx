@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
-import { getDayStartDate, parseDayStartHour } from "@/lib/day";
+import { getDayStartDate, parseDayStartHour, toDateKey } from "@/lib/day";
 import { getLeechThreshold } from "@/lib/settings";
 import {
   AI_TEST_INTERVAL_MS,
@@ -43,7 +43,33 @@ export default function Dashboard() {
   const [quoteRefreshing, setQuoteRefreshing] = useState(false);
   const [examInfo, setExamInfo] = useState<{ date: string; days: number; dailyTarget: number | null } | null>(null);
   const [aiPlan, setAiPlan] = useState("");
+  const [currentDateKey, setCurrentDateKey] = useState(() => toDateKey(new Date()));
 
+  // 跨午夜日界检测 / 窗口重新聚焦时自动刷新（确保每日一句与学习统计跨天自动更新）
+  useEffect(() => {
+    const checkDateChange = () => {
+      const today = toDateKey(new Date());
+      if (today !== currentDateKey) {
+        setCurrentDateKey(today);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkDateChange();
+      }
+    };
+
+    window.addEventListener("focus", checkDateChange);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const timer = setInterval(checkDateChange, 60_000);
+
+    return () => {
+      window.removeEventListener("focus", checkDateChange);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearInterval(timer);
+    };
+  }, [currentDateKey]);
 
   useEffect(() => {
     if (!dbReady) return;
@@ -98,7 +124,7 @@ export default function Dashboard() {
         .sort((a, b) => (deckDue[b.id] ?? 0) - (deckDue[a.id] ?? 0))[0] ?? null;
       setRecommendedDeck(top);
     })().catch(() => {});
-  }, [dbReady, refresh]);
+  }, [dbReady, refresh, currentDateKey]);
 
   const startStudy = async (deckId: number, tag?: string, keyOnly?: boolean) => {
     useStudyStore.getState().reset();
