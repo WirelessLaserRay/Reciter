@@ -610,12 +610,12 @@ export default function DeckDetail() {
       </Card>
       {/* 编辑卡片对话框 */}
       <Dialog open={editTarget !== null} onOpenChange={(open) => !open && setEditTarget(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <DialogHeader className="p-5 pb-3 pr-10 shrink-0 border-b">
             <DialogTitle>编辑卡片</DialogTitle>
             <DialogDescription>修改单词、释义与标签</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto p-5 flex-1 min-h-0">
             <div className="space-y-1.5">
               <Label htmlFor="edit-front">单词 / 短语</Label>
               <Input id="edit-front" value={editFront} onChange={(e) => setEditFront(e.target.value)} />
@@ -624,13 +624,15 @@ export default function DeckDetail() {
               <Label htmlFor="edit-back">释义</Label>
               <Input id="edit-back" value={editBack} onChange={(e) => setEditBack(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-primary">主要释义（加粗展示）</Label>
-              <Input id="edit-primary" value={editMeaningPrimary} onChange={(e) => setEditMeaningPrimary(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-secondary">次要释义（第二栏）</Label>
-              <Input id="edit-secondary" value={editMeaningSecondary} onChange={(e) => setEditMeaningSecondary(e.target.value)} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-primary">主要释义（加粗展示）</Label>
+                <Input id="edit-primary" value={editMeaningPrimary} onChange={(e) => setEditMeaningPrimary(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-secondary">次要释义（第二栏）</Label>
+                <Input id="edit-secondary" value={editMeaningSecondary} onChange={(e) => setEditMeaningSecondary(e.target.value)} />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-tags">标签（用 、 或逗号分隔）</Label>
@@ -644,16 +646,16 @@ export default function DeckDetail() {
 
             {/* 多释义例句标签 */}
             <div className="space-y-2 rounded-md border p-3 bg-muted/20">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                  <BookOpen className="size-3.5 text-primary" />
-                  <span>匹配例句标签（最多 3 句不同释义）</span>
+                  <BookOpen className="size-3.5 text-primary shrink-0" />
+                  <span className="truncate">匹配例句标签（最多 3 句不同释义）</span>
                 </div>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs shrink-0"
                   onClick={handleMatchSingleExample}
                   disabled={matchingSingleExample || !editFront.trim()}
                 >
@@ -668,15 +670,15 @@ export default function DeckDetail() {
                   {editExamples.map((ex, idx) => (
                     <div key={idx} className="flex items-start justify-between gap-2 rounded border bg-background/50 p-2 text-xs">
                       <div className="space-y-0.5 min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
                           {ex.sense && (
-                            <span className="rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                            <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
                               {ex.sense}
                             </span>
                           )}
-                          <span className="font-medium truncate">“{ex.en}”</span>
+                          <span className="font-medium truncate min-w-0 flex-1" title={ex.en}>“{ex.en}”</span>
                         </div>
-                        {ex.cn && <p className="text-muted-foreground truncate">{ex.cn}</p>}
+                        {ex.cn && <p className="text-muted-foreground truncate" title={ex.cn}>{ex.cn}</p>}
                       </div>
                       <Button
                         type="button"
@@ -709,7 +711,7 @@ export default function DeckDetail() {
               />
             </label>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-4 m-0 shrink-0 border-t bg-muted/50">
             <Button variant="outline" onClick={() => setEditTarget(null)}>
               取消
             </Button>

@@ -1,6 +1,7 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { splitMeaningText } from "./meaning";
+import { normalizeWordForPhonetic, httpFetch, translateText } from "@/lib/dictionary";
 
 export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
 
@@ -130,17 +131,17 @@ export async function translateArticle(content: string): Promise<string> {
   ]);
 }
 
-/** 从文章中识别生词（含词性和中文释义） */
+/** 从文章中识别生词（含词性和中文释义，支持无上限全面识别） */
 export async function recognizeNewWords(
   content: string,
-  limit = 12
+  limit?: number
 ): Promise<NewWord[]> {
   const client = await getClient();
   const standard = await getVocabStandard();
   const prompt = [
-    `请从下面的英语文章中识别对${standard}学习者最有学习价值的生词/短语。`,
+    `请全面、深入地阅读下面的英语文章，识别出所有对${standard}学习者有学习价值的全部生词/短语。`,
     "",
-    "筛选标准：优先选择文章核心词汇、阅读高频词、易混淆词，按重要程度排序，跳过过于简单的基础词汇。",
+    "筛选标准：请勿人为设限数量，全面提取文章的核心词汇、阅读高频词、重难点词与易混淆短语，按重要程度排序，跳过初中等过于简单的基础词汇。",
     "",
     "每个词包含：",
     "- word：单词或短语",
@@ -150,13 +151,14 @@ export async function recognizeNewWords(
     '只输出 JSON 数组，不要使用 markdown 代码块包裹。格式：[{"word":"...","pos":"n.","meaning":"..."}]',
     "",
     "文章：",
-    content.slice(0, 8000),
+    content.slice(0, 12000),
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 生词识别助手。从文章中筛选有学习价值的生词，严格以 JSON 数组格式输出，不得输出 JSON 以外的任何内容。" },
+    { role: "system", content: "你是 Reciter 生词识别助手。全面从文章中筛选有学习价值的生词，严格以 JSON 数组格式输出，不得输出 JSON 以外的任何内容。" },
     { role: "user", content: prompt },
   ]);
-  return extractJsonArray<NewWord>(raw).slice(0, limit);
+  const words = extractJsonArray<NewWord>(raw);
+  return limit && limit > 0 ? words.slice(0, limit) : words;
 }
 
 /** AI 按当前标准拆分释义为主要/次要 */
@@ -268,3 +270,54 @@ export async function explainWord(word: string): Promise<WordExplanation> {
     exampleCn: parsed.exampleCn || "",
   };
 }
+
+/** 查询单词释义（优先 AI 词汇讲解，词典 + 翻译降级兜底，用于手动添加生词自动写入释义） */
+export async function fetchWordDefinition(
+  word: string
+): Promise<{ pos: string; meaning: string }> {
+  const clean = word.trim();
+  if (!clean) return { pos: "", meaning: "" };
+
+  // 1. 优先尝试 AI 讲解接口
+  try {
+    const exp = await explainWord(clean);
+    if (exp && (exp.meaning || exp.pos)) {
+      return { pos: exp.pos || "", meaning: exp.meaning || "" };
+    }
+  } catch {
+    // AI 未配置或异常，降级到词典与公共翻译
+  }
+
+  // 2. 词典 API + 翻译兜底
+  try {
+    const key = normalizeWordForPhonetic(clean) || clean.toLowerCase();
+    const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
+    if (res.ok) {
+      const data = (await res.json()) as any[];
+      if (Array.isArray(data) && data[0]?.meanings?.length) {
+        const firstMeaning = data[0].meanings[0];
+        const pos = firstMeaning.partOfSpeech ? `${firstMeaning.partOfSpeech}.` : "";
+        const rawDef = firstMeaning.definitions?.[0]?.definition || "";
+        if (rawDef) {
+          const zh = await translateText(rawDef).catch(() => "");
+          if (zh) return { pos, meaning: zh };
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. 直接翻译文本兜底（兼容短语、成语或无词典条目词）
+  try {
+    const zh = await translateText(clean).catch(() => "");
+    if (zh && zh.toLowerCase() !== clean.toLowerCase()) {
+      return { pos: "", meaning: zh };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { pos: "", meaning: "" };
+}
+

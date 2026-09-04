@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { db } from "@/lib/db";
 import { getAIConfig } from "@/lib/ai-client";
+import { cn } from "@/lib/utils";
 import {
   fetchNewsList,
   fetchCustomNews,
@@ -44,6 +45,7 @@ import {
   explainWord,
   translateArticle,
   getVocabStandard,
+  fetchWordDefinition,
   type ArticleQuestion,
   type NewWord,
   type WordExplanation,
@@ -251,12 +253,14 @@ export default function DailyArticle() {
     }
   };
 
+  const [addingManualWord, setAddingManualWord] = useState(false);
+
   const handleRecognizeWords = async () => {
     if (!content) return;
     setRecognizing(true);
     setWordError("");
     try {
-      const words = await recognizeNewWords(content, 12);
+      const words = await recognizeNewWords(content);
       setNewWords(words);
     } catch (e) {
       setWordError(String(e));
@@ -265,18 +269,29 @@ export default function DailyArticle() {
     }
   };
 
-  const handleAddManualWord = () => {
+  const handleAddManualWord = async () => {
     const word = manualWordInput.trim();
-    if (!word) return;
+    if (!word || addingManualWord) return;
     const exists =
       manualWords.some((w) => w.word.toLowerCase() === word.toLowerCase()) ||
       (newWords ?? []).some((w) => w.word.toLowerCase() === word.toLowerCase());
     if (exists) {
       setManualWordInput("");
+      setWordError(`生词「${word}」已在列表中`);
       return;
     }
-    setManualWords((prev) => [...prev, { word, pos: "", meaning: "" }]);
-    setManualWordInput("");
+    setAddingManualWord(true);
+    setWordError("");
+    try {
+      const def = await fetchWordDefinition(word);
+      setManualWords((prev) => [...prev, { word, pos: def.pos, meaning: def.meaning }]);
+      setManualWordInput("");
+    } catch {
+      setManualWords((prev) => [...prev, { word, pos: "", meaning: "" }]);
+      setManualWordInput("");
+    } finally {
+      setAddingManualWord(false);
+    }
   };
 
   const handleExplainWord = async (word: string) => {
@@ -486,12 +501,13 @@ export default function DailyArticle() {
                   >
                     <button
                       type="button"
-                      className="min-w-0 truncate text-left hover:underline"
+                      className="min-w-0 flex-1 truncate text-left hover:underline text-foreground"
                       onClick={() => openArticle(f as NewsItem)}
+                      title={f.title}
                     >
                       {f.title}
                     </button>
-                    <Button size="sm" variant="ghost" onClick={() => removeFavorite(f.link)}>
+                    <Button size="sm" variant="ghost" className="shrink-0" onClick={() => removeFavorite(f.link)}>
                       移除
                     </Button>
                   </div>
@@ -523,16 +539,22 @@ export default function DailyArticle() {
                   <Button
                     key={it.link}
                     variant="outline"
-                    className="h-auto w-full justify-start px-4 py-3 text-left"
+                    className="group h-auto w-full min-w-0 justify-start px-4 py-3 text-left whitespace-normal overflow-hidden hover:bg-accent/60"
                     onClick={() => openArticle(it)}
                   >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{it.title}</div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="secondary">{it.source}</Badge>
-                        <span>{it.pubDate}</span>
-                        {it.description && <span className="truncate">{it.description}</span>}
+                    <div className="w-full min-w-0 overflow-hidden space-y-1">
+                      <div className="truncate text-sm font-medium text-foreground group-hover:text-primary transition-colors" title={it.title}>
+                        {it.title}
                       </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="secondary" className="shrink-0">{it.source}</Badge>
+                        <span className="shrink-0">{it.pubDate}</span>
+                      </div>
+                      {it.description && (
+                        <p className="w-full truncate text-xs text-muted-foreground/80 leading-normal" title={it.description}>
+                          {it.description}
+                        </p>
+                      )}
                     </div>
                   </Button>
                 ))}
@@ -554,9 +576,9 @@ export default function DailyArticle() {
       </Card>
 
       {selected && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
           {/* 文章主体 */}
-          <Card>
+          <Card className="min-w-0">
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <CardTitle className="text-xl leading-snug">{selected.title}</CardTitle>
@@ -633,8 +655,8 @@ export default function DailyArticle() {
             </CardContent>
           </Card>
 
-          {/* 学习工具侧栏 */}
-          <div className="space-y-4">
+          {/* 学习工具侧栏（随页面滚动固定在右上，且内部支持独立滚轮滑动） */}
+          <aside className="space-y-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto pr-1">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">学习工具</CardTitle>
@@ -680,13 +702,19 @@ export default function DailyArticle() {
                       <Input
                         value={manualWordInput}
                         onChange={(e) => setManualWordInput(e.target.value)}
-                        placeholder="手动添加生词"
+                        placeholder="手动添加生词（自动写入释义）"
+                        disabled={addingManualWord}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddManualWord();
+                          if (e.key === "Enter") void handleAddManualWord();
                         }}
                       />
-                      <Button size="sm" onClick={handleAddManualWord} disabled={!manualWordInput.trim()}>
-                        添加
+                      <Button
+                        size="sm"
+                        onClick={() => void handleAddManualWord()}
+                        disabled={!manualWordInput.trim() || addingManualWord}
+                      >
+                        {addingManualWord ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
+                        {addingManualWord ? "查询中" : "添加"}
                       </Button>
                     </div>
                     {allNewWords.length > 0 && (
@@ -695,11 +723,12 @@ export default function DailyArticle() {
                           <button
                             key={w.word + i}
                             type="button"
-                            className="flex w-full items-start justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                            className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                             onClick={() => handleExplainWord(w.word)}
+                            title={`${w.word} - ${w.pos} ${w.meaning}`}
                           >
-                            <span className="font-medium">{w.word}</span>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="shrink-0 font-medium">{w.word}</span>
+                            <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
                               {w.pos} {w.meaning}
                             </span>
                           </button>
@@ -788,26 +817,41 @@ export default function DailyArticle() {
                           <p className="text-sm font-medium">
                             {i + 1}. {q.question}
                           </p>
-                          <div className="grid gap-1">
-                            {q.options.map((opt, oi) => (
-                              <Button
-                                key={oi}
-                                size="sm"
-                                variant={selectedOptions[i] === oi ? "secondary" : "outline"}
-                                className="h-auto min-h-9 justify-start whitespace-normal break-words px-2 py-2 text-left leading-relaxed"
-                                onClick={() =>
-                                  setSelectedOptions((prev) =>
-                                    prev.map((v, idx) => (idx === i ? oi : v))
-                                  )
-                                }
-                              >
-                                {String.fromCharCode(65 + oi)}. {cleanOption(opt)}
-                              </Button>
-                            ))}
+                          <div className="grid gap-1.5">
+                            {q.options.map((opt, oi) => {
+                              const isSelected = selectedOptions[i] === oi;
+                              const isCorrect = q.answer.trim().toUpperCase() === "ABCD"[oi];
+                              return (
+                                <Button
+                                  key={oi}
+                                  size="sm"
+                                  variant="outline"
+                                  className={cn(
+                                    "h-auto min-h-9 w-full justify-start whitespace-normal break-words px-3 py-2 text-left leading-relaxed transition-all",
+                                    showQuizAnswers
+                                      ? isCorrect
+                                        ? "border-emerald-600 bg-emerald-600 text-white font-medium hover:bg-emerald-600 shadow-sm"
+                                        : isSelected
+                                        ? "border-destructive bg-destructive text-destructive-foreground font-medium hover:bg-destructive shadow-sm"
+                                        : "opacity-60 hover:opacity-100"
+                                      : isSelected
+                                      ? "border-primary bg-primary text-primary-foreground font-semibold shadow-md ring-2 ring-primary/30 hover:bg-primary/95"
+                                      : "hover:bg-accent/70 text-foreground"
+                                  )}
+                                  onClick={() =>
+                                    setSelectedOptions((prev) =>
+                                      prev.map((v, idx) => (idx === i ? oi : v))
+                                    )
+                                  }
+                                >
+                                  {String.fromCharCode(65 + oi)}. {cleanOption(opt)}
+                                </Button>
+                              );
+                            })}
                           </div>
                           {showQuizAnswers && (
                             <div className="space-y-1 text-xs">
-                              <p className="text-green-600">
+                              <p className="text-green-600 font-medium">
                                 答案：{q.answer}. {cleanOption(q.options["ABCD".indexOf(q.answer.toUpperCase())] ?? q.answer)}
                               </p>
                               <p className="text-muted-foreground">解析：{q.explanation}</p>
@@ -831,7 +875,7 @@ export default function DailyArticle() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </aside>
         </div>
       )}
     </div>
