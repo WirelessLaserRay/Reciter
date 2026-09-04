@@ -15,7 +15,7 @@
 | 技术栈 | Tauri 2 · React 18 · TypeScript · Vite 7 · Tailwind v4 + shadcn/ui · Zustand · React Router 7 · SQLite · ts-fsrs v5 (FSRS-5) · Recharts |
 | 授权 | MIT（© 2026 WirelessLaserRay） |
 
-**当前进度**：Phase 1-5 + 6A/6B/6C 全部完成（0.14.6，学习逻辑已按 `research_doc/learning_logic_audit.md` 与 `research_doc/study_logic_analysis.md` 实施改进；含危险区重置、形近词干扰项、选择题自适应选项、侧栏平滑折叠动画、新词延迟突击测试、词库乱序学习，并修复 learning_steps 持久化、同族词误判、队列末尾反复出现、短间隔重排与复习配额统计）。后续方向：Easy Days 负载均衡、更多题型、备份加密、多端迁移、FSRS-6 升级预留。
+**当前进度**：Phase 1-5 + 6A/6B/6C + Phase 7（0.16.3）全部完成（含 Easy Days 负载均衡、卡片发音与音标、AI 智能生成、考试日期规划、每日一文、Cloudflare Worker 跨端全量快照同步、释义主次拆分、学习跳过/忽略、后台音标补齐、设置页重构分类等）。后续方向：移动端（Android）适配、更多题型（AI 口语/拼写纠错）、备份加密、FSRS-6 升级预留。
 
 ---
 
@@ -167,14 +167,16 @@ gh release create v0.1.0 --title "..." --notes-file notes.md "bundle/nsis/*.exe"
 src/
 ├── lib/          db / fsrs / day / review / settings / stats / backup / env / migrations /
 │                 sql/{backend,tauri-backend,sqljs-backend} / ai-client / ai-parse / ai-prompts /
-│                 ai-adapter / ai-strategy / study-mode / markdown-parser / importer /
-│                 recall-match / study-prefs / utils
+│                 ai-adapter / ai-strategy / ai-generate / study-mode / markdown-parser / importer /
+│                 recall-match / study-prefs / tts / news / sync / dictionary / vocab / phonetic /
+│                 meaning / easy-days / exam-planner / daily-quotes / similar-words / word-family / utils
 ├── components/   ui(shadcn) / layout / quiz(QuizSession) / stats(HeatmapGrid) /
 │                 ai(AIChatPanel, AISetupWizard) / study(StudyCard, MarkdownContext) / deck(MasteryOverview)
-├── pages/        Dashboard 词库 词库详情 学习 导入 统计 设置 弱词本
+├── pages/        Dashboard 词库 词库详情 学习 导入 统计 设置 弱词本 每日一文
 ├── stores/       useThemeStore / useDbStore / useDeckStore / useStudyStore
 └── types/        与数据库 Schema 对齐
-src-tauri/        Rust 壳：plugins(sql/http/dialog) + 命令(write/read_text_file) + migrations 001-005
+src-tauri/        Rust 壳：plugins(sql/http/dialog) + 命令(write/read_text_file) + migrations 001-010
+worker/           Cloudflare Worker（同步 / DeepL / RSS）
 ```
 
 - 学习队列 = due 卡片（受每日复习上限截取）+ 配额内新卡（`deck.new_cards_per_day - 今日已学`），可标签/重点过滤

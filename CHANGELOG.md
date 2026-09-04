@@ -22,6 +22,37 @@
 
 ---
 
+## [0.16.3] - 2026-09-04
+
+### Changed
+
+- **设置页架构重构与分类优化**：将原本臃肿漫长的单卡片表单重构为 6 大独立专精分类（外观与通用、学习与记忆、备考规划、AI与翻译、阅读与订阅、数据与同步），极大提升设置查找效率，并自适应移动端水平滚动与弹性布局
+- **例句翻译独立归位**：DeepL 翻译配置自 FSRS 学习偏好卡片解耦，归位至「AI 与翻译」专用配置卡片
+- **自定义 RSS 聚合**：自定义 RSS 源管理与每日一文配置统一归并至「阅读与订阅」板块
+
+### Fixed
+
+- **CSV / JSON 导入警告语法错误**：修复 `importer.ts` 中 `.slice(0, 60)` 位于模板字符串插值大括号外导致的字面量文本显示缺陷
+- **TTS 音频错误对象保护**：修复 `tts.ts` 中 `err.name` 未做可选链导致的非标准异常二次崩溃问题
+- **Tauri 拖拽监听异步解绑泄漏**：修复 `Import.tsx` 中组件卸载时 `unlisten` 未 resolve 导致的全局监听器残留问题
+- **学习界面音标预加载竞态保护**：修复 `Study.tsx` 中切换卡片或卸载组件时异步音标回调未带取消标志的潜在内存泄漏
+- **设置页反馈定时器未清理**：修复 `Settings.tsx` 中 `flashSaved` 等 `setTimeout` 在组件卸载后未清理的问题
+- **词库同名重命名 SQL 通配符转义**：修复 `db.ts` 中 `getUniqueDeckName` 无法转义下划线 `\_` 导致的通配符误匹配与缺少 `ESCAPE` 子句问题
+- **强类型返回值缺失主键**：修复 `db.ts` 中 `getWeakCards` 与 `getAllCardsWithState` 查询语句仅选取 `card_id` 导致缺失 `id` 属性的问题
+- **每日一文正文过度过滤**：修复 `news.ts` 中对全文关键词过于激进匹配误伤含 figure / caption 等常见词的合法正文段落
+- **迁移元表时间格式规范化**：修复 `migrations.ts` 中 `_reciter_migrations` 默认值使用非标准 `datetime('now')` 空格格式，统一为 ISO-8601 UTC
+
+### Added
+
+- **移动端（Android）可行性迁移方案**：于 `research_doc/android-migration-plan.md` 制定完整的 Tauri 2 Mobile 迁移与 7 阶段落地指南
+
+### Infrastructure
+
+- **Vite 构建与监听优化**：注入 `envPrefix: ["VITE_", "TAURI_ENV_*"]`，并在 watch 监视中排除 `worker/` 与 `.install/`
+- **AGENT.md 文档更新**：同步当前版本至 0.16.3，更新 Phase 7 已交付特性，补齐目录架构树与全部 10 个迁移记录
+
+---
+
 ## [0.16.2] - 2026-09-01
 
 ### Added

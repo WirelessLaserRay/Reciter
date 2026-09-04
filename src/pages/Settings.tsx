@@ -1,6 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CalendarClock, CheckCircle2, Database, Download, Loader2, Sparkles, Upload, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  BookOpen,
+  Brain,
+  CalendarClock,
+  CheckCircle2,
+  Database,
+  Download,
+  Languages,
+  Loader2,
+  Newspaper,
+  Palette,
+  Sliders,
+  Sparkles,
+  Upload,
+  Volume2,
+  XCircle,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -229,13 +246,25 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
 
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    };
+  }, []);
+
   const flashSaved = () => {
     setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setSaved(false), 1500);
   };
   const flashAiSaved = () => {
     setAiSaved(true);
-    setTimeout(() => setAiSaved(false), 1500);
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    aiTimerRef.current = setTimeout(() => setAiSaved(false), 1500);
   };
 
   // ============ 学习设置动作 ============
@@ -637,20 +666,45 @@ export default function Settings() {
         {saved && <span className="text-xs text-green-600">已保存 ✓</span>}
       </div>
 
-      <Tabs defaultValue="appearance">
-        <TabsList>
-          <TabsTrigger value="appearance">外观</TabsTrigger>
-          <TabsTrigger value="learning">学习设置</TabsTrigger>
-          <TabsTrigger value="ai">AI 配置</TabsTrigger>
-          <TabsTrigger value="data">数据</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="general" className="space-y-6">
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-auto w-full min-w-[560px] sm:min-w-0 justify-start sm:justify-center gap-1.5 p-1 bg-muted/60">
+            <TabsTrigger value="general" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <Palette className="size-4" />
+              <span>外观与通用</span>
+            </TabsTrigger>
+            <TabsTrigger value="learning" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <Brain className="size-4" />
+              <span>学习与记忆</span>
+            </TabsTrigger>
+            <TabsTrigger value="exam" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <CalendarClock className="size-4" />
+              <span>备考规划</span>
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <Sparkles className="size-4" />
+              <span>AI与翻译</span>
+            </TabsTrigger>
+            <TabsTrigger value="reading" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <Newspaper className="size-4" />
+              <span>阅读与订阅</span>
+            </TabsTrigger>
+            <TabsTrigger value="data" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+              <Database className="size-4" />
+              <span>数据与同步</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-        {/* 外观 */}
-        <TabsContent value="appearance" className="space-y-4">
+        {/* 1. 外观与通用 */}
+        <TabsContent value="general" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>主题</CardTitle>
-              <CardDescription>选择配色，右上角按钮可快速切换明暗</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="size-4 text-primary" />
+                主题配色
+              </CardTitle>
+              <CardDescription>选择应用视觉配色，右上角按钮可快速切换明暗</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
@@ -693,17 +747,78 @@ export default function Settings() {
               </p>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* 学习设置 */}
-        <TabsContent value="learning" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>FSRS 学习偏好</CardTitle>
-              <CardDescription>修改后立即生效（下次加载队列时应用）</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="size-4 text-primary" />
+                词汇基准标准
+              </CardTitle>
+              <CardDescription>控制词库扫描拆分、生词识别标定与每日一文 AI 出题难度</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <h3 className="text-sm font-semibold text-muted-foreground">基础学习</h3>
+            <CardContent className="space-y-3">
+              <Select
+                value={vocabStandard}
+                onValueChange={(v) => handleVocabStandardChange(v as VocabStandard)}
+              >
+                <SelectTrigger className="w-full sm:w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CET4">四级（CET-4）</SelectItem>
+                  <SelectItem value="CET6">六级（CET-6）</SelectItem>
+                  <SelectItem value="考研">考研英语</SelectItem>
+                  <SelectItem value="专业英语">专业英语</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                当前基准：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}。
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Volume2 className="size-4 text-primary" />
+                语音发音 (TTS)
+              </CardTitle>
+              <CardDescription>学习卡片单词与例句朗读的发音服务来源</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="tts-source">发音来源</Label>
+                <Select value={ttsSource} onValueChange={(v) => void saveTTSSetting(v as TTSSource)}>
+                  <SelectTrigger className="w-full sm:w-80">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动（优先系统，失败回退在线）</SelectItem>
+                    <SelectItem value="system">系统 TTS（离线可用）</SelectItem>
+                    <SelectItem value="youdao">有道 TTS（国内高速稳定）</SelectItem>
+                    <SelectItem value="google">Google TTS（需科学网络）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  系统 TTS 离线可用；Google TTS 需要网络/代理；有道 TTS 适合国内直连。
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* 2. 学习与记忆 */}
+        <TabsContent value="learning" className="space-y-4">
+          {/* 算法核心 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="size-4 text-primary" />
+                FSRS 记忆算法核心
+              </CardTitle>
+              <CardDescription>基于现代自由时间间隔重复算法（FSRS-5），智能计算下一复习时刻</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>目标记忆率（desired retention）</Label>
@@ -728,7 +843,7 @@ export default function Settings() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  数值越高复习越频繁；考研建议 0.90，时间紧可降至 0.85
+                  数值越高复习越频繁；考研建议 0.90，时间紧可降至 0.85。
                 </p>
               </div>
 
@@ -737,14 +852,42 @@ export default function Settings() {
                 <Input
                   id="day-start"
                   type="time"
+                  className="w-40"
                   value={dayStart}
                   onChange={(e) => saveDayStart(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  默认 04:00（Anki 惯例），日界前复习计入前一天
+                  默认 04:00（Anki 惯例），跨午夜学习仍计入前一天的连续天数。
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="learning-steps">新卡学习步骤 (Learning Steps)</Label>
+                <Input
+                  id="learning-steps"
+                  type="text"
+                  placeholder="1m,10m"
+                  className="w-60 font-mono"
+                  value={learningSteps}
+                  onChange={(e) => handleLearningStepsChange(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  新卡学习过程中的重复间隔（m=分钟/h=小时/d=天），建议 1m,10m。
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 每日配额 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sliders className="size-4 text-primary" />
+                每日配额与复习预算
+              </CardTitle>
+              <CardDescription>设定每日学习与复习上限，防过度疲劳与任务堆积</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new-per-day">每日新卡上限（默认）</Label>
                 <div className="flex items-center gap-2">
@@ -756,10 +899,10 @@ export default function Settings() {
                     value={defaultNewPerDay}
                     onChange={(e) => saveNewPerDay(parseInt(e.target.value, 10) || 0)}
                   />
-                  <span className="text-sm text-muted-foreground">张/天</span>
+                  <span className="shrink-0 text-sm text-muted-foreground">张/天</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  新词库默认配额，词库页可单独调整
+                  新词库默认配额，词库详情页可单独个性化覆盖。
                 </p>
               </div>
 
@@ -774,137 +917,122 @@ export default function Settings() {
                     value={dailyReviewLimit}
                     onChange={(e) => saveReviewLimit(parseInt(e.target.value, 10) || 0)}
                   />
-                  <span className="text-sm text-muted-foreground">次/天</span>
+                  <span className="shrink-0 text-sm text-muted-foreground">次/天</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  全局复习预算，超出部分留到次日
+                  全局复习预算保护，超出部分安全顺延至次日。
                 </p>
               </div>
+            </CardContent>
+          </Card>
 
-              <h3 className="text-sm font-semibold text-muted-foreground">队列与休息</h3>
-              <div className="space-y-2">
-                <Label htmlFor="leech-threshold">弱词收录阈值（遗忘次数）</Label>
+          {/* 学习流交互 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="size-4 text-primary" />
+                学习流与交互体验
+              </CardTitle>
+              <CardDescription>记忆卡片展示、评测模式与自适应选项</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label>评分模式</Label>
+                  <p className="text-xs text-muted-foreground">
+                    三档（生疏 / 犹豫 / 记得）更直觉；四档保留 Anki 经典 Easy 选项
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
-                  <Input
-                    id="leech-threshold"
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={leechThreshold}
-                    onChange={(e) => saveLeechThreshold(parseInt(e.target.value, 10) || 0)}
+                  <span className="text-xs text-muted-foreground">三档</span>
+                  <Switch
+                    checked={ratingMode === "4"}
+                    onCheckedChange={(v) => handleRatingModeChange(v ? "4" : "3")}
                   />
-                  <span className="text-sm text-muted-foreground">次</span>
+                  <span className="text-xs text-muted-foreground">四档</span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  达到该遗忘次数自动进入弱词本；默认 3，下调可更早收录
-                </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="ignored-tags">学习忽略标签（支持正则，一行一个）</Label>
-                <Textarea
-                  id="ignored-tags"
-                  rows={4}
-                  placeholder={"词组\n熟词生义\n^临时|^测试$"}
-                  value={ignoredTags}
-                  onChange={(e) => saveIgnoredTagsSetting(e.target.value)}
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label>主动回忆模式</Label>
+                  <p className="text-xs text-muted-foreground">
+                    先回忆释义再点按翻转答案，显著强化提取练习（强烈建议开启）
+                  </p>
+                </div>
+                <Switch
+                  checked={activeRecallEnabled}
+                  onCheckedChange={handleActiveRecallChange}
                 />
-                <p className="text-xs text-muted-foreground">
-                  带这些标签的卡片不会进入主页「今日学习」默认队列；支持正则模糊匹配
-                </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="interleave-ratio">新卡交错比例</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="interleave-ratio"
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={interleaveRatio}
-                    onChange={(e) => handleInterleaveRatioChange(parseInt(e.target.value, 10) || 0)}
-                  />
-                  <span className="text-sm text-muted-foreground">张复习卡插 1 张新卡</span>
+              <div className="grid gap-4 sm:grid-cols-3 pt-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="interleave-ratio">新卡交错比例</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="interleave-ratio"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={interleaveRatio}
+                      onChange={(e) => handleInterleaveRatioChange(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">复习插 1 新</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">默认 5（每 5 张复习卡插 1 张新卡）</p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  默认 5（每 5 张复习卡插 1 张新卡）
-                </p>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="quick-test-seconds">熟练卡秒答阈值</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="quick-test-seconds"
-                    type="number"
-                    min={2}
-                    max={15}
-                    value={quickTestSeconds}
-                    onChange={(e) => handleQuickTestSecondsChange(parseInt(e.target.value, 10) || 0)}
-                  />
-                  <span className="text-sm text-muted-foreground">秒</span>
+                <div className="space-y-1.5">
+                  <Label htmlFor="quick-test-seconds">熟练卡秒答阈值</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="quick-test-seconds"
+                      type="number"
+                      min={2}
+                      max={15}
+                      value={quickTestSeconds}
+                      onChange={(e) => handleQuickTestSecondsChange(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">秒</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">快速答对提示「建议记得」</p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  阈值内答对提示「建议记得」，仍需确认评分后进入下一张
-                </p>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="max-session-cards">最大单轮学习数量</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="max-session-cards"
-                    type="number"
-                    min={10}
-                    max={500}
-                    value={maxSessionCards}
-                    onChange={(e) => handleMaxSessionCardsChange(parseInt(e.target.value, 10) || 0)}
-                  />
-                  <span className="text-sm text-muted-foreground">张</span>
+                <div className="space-y-1.5">
+                  <Label htmlFor="summary-interval">阶段小结间隔</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="summary-interval"
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={summaryInterval}
+                      onChange={(e) => handleSummaryIntervalChange(parseInt(e.target.value, 10) || 10)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">张/次</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">学习 N 张后插入小结进度</p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  达到上限后提醒休息，并开启学习锁（默认 100）
-                </p>
               </div>
+            </CardContent>
+          </Card>
 
-              <div className="space-y-2">
-                <Label htmlFor="rest-duration-minutes">休息锁时长</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="rest-duration-minutes"
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={restDurationMinutes}
-                    onChange={(e) => handleRestDurationChange(parseInt(e.target.value, 10) || 0)}
-                  />
-                  <span className="text-sm text-muted-foreground">分钟</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  达到单轮上限后，休息期间无法开始新学习（默认 15 分钟）
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="learning-steps">学习步骤</Label>
-                <Input
-                  id="learning-steps"
-                  type="text"
-                  placeholder="1m,10m"
-                  value={learningSteps}
-                  onChange={(e) => handleLearningStepsChange(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  新卡 Learning 阶段的重复间隔（m=分钟/h=小时/d=天），建议 1m,10m
-                </p>
-              </div>
-
+          {/* 节奏调控与智能减负 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sliders className="size-4 text-primary" />
+                节奏调控与智能减负
+              </CardTitle>
+              <CardDescription>疲劳保护锁、弱词阈值与 Easy Days 周末减负机制</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Easy Days 负载均衡</Label>
+                  <Label>Easy Days 智能负载均衡</Label>
                   <p className="text-xs text-muted-foreground">
-                    开启后周末复习量默认减半，可避免堆积
+                    开启后周末复习量默认减半，平摊至工作日，避免周末集中堆积
                   </p>
                 </div>
                 <Switch
@@ -913,166 +1041,83 @@ export default function Settings() {
                 />
               </div>
 
-              <h3 className="text-sm font-semibold text-muted-foreground">发音与翻译</h3>
-              <div className="space-y-2">
-                <Label htmlFor="tts-source">发音来源</Label>
-                <Select value={ttsSource} onValueChange={(v) => void saveTTSSetting(v as TTSSource)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">自动（优先系统，失败用 Google）</SelectItem>
-                    <SelectItem value="system">系统 TTS（离线可用）</SelectItem>
-                    <SelectItem value="youdao">有道 TTS</SelectItem>
-                    <SelectItem value="google">Google TTS（需网络）</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  系统 TTS 离线可用；Google TTS 需要网络/代理
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="translation-provider">例句翻译接口</Label>
-                <Select
-                  value={translationProvider}
-                  onValueChange={(v) => void saveTranslationProvider(v as TranslationProvider)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="deepl">DeepL（默认，需 API Key）</SelectItem>
-                    <SelectItem value="fallback">现有方案（MyMemory + AI 兜底）</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  DeepL 翻译质量更高；未配置 Key 时自动回退到现有方案
-                </p>
-              </div>
-
-              {translationProvider === "deepl" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="deepl-api-key">DeepL API Key</Label>
+              <div className="grid gap-4 sm:grid-cols-3 pt-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="leech-threshold">弱词收录阈值</Label>
+                  <div className="flex items-center gap-2">
                     <Input
-                      id="deepl-api-key"
-                      type="password"
-                      placeholder="DeepL Auth Key"
-                      value={deeplApiKey}
-                      onChange={(e) => saveDeeplApiKey(e.target.value)}
+                      id="leech-threshold"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={leechThreshold}
+                      onChange={(e) => saveLeechThreshold(parseInt(e.target.value, 10) || 0)}
                     />
+                    <span className="shrink-0 text-xs text-muted-foreground">次遗忘</span>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="deepl-api-url">DeepL API URL（可选）</Label>
-                    <Input
-                      id="deepl-api-url"
-                      placeholder="https://api-free.deepl.com/v2/translate"
-                      value={deeplApiUrl}
-                      onChange={(e) => saveDeeplApiUrl(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {isTauri()
-                        ? "桌面端可保持默认：免费版 api-free，专业版改为 https://api.deepl.com/v2/translate"
-                        : "网页端存在跨域限制：请填写你的 CORS 代理地址（如 Cloudflare Workers），桌面端可保持默认"}
-                    </p>
-                    {!isTauri() && (
-                      <p className="text-xs text-amber-600">
-                        ⚠️ 网页版 DeepL 需配置 CORS 代理才能生效；否则会自动回退到现有方案
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="deepl-cors-proxy">CORS 代理地址（网页端）</Label>
-                    <Input
-                      id="deepl-cors-proxy"
-                      placeholder="https://your-worker.example.workers.dev/translate"
-                      value={deeplCorsProxy}
-                      onChange={(e) => saveDeeplCorsProxy(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      网页端翻译 DeepL 时优先使用该代理地址；桌面端可留空
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Button variant="outline" size="sm" onClick={handleTestDeepL} disabled={deeplTesting}>
-                      {deeplTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                      测试 DeepL
-                    </Button>
-                    {deeplTestResult && (
-                      <p className={deeplTestResult.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
-                        {deeplTestResult.message}
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">学习体验</p>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5">
-                      <Label>评分模式</Label>
-                      <p className="text-xs text-muted-foreground">
-                        三档更直觉（推荐）；开启四档保留 Anki 式 Easy
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">三档</span>
-                      <Switch
-                        checked={ratingMode === "4"}
-                        onCheckedChange={(v) => handleRatingModeChange(v ? "4" : "3")}
-                      />
-                      <span className="text-xs text-muted-foreground">四档</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5">
-                      <Label>主动回忆模式</Label>
-                      <p className="text-xs text-muted-foreground">
-                        先回忆释义再显示答案，记忆效果更好（默认开启）
-                      </p>
-                    </div>
-                    <Switch
-                      checked={activeRecallEnabled}
-                      onCheckedChange={handleActiveRecallChange}
-                    />
-                  </div>
-
-                  <h3 className="text-sm font-semibold text-muted-foreground">学习节奏</h3>
-                  <div className="space-y-2">
-                    <Label htmlFor="summary-interval">迷你小结间隔</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="summary-interval"
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={summaryInterval}
-                        onChange={(e) => handleSummaryIntervalChange(parseInt(e.target.value, 10) || 10)}
-                      />
-                      <span className="text-sm text-muted-foreground">张/次</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      每学习 N 张卡片后插入一次阶段性小结（10/15/20 推荐）
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-muted-foreground">达到该遗忘次数自动进入弱词本</p>
                 </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="max-session-cards">单轮学习上限</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="max-session-cards"
+                      type="number"
+                      min={10}
+                      max={500}
+                      value={maxSessionCards}
+                      onChange={(e) => handleMaxSessionCardsChange(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">张</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">达到上限提醒休息并开启学习锁</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="rest-duration-minutes">休息锁时长</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="rest-duration-minutes"
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={restDurationMinutes}
+                      onChange={(e) => handleRestDurationChange(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">分钟</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">休息期间锁定新轮次启动</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="ignored-tags">学习忽略标签（支持正则，一行一个）</Label>
+                <Textarea
+                  id="ignored-tags"
+                  rows={3}
+                  placeholder={"词组\n熟词生义\n^临时|^测试$"}
+                  value={ignoredTags}
+                  onChange={(e) => saveIgnoredTagsSetting(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  带这些标签的卡片不会进入「今日学习」默认队列；支持正则表达式
+                </p>
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* 考试规划 */}
+        {/* 3. 备考规划 */}
+        <TabsContent value="exam" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CalendarClock className="size-4 text-primary" />
-                考试规划
+                考试规划与倒计时
               </CardTitle>
               <CardDescription>
-                设置考试日期与目标词库，主页显示倒计时与建议每日新学量；可用 AI 生成备考计划
+                设置考试日期与目标词库，主页同步显示倒计时与建议每日新学量
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1081,11 +1126,12 @@ export default function Settings() {
                 <Input
                   id="exam-date"
                   type="date"
+                  className="w-full sm:w-60"
                   value={examDate}
                   onChange={(e) => setExamDate(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  建议每日新学量 = 所选词库未学新卡数 ÷ 剩余天数
+                  系统会自动根据所选词库剩余新卡与剩余天数，在仪表盘动态推荐每日学量
                 </p>
               </div>
 
@@ -1128,7 +1174,7 @@ export default function Settings() {
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button onClick={saveExamPlanning} disabled={!dbReady || !examDate}>
                   保存考试规划
                 </Button>
@@ -1138,7 +1184,7 @@ export default function Settings() {
                   disabled={examPlanning || !dbReady || !examDate}
                 >
                   {examPlanning ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                  {examPlanning ? "AI 规划中…" : "AI 生成学习计划"}
+                  {examPlanning ? "AI 规划中…" : "AI 生成分阶段学习计划"}
                 </Button>
                 {examAiPlan && (
                   <Button size="sm" variant="ghost" onClick={handleClearAIExamPlan}>
@@ -1154,23 +1200,29 @@ export default function Settings() {
               )}
 
               {examAiPlan && (
-                <div className="rounded-md border bg-muted/30 p-3">
-                  <p className="mb-2 text-sm font-semibold">AI 备考计划</p>
-                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed">{examAiPlan}</pre>
+                <div className="rounded-md border bg-muted/30 p-4">
+                  <p className="mb-2 text-sm font-semibold flex items-center gap-2">
+                    <Sparkles className="size-4 text-primary" />
+                    AI 备考阶段计划
+                  </p>
+                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed font-sans">{examAiPlan}</pre>
                 </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* AI 配置 */}
+        {/* 4. AI 与翻译服务 */}
         <TabsContent value="ai" className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div>
-                <CardTitle>AI 接口</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary" />
+                  AI 大模型接口
+                </CardTitle>
                 <CardDescription>
-                  OpenAI 兼容接口（DeepSeek / Ollama / OpenAI），桌面端无 CORS 限制
+                  OpenAI 兼容接口（DeepSeek / Ollama / OpenAI），用于智能问答、深度复习与出题
                 </CardDescription>
               </div>
               {isLocal ? (
@@ -1183,11 +1235,11 @@ export default function Settings() {
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">快速切换预设</Label>
                 <Button size="sm" variant="outline" onClick={() => setSetupOpen(true)}>
-                  引导配置
+                  引导配置向导
                 </Button>
               </div>
               <div>
-                <div className="mt-1.5 flex gap-2">
+                <div className="mt-1.5 flex flex-wrap gap-2">
                   {AI_PRESETS.map((p) => (
                     <Button key={p.name} size="sm" variant="outline" onClick={() => applyPreset(p)}>
                       {p.name}
@@ -1216,7 +1268,7 @@ export default function Settings() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ai-model">模型</Label>
+                <Label htmlFor="ai-model">模型名</Label>
                 <Input
                   id="ai-model"
                   placeholder="deepseek-chat / qwen2.5:7b / gpt-4o-mini"
@@ -1237,11 +1289,11 @@ export default function Settings() {
                   onValueChange={(v) => setAiTemp(v[0])}
                 />
                 <p className="text-xs text-muted-foreground">
-                  越低越稳定（出题推荐 0.7），越高越有创意
+                  越低越严谨稳定（出题推荐 0.7），越高越有发散创意
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 pt-2">
                 <Button variant="outline" onClick={testAI} disabled={aiTesting || !aiBaseURL || !aiModel}>
                   {aiTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
                   测试连接
@@ -1260,57 +1312,126 @@ export default function Settings() {
             </CardContent>
           </Card>
 
+          {/* 翻译引擎 */}
           <Card>
             <CardHeader>
-              <CardTitle>词汇标准</CardTitle>
-              <CardDescription>用于闪卡生成、生词识别、每日一文 AI 出题</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Languages className="size-4 text-primary" />
+                例句翻译引擎 (DeepL)
+              </CardTitle>
+              <CardDescription>例句与长难句翻译服务提供商；可配置 DeepL 高质量翻译</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <Select
-                value={vocabStandard}
-                onValueChange={(v) => handleVocabStandardChange(v as VocabStandard)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CET4">四级（CET-4）</SelectItem>
-                  <SelectItem value="CET6">六级（CET-6）</SelectItem>
-                  <SelectItem value="考研">考研英语</SelectItem>
-                  <SelectItem value="专业英语">专业英语</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                当前默认：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
-              </p>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="translation-provider">翻译接口</Label>
+                <Select
+                  value={translationProvider}
+                  onValueChange={(v) => void saveTranslationProvider(v as TranslationProvider)}
+                >
+                  <SelectTrigger className="w-full sm:w-80">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deepl">DeepL（推荐，需 API Key）</SelectItem>
+                    <SelectItem value="fallback">公共兜底方案（MyMemory + AI 兜底）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  DeepL 翻译质量更高；未配置 Key 时会自动回退到公共兜底方案
+                </p>
+              </div>
+
+              {translationProvider === "deepl" && (
+                <div className="space-y-4 rounded-md border p-4 bg-muted/20">
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-api-key">DeepL API Key</Label>
+                    <Input
+                      id="deepl-api-key"
+                      type="password"
+                      placeholder="DeepL Auth Key (如 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx)"
+                      value={deeplApiKey}
+                      onChange={(e) => saveDeeplApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-api-url">DeepL API URL（可选）</Label>
+                    <Input
+                      id="deepl-api-url"
+                      placeholder="https://api-free.deepl.com/v2/translate"
+                      value={deeplApiUrl}
+                      onChange={(e) => saveDeeplApiUrl(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {isTauri()
+                        ? "桌面端可保持默认：免费版填 api-free，专业版填 https://api.deepl.com/v2/translate"
+                        : "网页端存在浏览器跨域限制：请填写 CORS 代理地址（如 Cloudflare Workers），桌面端保持默认即可"}
+                    </p>
+                    {!isTauri() && (
+                      <p className="text-xs text-amber-600">
+                        ⚠️ 网页版 DeepL 需配置 CORS 代理才能生效；未配置时将自动回退
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="deepl-cors-proxy">CORS 代理地址（网页端）</Label>
+                    <Input
+                      id="deepl-cors-proxy"
+                      placeholder="https://your-worker.example.workers.dev/translate"
+                      value={deeplCorsProxy}
+                      onChange={(e) => saveDeeplCorsProxy(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      网页端翻译 DeepL 时优先使用该代理地址；桌面端可留空
+                    </p>
+                  </div>
+                  <div className="space-y-2 pt-1">
+                    <Button variant="outline" size="sm" onClick={handleTestDeepL} disabled={deeplTesting}>
+                      {deeplTesting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                      测试 DeepL 连通性
+                    </Button>
+                    {deeplTestResult && (
+                      <p className={deeplTestResult.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                        {deeplTestResult.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
+        </TabsContent>
 
+        {/* 5. 阅读与订阅 */}
+        <TabsContent value="reading" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>每日一文所需设置</CardTitle>
-              <CardDescription>文章抓取需要 Worker 地址；AI 出题 / 生词 / 翻译需要 AI 接口</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Newspaper className="size-4 text-primary" />
+                每日一文服务与设置
+              </CardTitle>
+              <CardDescription>每日外刊精读抓取、生词讲解与正文展示配置</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 <Badge variant={syncEndpoint.trim() || deeplCorsProxy.trim() ? "secondary" : "destructive"}>
-                  Worker 地址：{syncEndpoint.trim() || deeplCorsProxy.trim() ? "已配置" : "未配置"}
+                  Worker 代理：{syncEndpoint.trim() || deeplCorsProxy.trim() ? "已配置" : "未配置"}
                 </Badge>
                 <Badge variant={aiBaseURL.trim() && aiModel.trim() ? "secondary" : "destructive"}>
-                  AI 接口：{aiBaseURL.trim() && aiModel.trim() ? "已配置" : "未配置"}
+                  AI 助读出题：{aiBaseURL.trim() && aiModel.trim() ? "已配置" : "未配置"}
                 </Badge>
                 <Badge variant="secondary">
-                  词汇标准：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
+                  词汇基准：{vocabStandard === "CET4" ? "四级" : vocabStandard === "CET6" ? "六级" : vocabStandard === "考研" ? "考研英语" : "专业英语"}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Worker 地址可使用「跨端同步地址」或「DeepL CORS 代理地址」；AI 接口在「AI 接口」区域配置。
+                文章抓取与全文解析依赖 Cloudflare Worker 代理；生词识别与 AI 出题使用已配置的 AI 模型。
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 pt-2">
                 <Label htmlFor="article-max-length" className="shrink-0">文章截断字符数</Label>
                 <Input
                   id="article-max-length"
                   type="number"
+                  className="w-36"
                   min={1000}
                   max={100000}
                   value={articleMaxLength}
@@ -1319,54 +1440,77 @@ export default function Settings() {
                 <span className="text-sm text-muted-foreground">字符</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                每日一文正文超过该长度会截断（默认 30000）
+                每日一文正文超过该长度时会自动智能截断（默认 30000 字符）
               </p>
               <Button asChild size="sm" variant="outline">
-                <Link to="/daily-article">前往每日一文</Link>
+                <Link to="/daily-article">前往「每日一文」</Link>
               </Button>
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="size-4 text-primary" />
+                自定义 RSS 订阅源
+              </CardTitle>
+              <CardDescription>导入私有 RSS 订阅源；可为同一媒体配置多个分类频道</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-rss-name">来源媒体名称</Label>
+                <Input
+                  id="custom-rss-name"
+                  value={newRssName}
+                  onChange={(e) => setNewRssName(e.target.value)}
+                  placeholder="例如：The Verge / 经济学人"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-rss-links">主题链接（每行一个：分类名|URL）</Label>
+                <Textarea
+                  id="custom-rss-links"
+                  value={newRssText}
+                  onChange={(e) => setNewRssText(e.target.value)}
+                  rows={4}
+                  placeholder={"World|https://example.com/world.xml\nTech|https://example.com/tech.xml"}
+                />
+              </div>
+              <Button size="sm" onClick={handleAddCustomRss}>
+                添加自定义源
+              </Button>
+              {rssMsg && <p className="text-xs text-muted-foreground">{rssMsg}</p>}
+              {customRssSources.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <Label className="text-xs text-muted-foreground">已订阅的自定义源</Label>
+                  {customRssSources.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{c.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {c.topics.map((t) => t.label).join(" / ")}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => handleDeleteCustomRss(c.id)}>
+                        删除
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
-        {/* 数据备份 */}
+
+        {/* 6. 数据与同步 */}
         <TabsContent value="data" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>数据备份</CardTitle>
-              <CardDescription>全量导出（词库/卡片/记忆状态/复习记录/设置/日报）为 JSON 文件，可随时恢复</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={handleExport} disabled={backupBusy}>
-                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-                  导出备份
-                </Button>
-                <Button variant="outline" onClick={handleImport} disabled={backupBusy}>
-                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-                  导入恢复
-                </Button>
-              </div>
-              {backupMsg && (
-                <p className={backupMsg.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
-                  {backupMsg.ok ? <CheckCircle2 className="mr-1 inline size-3.5" /> : <XCircle className="mr-1 inline size-3.5" />}
-                  {backupMsg.text}
-                </p>
-              )}
-              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                <Database className="mt-0.5 size-3.5 shrink-0" />
-                <div>
-                  <p>备份为本地 JSON；跨端同步请使用下方「跨端同步」。</p>
-                  <p>恢复会清空现有数据，请谨慎使用。</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 跨端同步 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>跨端同步</CardTitle>
-              <CardDescription>通过 Cloudflare Worker + KV 上传/下载完整快照，实现 PWA 与 Windows 之间同步</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="size-4 text-primary" />
+                跨端快照同步 (Cloudflare)
+              </CardTitle>
+              <CardDescription>通过 Cloudflare Worker + KV 快照上传/下载，实现 Windows 桌面与 PWA 跨端同步</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
@@ -1379,7 +1523,7 @@ export default function Settings() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="sync-token">同步 Token</Label>
+                <Label htmlFor="sync-token">同步访问 Token</Label>
                 <Input
                   id="sync-token"
                   type="password"
@@ -1388,7 +1532,7 @@ export default function Settings() {
                   placeholder="与 Worker 环境变量 SYNC_TOKEN 一致"
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 <Button variant="outline" size="sm" onClick={handleSaveSync}>
                   保存设置
                 </Button>
@@ -1414,89 +1558,74 @@ export default function Settings() {
               <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Database className="mt-0.5 size-3.5 shrink-0" />
                 <div>
-                  <p>上传会用本地完整备份覆盖云端；下载会用云端完整备份覆盖本地。</p>
-                  <p>请先部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN，再填写上面的地址和 Token。</p>
+                  <p>上传会用本地完整快照覆盖云端；下载会用云端完整快照覆盖本地。</p>
+                  <p>需先在 Cloudflare 部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN。</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* 自定义 RSS 源 */}
           <Card>
             <CardHeader>
-              <CardTitle>自定义 RSS 源</CardTitle>
-              <CardDescription>可导入自己的 RSS 订阅链接；同一媒体可添加多个主题链接</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Download className="size-4 text-primary" />
+                本地数据备份与恢复
+              </CardTitle>
+              <CardDescription>全量导出为 JSON 离线文件（词库/卡片/记忆状态/复习记录/设置/日报），随时完整恢复</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="custom-rss-name">来源名称</Label>
-                <Input
-                  id="custom-rss-name"
-                  value={newRssName}
-                  onChange={(e) => setNewRssName(e.target.value)}
-                  placeholder="例如：My Tech News"
-                />
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={handleExport} disabled={backupBusy}>
+                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                  导出全量备份 (JSON)
+                </Button>
+                <Button variant="outline" onClick={handleImport} disabled={backupBusy}>
+                  {backupBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                  从文件恢复
+                </Button>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="custom-rss-links">主题链接（每行一个：主题名|URL）</Label>
-                <Textarea
-                  id="custom-rss-links"
-                  value={newRssText}
-                  onChange={(e) => setNewRssText(e.target.value)}
-                  rows={4}
-                  placeholder={"World|https://example.com/world.xml\nTech|https://example.com/tech.xml"}
-                />
-              </div>
-              <Button size="sm" onClick={handleAddCustomRss}>
-                添加自定义源
-              </Button>
-              {rssMsg && <p className="text-xs text-muted-foreground">{rssMsg}</p>}
-              {customRssSources.length > 0 && (
-                <div className="space-y-2">
-                  {customRssSources.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {c.topics.map((t) => t.label).join(" / ")}
-                        </p>
-                      </div>
-                      <Button size="sm" variant="ghost" onClick={() => handleDeleteCustomRss(c.id)}>
-                        删除
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+              {backupMsg && (
+                <p className={backupMsg.ok ? "text-xs text-green-600" : "text-xs text-red-600"}>
+                  {backupMsg.ok ? <CheckCircle2 className="mr-1 inline size-3.5" /> : <XCircle className="mr-1 inline size-3.5" />}
+                  {backupMsg.text}
+                </p>
               )}
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                <Database className="mt-0.5 size-3.5 shrink-0" />
+                <div>
+                  <p>备份文件包含本地全部数据；跨设备即时同步建议使用上方「跨端同步」。</p>
+                  <p>从备份恢复会覆盖现有数据，请在恢复前确认。</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
           {/* 危险区 */}
-          <Card className="border-destructive/40">
+          <Card className="border-destructive/40 bg-destructive/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
                 <AlertTriangle className="size-4" />
-                危险区
+                危险区 (Danger Zone)
               </CardTitle>
-              <CardDescription>以下操作不可撤销，建议先导出备份</CardDescription>
+              <CardDescription>以下重置操作无法撤回，执行前建议先导出本地备份</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/20 bg-background p-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">重置学习进度</p>
                   <p className="text-xs text-muted-foreground">
-                    保留全部词库与卡片，清空 FSRS 记忆状态、复习记录与学习统计（卡片全部回到「未学习」）
+                    保留全部词库与卡片，清空 FSRS 记忆状态、复习记录与学习统计（卡片全部回归「未学习」状态）
                   </p>
                 </div>
                 <Button variant="destructive" size="sm" onClick={() => setDangerTarget("progress")}>
                   重置进度
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/20 bg-background p-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">重置统计数据</p>
                   <p className="text-xs text-muted-foreground">
-                    清空复习记录与学习日报，但保留当前 FSRS 记忆进度（图表归零，卡片不会被重学）
+                    清空复习记录与学习日报，但保留当前 FSRS 记忆进度（图表归零，已学卡片不会变回未学）
                   </p>
                 </div>
                 <Button variant="destructive" size="sm" onClick={() => setDangerTarget("stats")}>

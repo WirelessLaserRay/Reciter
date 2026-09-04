@@ -92,7 +92,7 @@ export function speak(text: string, lang = "en-US"): Promise<void> {
       .then(() => resolve())
       .catch((err) => {
         // 如果是因为 NotAllowedError (手势被拦截)，降级也没用
-        if (err.name !== "NotAllowedError") {
+        if (err?.name !== "NotAllowedError") {
           globalAudio.src = fallbackUrl;
           globalAudio.play().then(() => resolve()).catch(() => resolve());
         } else {

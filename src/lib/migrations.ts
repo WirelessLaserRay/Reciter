@@ -96,7 +96,7 @@ const META_TABLE = "_reciter_migrations";
 /** 执行未应用的迁移（web 端，幂等：记录已应用版本 + 兼容隐式应用） */
 export async function runMigrations(backend: SQLBackend): Promise<void> {
   await backend.execute(
-    "CREATE TABLE IF NOT EXISTS " + META_TABLE + " (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
+    "CREATE TABLE IF NOT EXISTS " + META_TABLE + " (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))"
   );
   const rows = await backend.select<{ version: number }[]>("SELECT version FROM " + META_TABLE);
   const applied = new Set(rows.map((r) => r.version));

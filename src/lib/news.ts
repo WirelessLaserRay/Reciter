@@ -125,13 +125,16 @@ function cleanParagraphs(paragraphs: string[], url: string): string[] {
     .filter((p) => {
       if (!p) return false;
       const lower = p.toLowerCase();
-      if (lower.includes("advertisement")) return false;
-      if (lower.includes("sign up for")) return false;
-      if (lower.includes("all rights reserved")) return false;
-      if (lower.includes("copyright")) return false;
-      if (lower.includes("caption")) return false;
-      if (lower.includes("figure")) return false;
-      if (guardian && (lower.includes("the guardian") || lower.includes("first published"))) return false;
+      if (lower === "advertisement" || lower.startsWith("advertisement:") || lower.startsWith("advertisement ")) return false;
+      if (lower.includes("sign up for our") || lower.includes("sign up to our")) return false;
+      if (lower.includes("all rights reserved") || /©\s*\d{4}/.test(p)) return false;
+      // 仅对短文本元数据行应用图注/版权过滤，避免正文长句包含 figure/caption 等词被误删
+      if (lower.length < 120) {
+        if (/^(figure|caption|photograph|photo|image)\b/i.test(p)) return false;
+        if (lower === "caption" || lower === "figure") return false;
+        if (lower.includes("copyright")) return false;
+        if (guardian && (lower.includes("the guardian") || lower.includes("first published"))) return false;
+      }
       return true;
     });
 }

@@ -209,34 +209,36 @@ export default function Import() {
     }
   };
 
-  // Tauri：监听原生拖放事件（WebView2 不向网页暴露 dataTransfer.files）
   useEffect(() => {
     if (!isTauri()) return;
-    let unlisten: (() => void) | undefined;
-    (async () => {
-      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-        const payload = event.payload;
-        if (payload.type === "over") {
-          setDragOver(true);
-        } else if (payload.type === "leave") {
-          setDragOver(false);
-        } else if (payload.type === "drop") {
-          setDragOver(false);
-          const path = payload.paths?.[0];
-          if (path) {
-            const name = path.split(/[\\/]/).pop() ?? path;
-            invoke<string>("read_text_file", { path })
-              .then((text) => handleText(name, text))
-              .catch((e) => {
-                setStage("idle");
-                setWarnings([String(e)]);
-              });
-          }
+    let unlistenFn: (() => void) | undefined;
+    let isMounted = true;
+    getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === "over") {
+        setDragOver(true);
+      } else if (payload.type === "leave") {
+        setDragOver(false);
+      } else if (payload.type === "drop") {
+        setDragOver(false);
+        const path = payload.paths?.[0];
+        if (path) {
+          const name = path.split(/[\\/]/).pop() ?? path;
+          invoke<string>("read_text_file", { path })
+            .then((text) => handleText(name, text))
+            .catch((e) => {
+              setStage("idle");
+              setWarnings([String(e)]);
+            });
         }
-      });
-    })();
+      }
+    }).then((unlisten) => {
+      if (!isMounted) unlisten();
+      else unlistenFn = unlisten;
+    });
     return () => {
-      unlisten?.();
+      isMounted = false;
+      unlistenFn?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

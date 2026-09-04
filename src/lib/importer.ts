@@ -101,7 +101,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
       if (r.length > 2 && r[2]?.trim()) deckName = r[2].trim();
     }
     if (!front || !back) {
-      if (front || back) warnings.push(`CSV 行缺少字段: "${front || back}".slice(0, 60)`);
+      if (front || back) warnings.push(`CSV 行缺少字段: "${(front || back).slice(0, 60)}"`);
       continue;
     }
     const key = deckName + "\u0000" + front;
@@ -152,7 +152,7 @@ export function parseJSON(content: string): ParseResult {
       ? obj.phonetic.trim()
       : extractPhoneticFromText(front);
     if (!front || !back) {
-      if (front || back) warnings.push(`JSON 条目缺少字段: "${front || back}".slice(0, 60)`);
+      if (front || back) warnings.push(`JSON 条目缺少字段: "${(front || back).slice(0, 60)}"`);
       continue;
     }
     const key = deckName + "\u0000" + front;

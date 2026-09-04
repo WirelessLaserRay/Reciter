@@ -44,6 +44,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  envPrefix: ["VITE_", "TAURI_ENV_*"],
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,
   server: {
@@ -58,8 +59,8 @@ export default defineConfig({
         }
       : undefined,
     watch: {
-      // tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // tell Vite to ignore watching `src-tauri`, `worker`, `.install`
+      ignored: ["**/src-tauri/**", "**/worker/**", "**/.install/**"],
     },
   },
 });

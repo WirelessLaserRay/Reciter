@@ -181,9 +181,10 @@ class ReciterDB {
 
   /** 在指定文件夹内生成不重名的词库名：已存在则追加 _1/_2 */
   async getUniqueDeckName(name: string, folder = ""): Promise<string> {
+    const escaped = name.replace(/([%_\\])/g, "\\$1");
     const existing = await this.requireDb().select<{ name: string }[]>(
-      "SELECT name FROM decks WHERE folder = ? AND name = ? OR folder = ? AND name LIKE ?",
-      [folder, name, folder, name + "\_%"]
+      "SELECT name FROM decks WHERE (folder = ? AND name = ?) OR (folder = ? AND name LIKE ? ESCAPE '\\')",
+      [folder, name, folder, escaped + "\\_%"]
     );
     const names = new Set(existing.map((r) => r.name));
     if (!names.has(name)) return name;
@@ -520,7 +521,7 @@ class ReciterDB {
   /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 3） */
   async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
+      `SELECT c.id, c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
               c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
@@ -792,7 +793,7 @@ class ReciterDB {
   /** 导出：全部卡片（含 FSRS 状态） */
   async getAllCardsWithState(): Promise<(Card & CardState)[]> {
     return this.requireDb().select(
-      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
+      `SELECT c.id, c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
               c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
               cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,

@@ -243,6 +243,7 @@ function StudySession({
 
   // 预先加载队列前三个单词/词组的例句、音标与发音，展示时直接命中缓存
   useEffect(() => {
+    let cancelled = false;
     for (let i = index; i < Math.min(queue.length, index + 3); i++) {
       const row = queue[i]?.row;
       if (!row) continue;
@@ -251,7 +252,7 @@ function StudySession({
       if (!row.phonetic) {
         void fetchPhonetic(row.front)
           .then((p) => {
-            if (!p) return;
+            if (cancelled || !p) return;
             setPhoneticMap((prev) =>
               prev[row.card_id] === p ? prev : { ...prev, [row.card_id]: p }
             );
@@ -259,6 +260,9 @@ function StudySession({
           .catch(() => {});
       }
     }
+    return () => {
+      cancelled = true;
+    };
   }, [queue, index]);
 
   // 当前单词音标：卡片字段为空时惰性在线查询并回写 DB；查询结果写入 phoneticMap 供同步渲染
