@@ -1,7 +1,7 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { splitMeaningText } from "./meaning";
-import { normalizeWordForPhonetic, httpFetch, translateText } from "@/lib/dictionary";
+import { normalizeWordForPhonetic, httpFetch, translateText, getDeepLApiKey, translateWithDeepL } from "@/lib/dictionary";
 
 export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
 
@@ -112,18 +112,60 @@ export async function generateArticleQuestions(
   return extractJsonArray<ArticleQuestion>(raw).slice(0, dynamicCount);
 }
 
-/** 全文翻译成中文 */
-export async function translateArticle(content: string): Promise<string> {
+export type ArticleTranslateEngine = "ai" | "deepl" | "fallback";
+
+export async function getArticleTranslateEngine(): Promise<ArticleTranslateEngine> {
+  const raw = await db.getSetting("article_translate_engine");
+  return raw === "deepl" || raw === "fallback" || raw === "ai" ? raw : "ai";
+}
+
+export async function saveArticleTranslateEngine(engine: ArticleTranslateEngine): Promise<void> {
+  await db.setSetting("article_translate_engine", engine);
+}
+
+/** 全文翻译成中文（支持 AI / DeepL / 公共接口兜底） */
+export async function translateArticle(content: string, engine?: ArticleTranslateEngine): Promise<string> {
+  const activeEngine = engine ?? (await getArticleTranslateEngine());
+  const clean = content.trim();
+  if (!clean) return "";
+
+  // 1. DeepL 翻译
+  if (activeEngine === "deepl") {
+    const key = await getDeepLApiKey();
+    if (!key) {
+      throw new Error("未配置 DeepL API Key，请前往「设置 → AI与翻译」填写，或切换为 AI 翻译");
+    }
+    const result = await translateWithDeepL(clean.slice(0, 30000));
+    if (result) return result;
+    throw new Error("DeepL 全文翻译请求未返回结果，请检查 API Key 或网络连通性");
+  }
+
+  // 2. 公共接口兜底（按段落分批翻译）
+  if (activeEngine === "fallback") {
+    const paragraphs = clean.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    if (paragraphs.length === 0) return "";
+    const translatedParas: string[] = [];
+    for (const p of paragraphs) {
+      const res = await translateText(p);
+      translatedParas.push(res || p);
+    }
+    return translatedParas.join("\n\n");
+  }
+
+  // 3. AI 大模型翻译（默认）
   const client = await getClient();
+  if (!client.isReady) {
+    throw new Error("AI 接口未配置，请先完成 AI 设置或切换为 DeepL 翻译");
+  }
   const prompt = [
     "请将下面的英文文章完整翻译成中文。",
     "",
     "要求：",
-    "- 保留原文的段落结构和分段",
+    "- 保留原文的段落结构和分段（段落之间保持双换行）",
     "- 翻译准确流畅，符合中文表达习惯",
     "- 只输出中文翻译结果，不要添加注释、解释或原文",
     "",
-    content.slice(0, 10000),
+    clean.slice(0, 15000),
   ].join("\n");
   return client.chat([
     { role: "system", content: "你是 Reciter 文章翻译助手。将英文翻译成通顺自然的中文，保留段落结构，只输出译文。" },

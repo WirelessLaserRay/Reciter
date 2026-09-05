@@ -676,6 +676,11 @@ export default function DeckDetail() {
                               {ex.sense}
                             </span>
                           )}
+                          {ex.source && (
+                            <span className="shrink-0 rounded border px-1 text-[9px] text-muted-foreground">
+                              {ex.source === "dictionary" ? "词典" : ex.source === "tatoeba" ? "Tatoeba" : "AI"}
+                            </span>
+                          )}
                           <span className="font-medium truncate min-w-0 flex-1" title={ex.en}>“{ex.en}”</span>
                         </div>
                         {ex.cn && <p className="text-muted-foreground truncate" title={ex.cn}>{ex.cn}</p>}

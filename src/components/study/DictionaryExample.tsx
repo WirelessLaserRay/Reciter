@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 const SOURCE_LABEL: Record<DictionaryResult["source"], string> = {
   dictionary: "词典权威例句",
   tatoeba: "Tatoeba 语料库",
-  ai: "AI 生成例句",
-  none: "",
+  ai: "AI 智能例句",
+  none: "在线例句",
 };
 
 /** 高亮例句中的核心单词及其时态/复数变形 */
@@ -111,14 +111,23 @@ export function DictionaryExample({
 
   // 1. 优先渲染卡片标签预匹配例句（多释义）
   if (cardExamples.length > 0) {
+    const primarySource =
+      cardExamples[0]?.source === "dictionary"
+        ? "词典匹配"
+        : cardExamples[0]?.source === "tatoeba"
+        ? "Tatoeba"
+        : "AI 匹配";
+
     return (
       <div className="w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-1 font-medium text-primary">
+          <div className="flex items-center gap-1.5 font-medium text-primary">
             <BookOpen className="size-3" />
             <span>匹配例句 · 不同释义 ({cardExamples.length})</span>
           </div>
-          <span className="text-[10px] text-muted-foreground/80">标签预设 · 秒级展示</span>
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            来源：{primarySource}
+          </span>
         </div>
         <ul className="space-y-2 text-sm">
           {cardExamples.map((ex, i) => (
@@ -128,6 +137,11 @@ export function DictionaryExample({
                   {ex.sense && (
                     <span className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                       {ex.sense}
+                    </span>
+                  )}
+                  {ex.source && (
+                    <span className="mr-1.5 inline-block rounded border px-1 py-0.2 text-[9px] text-muted-foreground">
+                      {ex.source === "dictionary" ? "词典" : ex.source === "tatoeba" ? "Tatoeba" : "AI"}
                     </span>
                   )}
                   <HighlightedSentence text={ex.en} word={word} />
@@ -175,13 +189,18 @@ export function DictionaryExample({
   // 3. 无可用例句时不显示空占位
   if (!result || result.examples.length === 0) return null;
 
-  // 4. 渲染本地缓存或动态获取的例句
+  // 4. 渲染本地缓存或动态获取的例句（始终明确展示来源）
+  const sourceName = SOURCE_LABEL[result.source] || "在线获取";
+
   return (
     <div className="w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left">
       <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <BookOpen className="size-3" />
-          <span>{hasExisting ? "补充例句" : SOURCE_LABEL[result.source]}</span>
+        <div className="flex items-center gap-1.5">
+          <BookOpen className="size-3 text-primary" />
+          <span className="font-medium text-foreground/90">{hasExisting ? "补充例句" : "参考例句"}</span>
+          <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            来源：{sourceName}
+          </span>
         </div>
         <Button
           variant="ghost"

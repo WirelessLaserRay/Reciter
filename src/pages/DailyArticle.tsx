@@ -44,6 +44,9 @@ import {
   recognizeNewWords,
   explainWord,
   translateArticle,
+  getArticleTranslateEngine,
+  saveArticleTranslateEngine,
+  type ArticleTranslateEngine,
   getVocabStandard,
   fetchWordDefinition,
   type ArticleQuestion,
@@ -168,6 +171,7 @@ export default function DailyArticle() {
   const [showQuizAnswers, setShowQuizAnswers] = useState(false);
   const [translation, setTranslation] = useState("");
   const [translating, setTranslating] = useState(false);
+  const [translateEngine, setTranslateEngine] = useState<ArticleTranslateEngine>("ai");
   const [workerOk, setWorkerOk] = useState(false);
   const [aiOk, setAiOk] = useState(false);
   const [vocabLabel, setVocabLabel] = useState("考研");
@@ -211,6 +215,8 @@ export default function DailyArticle() {
       setAiOk(ai.enabled);
       const vs = await getVocabStandard().catch(() => "考研" as "考研");
       setVocabLabel(vs === "CET4" ? "四级" : vs === "CET6" ? "六级" : vs === "专业英语" ? "专业英语" : "考研");
+      const eng = await getArticleTranslateEngine().catch(() => "ai" as const);
+      setTranslateEngine(eng);
     })().catch(() => {});
   }, []);
 
@@ -368,11 +374,17 @@ export default function DailyArticle() {
     }
   };
 
+  const handleEngineChange = async (eng: ArticleTranslateEngine) => {
+    setTranslateEngine(eng);
+    await saveArticleTranslateEngine(eng);
+  };
+
   const handleTranslateArticle = async () => {
-    if (!content || translation) return;
+    if (!content) return;
     setTranslating(true);
+    setWordError("");
     try {
-      const t = await translateArticle(content);
+      const t = await translateArticle(content, translateEngine);
       setTranslation(t);
     } catch (e) {
       setWordError(String(e));
@@ -639,16 +651,53 @@ export default function DailyArticle() {
                       {content}
                     </div>
                   )}
-                  <div className="border-t pt-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleTranslateArticle}
-                      disabled={translating || !!translation}
-                    >
-                      {translating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                      {translation ? "已显示全文翻译" : "全文翻译"}
-                    </Button>
+                  <div className="border-t pt-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTranslateArticle}
+                        disabled={translating}
+                      >
+                        {translating ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Sparkles className="size-3.5 mr-1.5" />}
+                        {translating ? "正在翻译…" : translation ? "重新翻译" : "全文翻译"}
+                      </Button>
+
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="shrink-0">翻译引擎：</span>
+                        <Select
+                          value={translateEngine}
+                          onValueChange={(v) => void handleEngineChange(v as ArticleTranslateEngine)}
+                          disabled={translating}
+                        >
+                          <SelectTrigger className="h-8 w-32 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ai">AI 大模型</SelectItem>
+                            <SelectItem value="deepl">DeepL 翻译</SelectItem>
+                            <SelectItem value="fallback">公共接口兜底</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {translation && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setTranslation("")}
+                        >
+                          隐藏译文
+                        </Button>
+                      )}
+                    </div>
+
+                    {translation && (
+                      <span className="text-[11px] text-muted-foreground">
+                        当前引擎：{translateEngine === "deepl" ? "DeepL 专业翻译" : translateEngine === "fallback" ? "公共接口" : "AI 大模型"}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}

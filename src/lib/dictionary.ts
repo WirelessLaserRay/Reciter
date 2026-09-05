@@ -153,7 +153,7 @@ export async function getDeepLCorsProxy(): Promise<string> {
 }
 
 /** DeepL 翻译（en → zh-CN）；Tauri 直连 DeepL，Web 走 Worker 代理 */
-async function translateWithDeepL(text: string): Promise<string> {
+export async function translateWithDeepL(text: string): Promise<string> {
   const key = await getDeepLApiKey();
   if (!key) return "";
   try {

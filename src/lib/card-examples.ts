@@ -5,6 +5,7 @@ export interface CardExampleItem {
   sense: string; // 对应具体释义/词性，如 "v. 放弃"
   en: string;    // 英文例句
   cn: string;    // 中文翻译
+  source?: "ai" | "dictionary" | "tatoeba" | string; // 来源（AI / 词典 / Tatoeba）
 }
 
 const PREFIX = "ex:";
@@ -35,6 +36,7 @@ export function parseExampleTag(tag: string): CardExampleItem | null {
         sense: String(data.sense || "").trim(),
         en,
         cn: String(data.cn || data.translation || "").trim(),
+        source: data.source ? String(data.source) : "ai",
       };
     } catch {
       return null;
@@ -152,6 +154,7 @@ export function setCardExamplesToTags(
       sense,
       en,
       cn: ex.cn.trim(),
+      source: ex.source || "ai",
     });
   }
 
@@ -226,6 +229,7 @@ export async function matchExamplesForCard(card: {
               sense,
               en,
               cn: String(item.cn || "").trim(),
+              source: "ai",
             });
           }
           if (res.length > 0) return res;
@@ -278,6 +282,7 @@ export async function matchExamplesForCard(card: {
             sense: item.sense,
             en: item.en,
             cn,
+            source: "dictionary",
           });
         }
         return out;

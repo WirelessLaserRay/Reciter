@@ -94,7 +94,14 @@ import {
   undoSyncRestore,
   type SyncMetaInfo,
 } from "@/lib/sync";
-import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
+import {
+  getVocabStandard,
+  saveVocabStandard,
+  type VocabStandard,
+  getArticleTranslateEngine,
+  saveArticleTranslateEngine,
+  type ArticleTranslateEngine,
+} from "@/lib/vocab";
 import { getCustomRssSources, getArticleMaxLength, saveCustomRssSources, type CustomRssSource } from "@/lib/news";
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
@@ -181,6 +188,7 @@ export default function Settings() {
   const [aiSaved, setAiSaved] = useState(false);
 
   const [vocabStandard, setVocabStandard] = useState<VocabStandard>("考研");
+  const [articleTranslateEngine, setArticleTranslateEngine] = useState<ArticleTranslateEngine>("ai");
 
   // 数据备份
   const [backupBusy, setBackupBusy] = useState(false);
@@ -282,9 +290,18 @@ export default function Settings() {
       await refreshDecks();
       await refreshSyncStatus();
       void loadCacheStats();
+      const eng = await getArticleTranslateEngine().catch(() => "ai" as const);
+      setArticleTranslateEngine(eng);
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
+
+  const handleArticleEngineChange = async (eng: ArticleTranslateEngine) => {
+    setArticleTranslateEngine(eng);
+    if (!dbReady) return;
+    await saveArticleTranslateEngine(eng);
+    flashSaved();
+  };
 
   const loadCacheStats = async () => {
     setLoadingCacheStats(true);
@@ -1596,9 +1613,25 @@ export default function Settings() {
                 />
                 <span className="text-sm text-muted-foreground">字符</span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                每日一文正文超过该长度时会自动智能截断（默认 30000 字符）
-              </p>
+              <div className="space-y-1.5 pt-2">
+                <Label htmlFor="article-translate-engine">默认全文翻译引擎</Label>
+                <Select
+                  value={articleTranslateEngine}
+                  onValueChange={(v) => void handleArticleEngineChange(v as ArticleTranslateEngine)}
+                >
+                  <SelectTrigger id="article-translate-engine" className="w-full sm:w-80">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ai">AI 大模型（保留段落结构，语境通顺）</SelectItem>
+                    <SelectItem value="deepl">DeepL（专业精准对照，需 API Key）</SelectItem>
+                    <SelectItem value="fallback">公共接口（MyMemory 分段兜底）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  每日一文点击「全文翻译」时默认调用的引擎；在阅读界面亦可随时切换或重新翻译
+                </p>
+              </div>
               <Button asChild size="sm" variant="outline">
                 <Link to="/daily-article">前往「每日一文」</Link>
               </Button>
