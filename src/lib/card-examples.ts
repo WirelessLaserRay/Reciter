@@ -75,21 +75,32 @@ export function parseExampleTag(tag: string): CardExampleItem | null {
 }
 
 /**
+ * 容错解析卡片原始 tags（兼容 JSON 数组、单字符串、逗号/顿号/空格切分等）
+ */
+export function parseRawTags(tagsRaw: string | string[] | undefined): string[] {
+  if (!tagsRaw) return [];
+  if (Array.isArray(tagsRaw)) return tagsRaw.map(String).filter(Boolean);
+  const trimmed = String(tagsRaw).trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    if (typeof parsed === "string" && parsed.trim()) return [parsed.trim()];
+  } catch {
+    // 兼容非 JSON 格式：以换行、逗号、顿号、分号或多空格切分
+    return trimmed
+      .split(/[\n,，、;；\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
  * 从卡片的 tags 字段解析所有例句（最多 3 句，保证不同释义）
  */
 export function getCardExamples(tagsRaw: string | string[] | undefined): CardExampleItem[] {
-  let arr: string[] = [];
-  if (Array.isArray(tagsRaw)) {
-    arr = tagsRaw;
-  } else if (typeof tagsRaw === "string" && tagsRaw.trim()) {
-    try {
-      const parsed = JSON.parse(tagsRaw);
-      if (Array.isArray(parsed)) arr = parsed.map(String);
-    } catch {
-      arr = [];
-    }
-  }
-
+  const arr = parseRawTags(tagsRaw);
   const result: CardExampleItem[] = [];
   const seenSenses = new Set<string>();
 
@@ -114,17 +125,7 @@ export function getCardExamples(tagsRaw: string | string[] | undefined): CardExa
  * 提取卡片常规标签（过滤掉例句标签）
  */
 export function getPureTags(tagsRaw: string | string[] | undefined): string[] {
-  let arr: string[] = [];
-  if (Array.isArray(tagsRaw)) {
-    arr = tagsRaw;
-  } else if (typeof tagsRaw === "string" && tagsRaw.trim()) {
-    try {
-      const parsed = JSON.parse(tagsRaw);
-      if (Array.isArray(parsed)) arr = parsed.map(String);
-    } catch {
-      arr = [];
-    }
-  }
+  const arr = parseRawTags(tagsRaw);
   return arr.filter((t) => !isExampleTag(t));
 }
 

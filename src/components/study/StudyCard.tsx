@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Sparkles,
   Star,
+  Tag,
   Volume2,
   XCircle,
 } from "lucide-react";
@@ -67,8 +68,9 @@ function shuffle<T>(arr: T[]): T[] {
 
 function CardMetaBadges({ row }: { row: StudyCardRow }) {
   const tags = getPureTags(row.tags);
+  if (row.is_key !== 1 && tags.length === 0) return null;
   return (
-    <div className="flex flex-wrap justify-center gap-1.5">
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
       {row.is_key === 1 && (
         <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
           <Star className="mr-0.5 inline size-2.5" />
@@ -76,7 +78,8 @@ function CardMetaBadges({ row }: { row: StudyCardRow }) {
         </Badge>
       )}
       {tags.map((t) => (
-        <Badge key={t} variant="secondary" className="text-[10px]">
+        <Badge key={t} variant="secondary" className="text-[10px] text-muted-foreground font-normal">
+          <Tag className="mr-1 inline size-2.5 opacity-70" />
           {t}
         </Badge>
       ))}
@@ -295,6 +298,7 @@ function ClassicFlipView(props: ModeViewProps) {
           </div>
           {/* 背面：释义 + 原文语境 + 同族词 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+            <CardMetaBadges row={row} />
             <MeaningBlock row={row} className="text-center text-2xl" />
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />

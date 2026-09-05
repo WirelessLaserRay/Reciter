@@ -13,8 +13,10 @@ import {
   Loader2,
   Newspaper,
   Palette,
+  RotateCw,
   Sliders,
   Sparkles,
+  Trash2,
   Upload,
   Volume2,
   XCircle,
@@ -57,6 +59,7 @@ import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
 import { isTauri } from "@/lib/env";
 import {
+  clearDictionaryMemoryCache,
   getDeepLCorsProxy,
   getDeepLApiKey,
   getDeepLApiUrl,
@@ -64,6 +67,11 @@ import {
   testDeepL,
   type TranslationProvider,
 } from "@/lib/dictionary";
+import {
+  getExampleCacheStats,
+  clearAllExampleCache,
+  formatBytes,
+} from "@/lib/example-cache";
 import { db } from "@/lib/db";
 import { invalidateFSRS } from "@/lib/fsrs";
 import { AIClient, AI_PRESETS, getAIConfig, saveAIConfig } from "@/lib/ai-client";
@@ -147,6 +155,12 @@ export default function Settings() {
   const [deeplTesting, setDeeplTesting] = useState(false);
   const [deeplTestResult, setDeeplTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // 例句离线缓存
+  const [cacheStats, setCacheStats] = useState<{ count: number; sizeBytes: number }>({ count: 0, sizeBytes: 0 });
+  const [loadingCacheStats, setLoadingCacheStats] = useState(false);
+  const [confirmClearCacheOpen, setConfirmClearCacheOpen] = useState(false);
+  const [cacheMsg, setCacheMsg] = useState("");
 
   // 考试规划
   const { decks, cardCounts, refresh: refreshDecks } = useDeckStore();
@@ -267,9 +281,28 @@ export default function Settings() {
       setAiTemp(aiCfg.temperature);
       await refreshDecks();
       await refreshSyncStatus();
+      void loadCacheStats();
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady]);
+
+  const loadCacheStats = async () => {
+    setLoadingCacheStats(true);
+    try {
+      const stats = await getExampleCacheStats();
+      setCacheStats(stats);
+    } finally {
+      setLoadingCacheStats(false);
+    }
+  };
+
+  const handleClearCache = async () => {
+    await clearAllExampleCache();
+    clearDictionaryMemoryCache();
+    await loadCacheStats();
+    setCacheMsg("已成功清空所有例句离线缓存");
+    setTimeout(() => setCacheMsg(""), 3500);
+  };
 
   const refreshSyncStatus = async () => {
     try {
@@ -1469,6 +1502,60 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          {/* 3. 例句离线缓存管理 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="size-4 text-primary" />
+                例句离线缓存管理
+              </CardTitle>
+              <CardDescription>
+                学习时查询到的词典及 AI 例句会自动持久化至本地 IndexedDB 缓存；下次复习时秒级加载，无需重复消耗网络或 API
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 rounded-lg border p-4 bg-muted/20">
+                <div>
+                  <p className="text-xs text-muted-foreground">已缓存词条数</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {cacheStats.count} <span className="text-xs font-normal text-muted-foreground">个单词</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">估算存储占用</p>
+                  <p className="text-2xl font-bold mt-1">{formatBytes(cacheStats.sizeBytes)}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadCacheStats}
+                  disabled={loadingCacheStats}
+                >
+                  <RotateCw className={`size-3.5 mr-1.5 ${loadingCacheStats ? "animate-spin" : ""}`} />
+                  刷新缓存统计
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setConfirmClearCacheOpen(true)}
+                  disabled={cacheStats.count === 0}
+                >
+                  <Trash2 className="size-3.5 mr-1.5" />
+                  清空例句缓存
+                </Button>
+                {cacheMsg && (
+                  <span className="text-xs text-green-600 font-medium">{cacheMsg}</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                提示：卡片编辑或词库详情中「批量匹配例句」直接写入了卡片标签，不会受清空缓存影响。此处仅管理背词时动态查询所留存的本地临时数据。
+              </p>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* 5. 阅读与订阅 */}
@@ -1823,6 +1910,19 @@ export default function Settings() {
         cancelLabel="取消"
         onConfirm={confirmPullSync}
         onCancel={() => setPullConfirmOpen(false)}
+      />
+
+      {/* 清空例句缓存确认弹窗 */}
+      <ConfirmDialog
+        open={confirmClearCacheOpen}
+        onOpenChange={setConfirmClearCacheOpen}
+        title="清空例句离线缓存？"
+        description="清空后，动态查询留存在本地的例句缓存将被清除；卡片内通过标签预存的例句不会受影响。下次学习时将按需重新联网查询。"
+        destructive
+        confirmLabel="清空缓存"
+        cancelLabel="取消"
+        onConfirm={handleClearCache}
+        onCancel={() => setConfirmClearCacheOpen(false)}
       />
 
       <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />

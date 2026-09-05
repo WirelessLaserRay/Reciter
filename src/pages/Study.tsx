@@ -242,10 +242,10 @@ function StudySession({
   // 当前音标：卡片字段优先，异步获取结果其次；派生值保证切换卡片时同步更新
   const phoneticText = item ? getDisplayPhonetic(item.row.phonetic, phoneticMap, item.row.card_id) : "";
 
-  // 预先加载队列前三个单词/词组的例句、音标与发音，展示时直接命中缓存
+  // 预先加载队列前 5 个单词/词组的例句、音标与发音，展示时直接命中本地持久化缓存
   useEffect(() => {
     let cancelled = false;
-    for (let i = index; i < Math.min(queue.length, index + 3); i++) {
+    for (let i = index; i < Math.min(queue.length, index + 5); i++) {
       const row = queue[i]?.row;
       if (!row) continue;
       if (getCardExamples(row.tags).length === 0) {

@@ -2,6 +2,7 @@ import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@/lib/env";
 import { db } from "@/lib/db";
+import { getCachedExample, setCachedExample } from "./example-cache";
 
 export interface Example {
   text: string;
@@ -15,6 +16,10 @@ export interface DictionaryResult {
 
 const cache = new Map<string, Promise<DictionaryResult>>();
 const phoneticCache = new Map<string, Promise<string>>();
+
+export function clearDictionaryMemoryCache() {
+  cache.clear();
+}
 export const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
 
 /**
@@ -313,34 +318,59 @@ async function generateExample(word: string): Promise<Example | null> {
   return null;
 }
 
-/** 依次降级：Free Dictionary → Tatoeba → AI；并统一补中文翻译；带内存缓存 */
-export function fetchExamples(word: string): Promise<DictionaryResult> {
+/** 依次降级：持久化缓存 → Free Dictionary → Tatoeba → AI；并统一补中文翻译；支持内存缓存与强制刷新 */
+export function fetchExamples(word: string, forceRefresh = false): Promise<DictionaryResult> {
   const key = word.trim().toLowerCase();
   if (!key) return Promise.resolve({ source: "none", examples: [] });
-  const cached = cache.get(key);
-  if (cached) return cached;
+  if (!forceRefresh) {
+    const cached = cache.get(key);
+    if (cached) return cached;
+  }
   const p = (async () => {
+    // 1. 优先读取 IndexedDB 本地持久化缓存
+    if (!forceRefresh) {
+      try {
+        const persisted = await getCachedExample(key);
+        if (persisted && persisted.examples.length > 0) {
+          return persisted;
+        }
+      } catch {
+        // fallthrough
+      }
+    }
+
+    // 2. 第一级：Free Dictionary
     try {
       const dict = await fetchFreeDictionary(key);
       if (dict.length > 0) {
-        return { source: "dictionary" as const, examples: await fillTranslations(dict) };
+        const res = { source: "dictionary" as const, examples: await fillTranslations(dict) };
+        void setCachedExample(key, res);
+        return res;
       }
     } catch {
       // fallthrough
     }
+
+    // 3. 第二级：Tatoeba 语料库
     try {
       const tato = await fetchTatoeba(key);
       if (tato.length > 0) {
-        return { source: "tatoeba" as const, examples: await fillTranslations(tato) };
+        const res = { source: "tatoeba" as const, examples: await fillTranslations(tato) };
+        void setCachedExample(key, res);
+        return res;
       }
     } catch {
       // fallthrough
     }
+
+    // 4. 第三级：AI 生成
     try {
       const ai = await generateExample(key);
       if (ai) {
         const withTranslation = ai.translation ? ai : { text: ai.text, translation: await translateText(ai.text) };
-        return { source: "ai" as const, examples: [withTranslation] };
+        const res = { source: "ai" as const, examples: [withTranslation] };
+        void setCachedExample(key, res);
+        return res;
       }
     } catch {
       // fallthrough
