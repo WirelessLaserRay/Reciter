@@ -190,13 +190,13 @@ export async function matchExamplesForCard(card: {
         "2. 每一个例句必须对应【不同的释义/词性】（严禁多个例句表达相同的含义）。",
         "3. 英文例句必须自然、地道，且准确包含该词或其时态/变形形式。",
         "4. 输出为纯 JSON 数组，每个元素字段：",
-        '   - sense: 该例句对应的中文释义与词性（例如："v. 放弃"、"n. 放任"）',
+        '   - sense: 该例句对应的中文释义与词性（动词必须严格标明及物 vt. 或不及物 vi.，例如："vt. 放弃"、"vi. 退却"、"n. 放任"）',
         '   - en: 英文例句',
         '   - cn: 中文翻译',
         "",
         "【输出要求】",
         "仅输出合法 JSON 数组，不要包含 Markdown 代码块标记（如 ```json），不要添加任何额外说明文字。",
-        '示例：[{"sense":"v. 放弃","en":"They abandoned their car in the snow.","cn":"他们把车弃在雪地里。"}]',
+        '示例：[{"sense":"vt. 放弃","en":"They abandoned their car in the snow.","cn":"他们把车弃在雪地里。"}]',
       ].filter(Boolean).join("\n");
 
       const raw = await client.chat([

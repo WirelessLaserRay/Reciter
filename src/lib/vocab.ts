@@ -145,16 +145,16 @@ export async function recognizeNewWords(
     "",
     "每个词包含：",
     "- word：单词或短语",
-    "- pos：词性（n./v./adj./adv./phr. 等）",
-    "- meaning：简洁中文释义（优先给出文章语境中的含义）",
+    "- pos：词性（动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统写成 v.；名词 n.，形容词 adj.，副词 adv. 等）",
+    "- meaning：简洁中文释义（优先给出文章语境中的含义，动词标明及物/不及物）",
     "",
-    '只输出 JSON 数组，不要使用 markdown 代码块包裹。格式：[{"word":"...","pos":"n.","meaning":"..."}]',
+    '只输出 JSON 数组，不要使用 markdown 代码块包裹。格式：[{"word":"...","pos":"vt.","meaning":"..."}]',
     "",
     "文章：",
     content.slice(0, 12000),
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 生词识别助手。全面从文章中筛选有学习价值的生词，严格以 JSON 数组格式输出，不得输出 JSON 以外的任何内容。" },
+    { role: "system", content: "你是 Reciter 生词识别助手。全面从文章中筛选有学习价值的生词，动词必须区分标注及物 vt. 或不及物 vi.，严格以 JSON 数组格式输出，不得输出 JSON 以外的任何内容。" },
     { role: "user", content: prompt },
   ]);
   const words = extractJsonArray<NewWord>(raw);
@@ -198,11 +198,14 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
     "- 补充的释义与原始释义具有同等可靠性时，才应加入结果。",
 
     "",
-    "【整理规则】",
+    "【整理规则与词性要求（极其重要）】",
     "- 不要丢失原始释义中的重要信息。",
     "- primary 和 secondary 应覆盖原始释义中的有效信息；如果为了学习优先级进行了合并，可以合并同义或高度相近的释义。",
-    "- 保留原始释义中的词性标注，如 n./v./adj./adv. 等。",
-    "- 如果不同词性对应不同重要含义，应分别保留词性。",
+    "- 动词必须严格保留或准确标明及物动词（vt.）和不及物动词（vi.），严禁笼统标注为 v.！",
+    "- 若原始释义中已标注 vt. 或 vi.，必须准确保留对应词性，不得篡改或降级为 v.；",
+    "- 若原始释义未标明及物性（仅标 v. 或无词性），请根据单词在该含义下的英语语法实际用法，准确标明是 vt. 还是 vi.；若某释义兼具及物与不及物用法，标为 vt.&vi.；",
+    "- 其他词性（如 n.、adj.、adv.、prep. 等）也应清晰标注并保留；",
+    "- 每个词性对应的释义片段前必须清晰带有词性缩写（如“vt. 抛弃；放弃”、“vi. 放弃；屈服”、“n. 放任”）；",
     "- 中文释义应简洁、自然、准确，避免解释过长。",
     "- 不要输出英文例句、词源、同义词或额外解释。",
     "- 不要改变单词本身的含义或人为创造不存在的释义。",
@@ -217,25 +220,40 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
     `【原始释义】${back}`,
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 释义拆分助手。将释义拆分为主要/次要部分，严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。" },
+    { role: "system", content: "你是 Reciter 释义拆分助手。将释义拆分为主要/次要部分，严格以 JSON 对象格式输出。动词必须明确区分并标明及物（vt.）或不及物（vi.），严禁笼统写成 v.，不得输出 JSON 以外的任何内容。" },
     { role: "user", content: prompt },
   ]);
   const parsed = extractJsonObject<{ primary?: string; secondary?: string }>(raw);
-  const primary = parsed.primary?.trim() || "";
-  const secondary = parsed.secondary?.trim() || "";
+  let primary = parsed.primary?.trim() || "";
+  let secondary = parsed.secondary?.trim() || "";
   const combinedLen = (primary + secondary).replace(/\s+/g, "").length;
   const originalLen = back.replace(/\s+/g, "").length;
   // 防丢失：AI 结果为空或明显比原释义短很多时，回退为整条释义作为主要释义
   if (!primary || (originalLen > 0 && combinedLen < originalLen * 0.5)) {
     return splitMeaningText(back);
   }
-  // 词性继承：从原释义提取词性，若 AI 结果缺少词性则补上
+
+  // 动词及物性校准与防降级：若原释义已明确标注 vt. 或 vi.，确保不会被错误降级为纯 v.
+  const hasVt = /\bvt\./i.test(back);
+  const hasVi = /\bvi\./i.test(back);
+  if (hasVt && !hasVi) {
+    primary = primary.replace(/\bv\.\s*/gi, "vt. ");
+    secondary = secondary.replace(/\bv\.\s*/gi, "vt. ");
+  } else if (hasVi && !hasVt) {
+    primary = primary.replace(/\bv\.\s*/gi, "vi. ");
+    secondary = secondary.replace(/\bv\.\s*/gi, "vi. ");
+  } else if (hasVt && hasVi) {
+    primary = primary.replace(/\bv\.\s*/gi, "vt.&vi. ");
+    secondary = secondary.replace(/\bv\.\s*/gi, "vt.&vi. ");
+  }
+
+  // 词性继承：从原释义提取词性，优先匹配 vt./vi. 等更精确的词性标注
   const posMatch = back.match(
-    /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i
+    /\b(?:vt\.?&vi|vt\.\/vi|vi\.\/vt|vt|vi|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|v)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i
   );
   const pos = posMatch ? posMatch[0] : "";
   const hasPos = (s: string) =>
-    /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\./i.test(s);
+    /\b(?:vt\.?&vi|vt\.\/vi|vi\.\/vt|vt|vi|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|v)\./i.test(s);
   const finalPrimary = pos && primary && !hasPos(primary) ? `${pos} ${primary}` : primary;
   const finalSecondary = pos && secondary && !hasPos(secondary) ? `${pos} ${secondary}` : secondary;
   return { primary: finalPrimary, secondary: finalSecondary };
@@ -250,15 +268,15 @@ export async function explainWord(word: string): Promise<WordExplanation> {
     "",
     "输出以下字段：",
     "- word：单词/短语本身",
-    "- pos：词性（n./v./adj./adv./phr. 等）",
-    "- meaning：中文释义（简洁准确）",
+    "- pos：词性（动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统写成 v.；其余如 n./adj./adv./phr. 等）",
+    "- meaning：中文释义（简洁准确，动词请标明及物/不及物）",
     "- example：一个包含该词的地道英文例句",
     "- exampleCn：该例句的中文翻译",
     "",
     '只输出 JSON，不要使用 markdown 代码块包裹：{"word":"...","pos":"...","meaning":"...","example":"...","exampleCn":"..."}',
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 词汇讲解助手。讲解单词的词性、释义和用法，严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。" },
+    { role: "system", content: "你是 Reciter 词汇讲解助手。讲解单词的词性、释义和用法，动词必须明确区分标注 vt. 或 vi.，严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。" },
     { role: "user", content: prompt },
   ]);
   const parsed = extractJsonObject<WordExplanation>(raw);

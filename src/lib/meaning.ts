@@ -1,6 +1,6 @@
 /** 词性正则（与 markdown-parser 保持一致） */
 const POS_RE =
-  /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i;
+  /\b(?:vt\.?&vi|vi\.?&vt|n|vt|vi|v|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i;
 
 function extractPos(text: string): string {
   const m = POS_RE.exec(text);

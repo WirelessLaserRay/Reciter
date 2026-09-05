@@ -34,7 +34,7 @@ export interface ParseResult {
 
 /** 词性标签（模板格式：word n. 释义 / phrase vt./vi. 释义） */
 const POS_RE =
-  /\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/;
+  /\b(?:vt\.?&vi|vi\.?&vt|n|vt|vi|v|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i;
 
 const CJK_RE = /[\u4e00-\u9fff]/;
 
