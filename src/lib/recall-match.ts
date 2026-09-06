@@ -86,3 +86,74 @@ export function matchRecall(userInput: string, standardBack: string): RecallMatc
 
   return { match: best >= 0.6, similarity: best };
 }
+
+export interface WordSpellingResult {
+  match: boolean;
+  exact: boolean;
+  similarity: number;
+  userWord: string;
+  targetWord: string;
+}
+
+/**
+ * 根据中文释义拼写英文单词的匹配比对
+ * - 大小写不敏感、自动去除首尾空白与尾部多余标点
+ * - 支持微小拼写错误（编辑距离 <= 1 且长度 >= 4，或相似度 >= 0.82）作为基本匹配
+ */
+export function matchWordSpelling(userInput: string, targetWord: string): WordSpellingResult {
+  const normUser = userInput.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,!?;:]+$/, "");
+  const normTarget = targetWord.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,!?;:]+$/, "");
+
+  if (!normUser) {
+    return {
+      match: false,
+      exact: false,
+      similarity: 0,
+      userWord: userInput.trim(),
+      targetWord: targetWord.trim(),
+    };
+  }
+
+  if (normUser === normTarget) {
+    return {
+      match: true,
+      exact: true,
+      similarity: 1,
+      userWord: userInput.trim(),
+      targetWord: targetWord.trim(),
+    };
+  }
+
+  const dist = levenshtein(normUser, normTarget);
+  const maxLen = Math.max(normUser.length, normTarget.length, 1);
+  const similarity = Math.max(0, 1 - dist / maxLen);
+  const match = (dist <= 1 && maxLen >= 4) || similarity >= 0.82;
+
+  return {
+    match,
+    exact: false,
+    similarity,
+    userWord: userInput.trim(),
+    targetWord: targetWord.trim(),
+  };
+}
+
+/**
+ * 生成单词掩码提示（例如 "abandon" -> "a _ _ _ _ _ _"；showMore 为 true 时显示首尾字母 "a _ _ _ _ _ n"）
+ * 适合看释义拼单词时提供字母数与首字母线索
+ */
+export function getWordMaskHint(word: string, showMore: boolean = false): string {
+  const parts = word.trim().split(/\s+/);
+  return parts
+    .map((p) => {
+      if (p.length <= 2) {
+        return p[0] + (p.length === 2 ? " _" : "");
+      }
+      if (!showMore) {
+        return p[0] + " " + "_ ".repeat(p.length - 1).trim();
+      }
+      return p[0] + " " + "_ ".repeat(p.length - 2).trim() + " " + p[p.length - 1];
+    })
+    .join("   ");
+}
+

@@ -803,34 +803,34 @@ function StudySession({
   );
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => setExitOpen(true)}>
-          <ArrowLeft className="size-4" />
+    <div className="mx-auto w-full max-w-7xl space-y-2.5 sm:space-y-6">
+      <div className="flex items-center justify-between gap-2 pt-0.5 sm:pt-0">
+        <Button variant="ghost" size="sm" onClick={() => setExitOpen(true)} className="h-8 px-2 text-xs sm:text-sm">
+          <ArrowLeft className="size-4 mr-1" />
           退出
         </Button>
-        <div className="text-sm">
-          <span className="font-medium">{deckName}</span>
+        <div className="flex items-center gap-1.5 text-xs sm:text-sm min-w-0">
+          <span className="font-medium truncate max-w-[130px] sm:max-w-none">{deckName}</span>
           {tagName && (
-            <Badge variant="secondary" className="ml-2 text-[10px]">
-              <Tag className="size-2.5" />
+            <Badge variant="secondary" className="text-[10px] truncate max-w-[80px]">
+              <Tag className="size-2.5 mr-0.5" />
               {tagName}
             </Badge>
           )}
           {keyOnly && (
-            <Badge className="ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
-              <Star className="size-2.5" />
+            <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+              <Star className="size-2.5 mr-0.5" />
               重点
             </Badge>
           )}
-          <span className="ml-3 text-muted-foreground">
-            已完成 {done} · 剩余 {total - index}
-          </span>
+        </div>
+        <div className="text-xs text-muted-foreground shrink-0 font-medium">
+          {done} / {total}
         </div>
       </div>
 
       {/* 进度条 */}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-1 sm:h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full bg-primary transition-all duration-300"
           style={{ width: total > 0 ? ((index / total) * 100).toFixed(1) + "%" : "0%" }}
@@ -838,36 +838,41 @@ function StudySession({
       </div>
 
       {/* 快捷操作：加入弱词本 / 跳过 / 忽略 */}
-      <div className="flex items-center justify-end gap-2">
-        {weakNotice && (
-          <span className="text-xs font-medium text-amber-600 dark:text-amber-400 animate-in fade-in duration-200">
-            {weakNotice}
-          </span>
-        )}
-        <Button
-          size="sm"
-          variant={isCurrentWeak ? "secondary" : "outline"}
-          onClick={handleToggleWeak}
-          className={`gap-1.5 text-xs transition-all ${
-            isCurrentWeak
-              ? "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25"
-              : "text-muted-foreground hover:text-amber-600 hover:border-amber-500/40"
-          }`}
-          title={isCurrentWeak ? "已在弱词本，点击移出" : "快速将该单词加入弱词本以重点攻克"}
-        >
-          {isCurrentWeak ? (
-            <Check className="size-3.5 text-amber-600 dark:text-amber-400" />
-          ) : (
-            <AlertTriangle className="size-3.5 text-amber-500" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground font-mono">
+          卡片 {index + 1}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {weakNotice && (
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 animate-in fade-in duration-200">
+              {weakNotice}
+            </span>
           )}
-          {isCurrentWeak ? "已在弱词本" : "加入弱词本"}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => skip()}>
-          跳过
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => void ignore()}>
-          忽略
-        </Button>
+          <Button
+            size="sm"
+            variant={isCurrentWeak ? "secondary" : "ghost"}
+            onClick={handleToggleWeak}
+            className={`h-7 px-2 text-xs gap-1 transition-all ${
+              isCurrentWeak
+                ? "border border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                : "text-muted-foreground hover:text-amber-600"
+            }`}
+            title={isCurrentWeak ? "已在弱词本，点击移出" : "快速将该单词加入弱词本以重点攻克"}
+          >
+            {isCurrentWeak ? (
+              <Check className="size-3.5 text-amber-600 dark:text-amber-400" />
+            ) : (
+              <AlertTriangle className="size-3.5 text-amber-500" />
+            )}
+            <span className="hidden sm:inline">{isCurrentWeak ? "已在弱词本" : "加入弱词本"}</span>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => skip()} className="h-7 px-2 text-xs">
+            跳过
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void ignore()} className="h-7 px-2 text-xs text-muted-foreground">
+            忽略
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-start gap-4">
@@ -903,7 +908,7 @@ function StudySession({
               )
             )}
 
-            <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+            <div className="hidden sm:flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <Keyboard className="size-3.5" />
               {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"}
             </div>
