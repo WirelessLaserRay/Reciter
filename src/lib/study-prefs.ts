@@ -136,24 +136,7 @@ export async function saveIgnoredTags(tags: string[]): Promise<void> {
   await db.setSetting("ignored_tags", JSON.stringify(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-/** 判断卡片 tags JSON 是否命中任一忽略规则（正则优先，正则无效时按普通子串匹配） */
-export function isTagIgnored(tagsJson: string, patterns: string[]): boolean {
-  let tags: string[] = [];
-  try {
-    const parsed = JSON.parse(tagsJson);
-    if (Array.isArray(parsed)) tags = parsed.map(String);
-  } catch {
-    tags = [];
-  }
-  return patterns.some((pattern) => {
-    try {
-      const re = new RegExp(pattern, "i");
-      return tags.some((tag) => re.test(tag));
-    } catch {
-      return tags.some((tag) => tag.includes(pattern));
-    }
-  });
-}
+export { matchTagPattern, isTagIgnored } from "@/lib/tag-filter";
 
 /** AI 测试提醒间隔（默认 5 天） */
 export const AI_TEST_INTERVAL_MS = 5 * 24 * 60 * 60 * 1000;

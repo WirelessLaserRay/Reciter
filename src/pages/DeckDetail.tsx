@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, BookOpen, ClipboardList, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BookOpen, ClipboardList, Loader2, Pencil, PlayCircle, Plus, RotateCcw, Search, Sparkles, Star, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,6 +32,7 @@ import { speak } from "@/lib/tts";
 import MasteryOverview from "@/components/deck/MasteryOverview";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useTaskStore } from "@/stores/useTaskStore";
+import { useStudyStore } from "@/stores/useStudyStore";
 import {
   getPureTags,
   getCardExamples,
@@ -350,6 +351,18 @@ export default function DeckDetail() {
           <Button variant="outline" size="sm" onClick={() => navigate(`/study?quiz=${deckId}`)}>
             <ClipboardList className="size-3.5" />
             高级测试
+          </Button>
+          <Button
+            size="sm"
+            onClick={async () => {
+              useStudyStore.getState().reset();
+              await useStudyStore.getState().loadQueue(deckId);
+              navigate("/study");
+            }}
+            disabled={cards.length === 0}
+          >
+            <PlayCircle className="size-3.5" />
+            开始学习
           </Button>
         </div>
       </div>

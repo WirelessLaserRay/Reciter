@@ -164,7 +164,7 @@ export function parseMarkdown(content: string): ParseResult {
     }
     seen.set(key, raw);
     const rawBack = raw.slice(raw.indexOf(front) + front.length);
-    const meaning = splitMeaningText(rawBack || back);
+    const meaning = splitMeaningText(rawBack || back, front);
     cards.push({
       front,
       back,

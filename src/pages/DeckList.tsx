@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { AlertTriangle, BookOpen, Check, Download, Loader2, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { AlertTriangle, BookOpen, Check, Download, Loader2, Pencil, PlayCircle, Plus, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -25,6 +25,7 @@ import { exportDecksToJSON } from "@/lib/backup";
 import { cn } from "@/lib/utils";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
+import { useStudyStore } from "@/stores/useStudyStore";
 
 /** 自然排序：名称中的数字按数值比较（如 "第2课" < "第10课"） */
 function naturalCompare(a: string, b: string): number {
@@ -44,6 +45,7 @@ function naturalCompare(a: string, b: string): number {
 }
 
 export default function DeckList() {
+  const navigate = useNavigate();
   const { decks, cardCounts, loading, error, refresh } = useDeckStore();
   const dbReady = useDbStore((s) => s.ready);
   const [showCreate, setShowCreate] = useState(false);
@@ -337,9 +339,23 @@ export default function DeckList() {
                                 每日新卡 {d.new_cards_per_day}
                               </span>
                             </div>
-                            <Button asChild size="sm" variant="outline">
-                              <Link to={"/decks/" + d.id}>查看</Link>
-                            </Button>
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                size="sm"
+                                onClick={async () => {
+                                  useStudyStore.getState().reset();
+                                  await useStudyStore.getState().loadQueue(d.id);
+                                  navigate("/study");
+                                }}
+                                disabled={(cardCounts[d.id] ?? 0) === 0}
+                              >
+                                <PlayCircle className="size-3.5" />
+                                学习
+                              </Button>
+                              <Button asChild size="sm" variant="outline">
+                                <Link to={"/decks/" + d.id}>查看</Link>
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>

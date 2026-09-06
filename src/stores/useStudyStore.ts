@@ -103,8 +103,22 @@ interface StudyState {
     hardCardIds: Set<number>;
   };
   finished: boolean;
+  /** 是否为 AI 编排备考任务会话 */
+  isOrchestrated: boolean;
+  /** 编排目标卡片数 */
+  orchestratedTarget: number;
+  /** 编排任务标题 */
+  orchestratedTitle: string;
 
-  loadQueue: (deckId: number, tag?: string, keyOnly?: boolean) => Promise<void>;
+  loadQueue: (deckId: number, tag?: string, keyOnly?: boolean, extraNewCards?: number) => Promise<void>;
+  /** 加载 AI 编排的多词库/排除标签今日学习队列 */
+  loadOrchestratedQueue: (opts: {
+    deckIds: number[];
+    ignoredTags: string[];
+    targetNew: number;
+    targetReview: number;
+    title?: string;
+  }) => Promise<void>;
   /** 是否存在未完成的学习会话 */
   hasActiveSession: () => boolean;
   /** 跳过当前卡：不评分，移到本轮稍后位置 */
@@ -126,6 +140,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   deckName: "",
   tagName: "",
   keyOnly: false,
+  isOrchestrated: false,
+  orchestratedTarget: 0,
+  orchestratedTitle: "",
   queue: [],
   index: 0,
   loading: false,
@@ -133,8 +150,8 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() },
   finished: false,
 
-  /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤） */
-  loadQueue: async (deckId: number, tag?: string, keyOnly = false) => {
+  /** 加载今日队列：due 卡片 + 新卡配额内卡片（可按标签过滤，支持 extraNewCards 加学） */
+  loadQueue: async (deckId: number, tag?: string, keyOnly = false, extraNewCards = 0) => {
     set({ loading: true, error: null, finished: false });
     try {
       const deck = await db.getDeck(deckId);
@@ -166,11 +183,12 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dueLimit = Math.max(0, adjustedLimit - todayReviewed);
       const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
 
-      // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围）
+      // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围；extraNewCards 支持加学突破）
       // 新导入词库若配额为 0，按默认 20 张安排，避免“持续不安排学习”
       const effectiveNewPerDay = deck.new_cards_per_day > 0 ? deck.new_cards_per_day : 20;
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
-      const newLimit = Math.max(0, effectiveNewPerDay - learnedToday);
+      const baseNewLimit = Math.max(0, effectiveNewPerDay - learnedToday);
+      const newLimit = baseNewLimit + Math.max(0, extraNewCards);
       const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly, ignoredTags) : [];
 
       // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）
@@ -204,6 +222,78 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       await saveLastStudyContext(deckId, tag, keyOnly).catch(() => {});
     } catch (e) {
       set({ loading: false, error: String(e) });
+    }
+  },
+
+  /** 加载 AI 编排的多词库/排除标签今日学习队列 */
+  loadOrchestratedQueue: async ({
+    deckIds,
+    ignoredTags,
+    targetNew,
+    targetReview,
+    title = "AI 备考任务编排",
+  }) => {
+    set({ loading: true, error: null, finished: false });
+    try {
+      const now = new Date();
+      const restUntil = await getRestUntil();
+      if (restUntil > Date.now()) {
+        const mins = Math.ceil((restUntil - Date.now()) / 60000);
+        set({ loading: false, error: `休息中：请 ${mins} 分钟后再学习`, finished: true });
+        return;
+      }
+      const maxSessionCards = await getMaxSessionCards();
+
+      // 1. 到期卡片（多词库/排除指定标签）
+      const due =
+        targetReview > 0
+          ? await db.getMultiDeckDueCards(deckIds, now.toISOString(), targetReview, ignoredTags)
+          : [];
+
+      // 2. 新卡配额（多词库/排除指定标签）
+      const fresh =
+        targetNew > 0
+          ? await db.getMultiDeckNewCards(deckIds, targetNew, ignoredTags)
+          : [];
+
+      // 3. 队列交错
+      const interleaveRatio = await getInterleaveRatio();
+      let ordered = interleaveQueue(due, fresh, interleaveRatio);
+
+      // 4. 正则/模糊忽略标签过滤安全兜底
+      ordered = ordered.filter((row) => !isTagIgnored(row.tags, ignoredTags));
+
+      // 5. 单轮上限截断
+      ordered = ordered.slice(0, maxSessionCards);
+
+      const queue: QueueItem[] = ordered.map((row) => ({ row, shownAt: Date.now() }));
+      set({
+        deckId: -999, // 虚拟 ID 标识 AI 编排任务
+        deckName: title,
+        tagName: "",
+        keyOnly: false,
+        isOrchestrated: true,
+        orchestratedTarget: ordered.length,
+        orchestratedTitle: title,
+        queue,
+        index: 0,
+        stats: {
+          reviewed: 0,
+          newDone: 0,
+          again: 0,
+          hard: 0,
+          actions: 0,
+          sessionStartTime: Date.now(),
+          weakWords: [],
+          reviewedCardIds: new Set(),
+          againCardIds: new Set(),
+          hardCardIds: new Set(),
+        },
+        loading: false,
+        finished: queue.length === 0,
+      });
+    } catch (e) {
+      set({ loading: false, error: `加载编排任务失败: ${String(e)}` });
     }
   },
 
@@ -355,6 +445,19 @@ export const useStudyStore = create<StudyState>((set, get) => ({
   },
 
   reset: () => {
-    set({ deckId: null, deckName: "", tagName: "", keyOnly: false, queue: [], index: 0, finished: false, error: null, stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() } });
+    set({
+      deckId: null,
+      deckName: "",
+      tagName: "",
+      keyOnly: false,
+      isOrchestrated: false,
+      orchestratedTarget: 0,
+      orchestratedTitle: "",
+      queue: [],
+      index: 0,
+      finished: false,
+      error: null,
+      stats: { reviewed: 0, newDone: 0, again: 0, hard: 0, actions: 0, sessionStartTime: 0, weakWords: [], reviewedCardIds: new Set(), againCardIds: new Set(), hardCardIds: new Set() },
+    });
   },
 }));

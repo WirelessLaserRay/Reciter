@@ -1,6 +1,6 @@
 import { parseMarkdown, type ParsedCard, type ParseResult } from "./markdown-parser";
 import { extractPhoneticFromText } from "@/lib/phonetic";
-import { splitMeaningText } from "./meaning";
+import { splitMeaningText, isPhrase } from "./meaning";
 
 export type ImportFormat = "markdown" | "csv" | "json" | "txt";
 
@@ -107,7 +107,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    const meaning = splitMeaningText(back);
+    const meaning = splitMeaningText(back, front);
     cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags, highlights: [], isKey, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };
@@ -137,7 +137,8 @@ export function parseJSON(content: string): ParseResult {
     const pos = String(obj.pos ?? obj.partOfSpeech ?? "").trim();
     const example = String(obj.example ?? "").trim();
     const exampleCn = String(obj.example_cn ?? "").trim();
-    const finalBack = pos ? `${pos} ${back}` : back;
+    const isPhraseWord = isPhrase(front);
+    const finalBack = pos && !isPhraseWord ? `${pos} ${back}` : back;
     const markdown = example ? (exampleCn ? `${example}\n\n${exampleCn}` : example) : exampleCn;
     const deckName = String(obj.deck ?? obj.deckName ?? "JSON 导入").trim() || "JSON 导入";
     const folder = String(obj.folder ?? "").trim();
@@ -158,7 +159,7 @@ export function parseJSON(content: string): ParseResult {
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    const meaning = splitMeaningText(finalBack);
+    const meaning = splitMeaningText(finalBack, front);
     cards.push({ front, back: finalBack, markdown, phonetic, deckName, folder, tags, highlights: [], isKey, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };
@@ -197,7 +198,7 @@ export function parseTXT(content: string, defaultDeck = "手动导入"): ParseRe
     const key = deckName + "\u0000" + front;
     if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
     seen.add(key);
-    const meaning = splitMeaningText(back);
+    const meaning = splitMeaningText(back, front);
     cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags: [], highlights: [], isKey: false, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
   }
   return { bookTitle: "", cards, warnings, duplicates };

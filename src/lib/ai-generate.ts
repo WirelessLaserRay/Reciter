@@ -18,8 +18,8 @@ export async function generateCardsFromText(text: string): Promise<string> {
     "",
     "【每张卡片字段】",
     "1. front — 英文单词或短语（标准形式）",
-    "2. pos — 词性（动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统标为 v.；其余如 n./adj./adv./prep./phr. 等）",
-    "3. back — 简洁准确的中文释义，优先给出文本语境中的含义（动词请标明及物或不及物）",
+    "2. pos — 词性（单词动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统标为 v.；其余如 n./adj./adv./prep. 等；若为短语/词组，严禁赋予词性，pos 必须留空 \"\"）",
+    "3. back — 简洁准确的中文释义，优先给出文本语境中的含义（单词动词请标明及物或不及物；短语请给出纯净中文释义，严禁带有任何词性前缀）",
     "4. example — 一个自然、地道的英文例句（不要照抄原文），必须准确体现 front 的含义",
     "5. example_cn — example 的准确中文翻译",
     "6. tags — 标签数组（1-3 个），可选标签：\"高频\"、\"考研\"、\"阅读\"、\"熟词生义\"、\"固定搭配\"、\"学术\"、\"写作\"、\"短语\"",
@@ -33,7 +33,7 @@ export async function generateCardsFromText(text: string): Promise<string> {
     text.slice(0, 6000),
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 英语学习应用的闪卡生成器。从用户提供的文本中提取有学习价值的词汇，动词必须明确区分并标明及物 vt. 或不及物 vi.，严格以 JSON 数组格式输出，不得包含任何其他内容。" },
+    { role: "system", content: "你是 Reciter 英语学习应用的闪卡生成器。从用户提供的文本中提取有学习价值的词汇与短语。动词必须明确区分并标明及物 vt. 或不及物 vi.，短语严禁添加词性（pos 留空），严格以 JSON 数组格式输出，不得包含任何其他内容。" },
     { role: "user", content: prompt },
   ]);
   return raw.replace(/```json|```/g, "").trim();

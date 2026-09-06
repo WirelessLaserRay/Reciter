@@ -5,6 +5,7 @@ import { SqlJsBackend } from "@/lib/sql/sqljs-backend";
 import { isTauri } from "@/lib/env";
 import { runMigrations } from "@/lib/migrations";
 import { extractPhoneticFromText } from "@/lib/phonetic";
+import { getMatchingTags } from "@/lib/tag-filter";
 
 export interface UpsertResult {
   cardId: number;
@@ -93,6 +94,50 @@ function ignoredTagsParams(tags: string[]): string[] {
 class ReciterDB {
   private backend: SQLBackend | null = null;
   private readyPromise: Promise<void> | null = null;
+  private tagsCache: { tags: string[]; time: number } | null = null;
+  private tagsCacheByDecks: Map<string, { tags: string[]; time: number }> = new Map();
+
+  /** 标签缓存失效 */
+  invalidateTagsCache(): void {
+    this.tagsCache = null;
+    this.tagsCacheByDecks.clear();
+  }
+
+  /**
+   * 将忽略标签规则列表（支持精确、通配符 glob、正则表达式、模糊子串）解析为当前数据库中实际存在的具体标签列表
+   * 确保 SQLite 中的 c.tags NOT LIKE ? 能够 100% 准确过滤，避免在 SQL 层因正则不被原生支持而漏算
+   */
+  async resolveMatchingTags(patterns: string[], deckIds?: number[]): Promise<string[]> {
+    if (!patterns || patterns.length === 0) return [];
+    const valid = patterns.map((p) => p.trim()).filter(Boolean);
+    if (valid.length === 0) return [];
+
+    const now = Date.now();
+    const cacheKey = deckIds && deckIds.length > 0 ? [...deckIds].sort().join(",") : "all";
+    let allTags: string[] | undefined;
+
+    if (cacheKey === "all") {
+      if (this.tagsCache && now - this.tagsCache.time < 3000) {
+        allTags = this.tagsCache.tags;
+      }
+    } else {
+      const cached = this.tagsCacheByDecks.get(cacheKey);
+      if (cached && now - cached.time < 3000) {
+        allTags = cached.tags;
+      }
+    }
+
+    if (!allTags) {
+      allTags = await this.getAllTags(deckIds && deckIds.length > 0 ? deckIds : undefined);
+      if (cacheKey === "all") {
+        this.tagsCache = { tags: allTags, time: now };
+      } else {
+        this.tagsCacheByDecks.set(cacheKey, { tags: allTags, time: now });
+      }
+    }
+
+    return getMatchingTags(allTags, valid);
+  }
 
   /**
    * 加载数据库（幂等）：Tauri 环境用 tauri-plugin-sql；Web/PWA 用 sql.js（WASM SQLite + IndexedDB）。
@@ -108,6 +153,12 @@ class ReciterDB {
           await runMigrations(b);
         }
         this.backend = b;
+        // 自愈兜底：确保所有 cards 均有对应的初始 card_states，避免由于历史孤立卡片导致 JOIN 查空
+        try {
+          await this.backend.execute(
+            "INSERT OR IGNORE INTO card_states (card_id) SELECT id FROM cards"
+          );
+        } catch {}
         // 回填历史卡片音标（从 front/markdown 解析，仅补空值）
         await this.backfillCardPhonetics();
       })();
@@ -267,9 +318,9 @@ class ReciterDB {
     deckId: number,
     excludeCardId: number,
     limit = 50
-  ): Promise<{ front: string; back: string }[]> {
+  ): Promise<{ front: string; back: string; meaning_primary?: string; meaning_secondary?: string }[]> {
     return this.requireDb().select(
-      "SELECT front, back FROM cards WHERE deck_id = ? AND id != ? ORDER BY RANDOM() LIMIT ?",
+      "SELECT front, back, meaning_primary, meaning_secondary FROM cards WHERE deck_id = ? AND id != ? ORDER BY RANDOM() LIMIT ?",
       [deckId, excludeCardId, limit]
     );
   }
@@ -285,6 +336,24 @@ class ReciterDB {
       `SELECT DISTINCT j.value AS tag FROM cards c, json_each(c.tags) j
        WHERE c.deck_id = ? AND j.value NOT LIKE 'ex:%' AND j.value NOT LIKE '例句:%' ORDER BY tag`,
       [deckId]
+    );
+    return rows.map((r) => r.tag).filter(Boolean);
+  }
+
+  /** 获取全部词库（或指定词库）中的所有非例句标签（去重） */
+  async getAllTags(deckIds?: number[]): Promise<string[]> {
+    if (deckIds && deckIds.length > 0) {
+      const placeholders = deckIds.map(() => "?").join(",");
+      const rows = await this.requireDb().select<{ tag: string }[]>(
+        `SELECT DISTINCT j.value AS tag FROM cards c, json_each(c.tags) j
+         WHERE c.deck_id IN (${placeholders}) AND j.value NOT LIKE 'ex:%' AND j.value NOT LIKE '例句:%' AND j.value NOT LIKE '例句：%' ORDER BY tag`,
+        deckIds
+      );
+      return rows.map((r) => r.tag).filter(Boolean);
+    }
+    const rows = await this.requireDb().select<{ tag: string }[]>(
+      `SELECT DISTINCT j.value AS tag FROM cards c, json_each(c.tags) j
+       WHERE j.value NOT LIKE 'ex:%' AND j.value NOT LIKE '例句:%' AND j.value NOT LIKE '例句：%' ORDER BY tag`
     );
     return rows.map((r) => r.tag).filter(Boolean);
   }
@@ -394,6 +463,7 @@ class ReciterDB {
     if (!wasKnown) {
       await db.execute("INSERT OR IGNORE INTO card_states (card_id) VALUES (?)", [cardId]);
     }
+    this.invalidateTagsCache();
     return { cardId, created: !wasKnown };
   }
 
@@ -406,7 +476,7 @@ class ReciterDB {
     const params: (string | number)[] = [];
     if (data.front !== undefined) { sets.push("front = ?"); params.push(data.front); }
     if (data.back !== undefined) { sets.push("back = ?"); params.push(data.back); }
-    if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); }
+    if (data.tags !== undefined) { sets.push("tags = ?"); params.push(data.tags); this.invalidateTagsCache(); }
     if (data.markdown_content !== undefined) { sets.push("markdown_content = ?"); params.push(data.markdown_content); }
     if (data.phonetic !== undefined) { sets.push("phonetic = ?"); params.push(data.phonetic); }
     if (data.is_key !== undefined) { sets.push("is_key = ?"); params.push(data.is_key); }
@@ -438,6 +508,7 @@ class ReciterDB {
   }
 
   async deleteCard(id: number): Promise<void> {
+    this.invalidateTagsCache();
     await this.requireDb().execute("DELETE FROM cards WHERE id = ?", [id]);
   }
 
@@ -614,7 +685,7 @@ class ReciterDB {
 
   // ==================== 学习队列查询（Phase 3） ====================
 
-  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤、忽略标签 */
+  /** 今日到期卡片（state != 0 且 due <= before，含 Learning/Review/Relearning），按 due 升序；可按标签过滤、忽略标签（支持模糊/正则） */
   async getDueCards(
     deckId: number,
     before: string,
@@ -623,13 +694,14 @@ class ReciterDB {
     limit?: number,
     ignoreTags: string[] = []
   ): Promise<StudyCardRow[]> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, [deckId]);
     const params: (string | number)[] = [
       deckId,
       before,
+      keyOnly ? 1 : 0,
+      keyOnly ? 1 : 0,
       ...tagParam(tag),
-      keyOnly ? 1 : 0,
-      keyOnly ? 1 : 0,
-      ...ignoredTagsParams(ignoreTags),
+      ...ignoredTagsParams(resolvedTags),
     ];
     const limitSql = limit !== undefined ? " LIMIT ?" : "";
     if (limit !== undefined) params.push(limit);
@@ -640,7 +712,7 @@ class ReciterDB {
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
+       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state != 0 AND cs.due <= ? AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(resolvedTags)}
        ORDER BY
           CASE WHEN cs.state IN (1, 3) THEN 0 ELSE 1 END,
           cs.due ASC, c.id ASC${limitSql}`,
@@ -648,7 +720,7 @@ class ReciterDB {
     );
   }
 
-  /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤、忽略标签 */
+  /** 新卡片（state = 0），按 id 升序取 limit 张；可按标签过滤、忽略标签（支持模糊/正则） */
   async getNewCards(
     deckId: number,
     limit: number,
@@ -656,12 +728,13 @@ class ReciterDB {
     keyOnly = false,
     ignoreTags: string[] = []
   ): Promise<StudyCardRow[]> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, [deckId]);
     const params: (string | number)[] = [
       deckId,
+      keyOnly ? 1 : 0,
+      keyOnly ? 1 : 0,
       ...tagParam(tag),
-      keyOnly ? 1 : 0,
-      keyOnly ? 1 : 0,
-      ...ignoredTagsParams(ignoreTags),
+      ...ignoredTagsParams(resolvedTags),
       limit,
     ];
     return this.requireDb().select<StudyCardRow[]>(
@@ -671,7 +744,7 @@ class ReciterDB {
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(ignoreTags)}
+       WHERE c.deck_id = ? AND c.ignored = 0 AND cs.state = 0 AND (? = 0 OR c.is_key = ?)${tagWhere(tag)}${ignoredTagsWhere(resolvedTags)}
        ORDER BY c.id ASC
        LIMIT ?`,
       params
@@ -717,63 +790,170 @@ class ReciterDB {
     return rows.length > 0;
   }
 
-  /** 全局今日待复习数（due < dayEnd 且已学过；可忽略标签） */
+  /** 全局今日待复习数（due < dayEnd 且已学过；可忽略标签，支持模糊/正则） */
   async getGlobalDueCount(before: string, ignoreTags: string[] = []): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags);
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       `SELECT COUNT(*) AS cnt FROM card_states cs
        JOIN cards c ON c.id = cs.card_id
-       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}`,
-      [before, ...ignoredTagsParams(ignoreTags)]
+       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(resolvedTags)}`,
+      [before, ...ignoredTagsParams(resolvedTags)]
     );
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 全局新卡片数（state = 0；可忽略标签） */
+  /** 全局新卡片数（state = 0；可忽略标签，支持模糊/正则） */
   async getGlobalNewCount(ignoreTags: string[] = []): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags);
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       `SELECT COUNT(*) AS cnt FROM card_states cs
        JOIN cards c ON c.id = cs.card_id
-       WHERE cs.state = 0${ignoredTagsWhere(ignoreTags)}`,
-      [...ignoredTagsParams(ignoreTags)]
+       WHERE cs.state = 0${ignoredTagsWhere(resolvedTags)}`,
+      [...ignoredTagsParams(resolvedTags)]
     );
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 指定词库中的新卡片数（state = 0；空列表返回 0） */
-  async getNewCountByDecks(deckIds: number[]): Promise<number> {
-    if (deckIds.length === 0) return 0;
-    const placeholders = deckIds.map(() => "?").join(",");
+  /** 指定词库中的新卡片数（可忽略标签，支持模糊/正则；deckIds 为空时统计全词库） */
+  async getNewCountByDecks(deckIds: number[], ignoreTags: string[] = []): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       `SELECT COUNT(*) AS cnt FROM card_states cs
        JOIN cards c ON c.id = cs.card_id
-       WHERE cs.state = 0 AND c.deck_id IN (${placeholders})`,
-      deckIds
+       WHERE cs.state = 0 AND c.ignored = 0${deckWhere}${ignoredTagsWhere(resolvedTags)}`,
+      params
     );
     return rows[0]?.cnt ?? 0;
   }
 
-  /** 各词库今日待复习数（可忽略标签） */
+  /** 指定词库中的今日待复习卡片数（可忽略标签，支持模糊/正则；deckIds 为空时统计全词库） */
+  async getDueCountByDecks(deckIds: number[], before: string, ignoreTags: string[] = []): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      before,
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(*) AS cnt FROM card_states cs
+       JOIN cards c ON c.id = cs.card_id
+       WHERE cs.reps > 0 AND cs.due < ? AND c.ignored = 0${deckWhere}${ignoredTagsWhere(resolvedTags)}`,
+      params
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 多词库或全词库今日到期卡片（可忽略标签，支持模糊/正则） */
+  async getMultiDeckDueCards(
+    deckIds: number[],
+    before: string,
+    limit?: number,
+    ignoreTags: string[] = []
+  ): Promise<StudyCardRow[]> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      before,
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
+    const limitSql = limit !== undefined ? " LIMIT ?" : "";
+    if (limit !== undefined) params.push(limit);
+    return this.requireDb().select<StudyCardRow[]>(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
+              c.meaning_primary, c.meaning_secondary, c.ignored,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.ignored = 0 AND cs.state != 0 AND cs.due <= ?${deckWhere}${ignoredTagsWhere(resolvedTags)}
+       ORDER BY
+          CASE WHEN cs.state IN (1, 3) THEN 0 ELSE 1 END,
+          cs.due ASC, c.id ASC${limitSql}`,
+      params
+    );
+  }
+
+  /** 多词库或全词库新卡片（可忽略标签，支持模糊/正则） */
+  async getMultiDeckNewCards(
+    deckIds: number[],
+    limit: number,
+    ignoreTags: string[] = []
+  ): Promise<StudyCardRow[]> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+      limit,
+    ];
+    return this.requireDb().select<StudyCardRow[]>(
+      `SELECT c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.tags, c.is_key,
+              c.meaning_primary, c.meaning_secondary, c.ignored,
+              cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+              cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+              cs.desired_retention, cs.algorithm_version
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.ignored = 0 AND cs.state = 0${deckWhere}${ignoredTagsWhere(resolvedTags)}
+       ORDER BY c.id ASC
+       LIMIT ?`,
+      params
+    );
+  }
+
+  /** 各词库今日待复习数（可忽略标签，支持模糊/正则） */
   async getDeckDueCounts(before: string, ignoreTags: string[] = []): Promise<Record<number, number>> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags);
     const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(
       `SELECT c.deck_id, COUNT(*) AS cnt FROM cards c
        JOIN card_states cs ON cs.card_id = c.id
-       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}
+       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(resolvedTags)}
        GROUP BY c.deck_id`,
-      [before, ...ignoredTagsParams(ignoreTags)]
+      [before, ...ignoredTagsParams(resolvedTags)]
     );
     const map: Record<number, number> = {};
     for (const r of rows) map[r.deck_id] = r.cnt;
     return map;
   }
 
-  /** 单个词库今日待复习数（可忽略标签） */
+  /** 各词库可用新卡数（state = 0，可忽略标签，支持模糊/正则） */
+  async getDeckNewCounts(ignoreTags: string[] = []): Promise<Record<number, number>> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags);
+    const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(
+      `SELECT c.deck_id, COUNT(*) AS cnt FROM cards c
+       JOIN card_states cs ON cs.card_id = c.id
+       WHERE cs.state = 0 AND c.ignored = 0${ignoredTagsWhere(resolvedTags)}
+       GROUP BY c.deck_id`,
+      [...ignoredTagsParams(resolvedTags)]
+    );
+    const map: Record<number, number> = {};
+    for (const r of rows) map[r.deck_id] = r.cnt;
+    return map;
+  }
+
+  /** 单个词库今日待复习数（可忽略标签，支持模糊/正则） */
   async getDueCountByDeck(deckId: number, before?: string, ignoreTags: string[] = []): Promise<number> {
     const b = before ?? new Date().toISOString();
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, [deckId]);
     const rows = await this.requireDb().select<{ cnt: number }[]>(
       `SELECT COUNT(*) AS cnt FROM cards c
        JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(ignoreTags)}`,
-      [deckId, b, ...ignoredTagsParams(ignoreTags)]
+       WHERE c.deck_id = ? AND cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(resolvedTags)}`,
+      [deckId, b, ...ignoredTagsParams(resolvedTags)]
     );
     return rows[0]?.cnt ?? 0;
   }

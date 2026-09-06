@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   BookOpen,
+  Check,
   CheckCircle2,
   ClipboardList,
   Keyboard,
@@ -47,12 +49,19 @@ import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
 import { getDisplayPhonetic } from "@/lib/phonetic";
 import { getCardExamples } from "@/lib/card-examples";
 import { preloadSpeech } from "@/lib/tts";
-import StudyCard from "@/components/study/StudyCard";
+import { getCardMeaning } from "@/lib/meaning";
+import StudyCard, { type Distractor } from "@/components/study/StudyCard";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { CardState } from "@/types";
 import QuizSession from "@/components/quiz/QuizSession";
 import AIChatPanel from "@/components/ai/AIChatPanel";
+import {
+  generateCompletionEncouragement,
+  getDaysUntilExam,
+  getExamConfig,
+  markTodayPlanCompleted,
+} from "@/lib/exam-planner";
 
 function formatDuration(totalSeconds: number): string {
   const sec = Math.max(0, Math.floor(totalSeconds));
@@ -171,11 +180,33 @@ function StudySession({
   /** 标签学习完成后的针对性测试入口（选择/填空为主） */
   onStartTagQuiz?: (deckId: number, tag: string) => void;
 }) {
-  const { deckId, deckName, tagName, keyOnly, queue, index, stats, finished, rate, markShown, reset, skip, ignore } = useStudyStore();
+  const {
+    deckId,
+    deckName,
+    tagName,
+    keyOnly,
+    isOrchestrated,
+    orchestratedTarget,
+    orchestratedTitle,
+    queue,
+    index,
+    stats,
+    finished,
+    loadQueue,
+    rate,
+    markShown,
+    reset,
+    skip,
+    ignore,
+  } = useStudyStore();
   const navigate = useNavigate();
   const [preview, setPreview] = useState<IntervalPreview | null>(null);
   const [retrievability, setRetrievability] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [remainingNew, setRemainingNew] = useState<number | null>(null);
+  const [encouragement, setEncouragement] = useState<string | null>(null);
+  const [encouragementLoading, setEncouragementLoading] = useState(false);
+  const [encouragementRefreshing, setEncouragementRefreshing] = useState(false);
 
   // Phase 6A 学习偏好 + Phase 6C AI 状态
   const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
@@ -195,7 +226,61 @@ function StudySession({
   // 中途退出确认
   const [exitOpen, setExitOpen] = useState(false);
   // P2-⑧：全词库卡片精简池（选择题干扰项 + 同族词匹配）
-  const [deckDistractors, setDeckDistractors] = useState<{ front: string; back: string }[]>([]);
+  const [deckDistractors, setDeckDistractors] = useState<Distractor[]>([]);
+  // 手动快速收录弱词本卡片 ID 缓存与操作提示
+  const [weakCardIds, setWeakCardIds] = useState<Set<number>>(new Set());
+  const [weakNotice, setWeakNotice] = useState<string | null>(null);
+
+  // 备战 AI 编排任务完成时，生成个性化鼓励语并记录完成状态
+  useEffect(() => {
+    if (finished && isOrchestrated && stats.reviewed + stats.newDone > 0) {
+      let active = true;
+      setEncouragementLoading(true);
+      (async () => {
+        try {
+          const cfg = await getExamConfig();
+          const days = cfg.date ? getDaysUntilExam(cfg.date) : 0;
+          const text = await generateCompletionEncouragement({
+            examTitle: cfg.title || orchestratedTitle || "备考任务",
+            daysUntil: days,
+            newDone: stats.newDone,
+            reviewedTotal: stats.reviewed,
+          });
+          if (active) {
+            setEncouragement(text);
+            await markTodayPlanCompleted(text);
+          }
+        } catch {
+          // fallback
+        } finally {
+          if (active) setEncouragementLoading(false);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }
+  }, [finished, isOrchestrated, stats.reviewed, stats.newDone, orchestratedTitle]);
+
+  const handleRefreshEncouragement = async () => {
+    setEncouragementRefreshing(true);
+    try {
+      const cfg = await getExamConfig();
+      const days = cfg.date ? getDaysUntilExam(cfg.date) : 0;
+      const text = await generateCompletionEncouragement({
+        examTitle: cfg.title || orchestratedTitle || "备考任务",
+        daysUntil: days,
+        newDone: stats.newDone,
+        reviewedTotal: stats.reviewed,
+      });
+      setEncouragement(text);
+      await markTodayPlanCompleted(text);
+    } catch {
+      // ignore
+    } finally {
+      setEncouragementRefreshing(false);
+    }
+  };
 
   // AI 助手右侧栏：折叠状态持久化；窄屏（<lg）退化为卡片下方面板
   const [aiPanelOpen, setAiPanelOpen] = useState(
@@ -232,6 +317,22 @@ function StudySession({
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  // 当会话完成或空队列时，查询词库是否还有未学新词
+  useEffect(() => {
+    if (finished && deckId !== null) {
+      if (isOrchestrated) {
+        getExamConfig()
+          .then((cfg) => db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags))
+          .then((cnt) => setRemainingNew(cnt))
+          .catch(() => setRemainingNew(null));
+      } else {
+        db.getNewCards(deckId, 100, tagName || undefined, keyOnly)
+          .then((cards) => setRemainingNew(cards.length))
+          .catch(() => setRemainingNew(null));
+      }
+    }
+  }, [finished, deckId, tagName, keyOnly, isOrchestrated]);
+
   const item = queue[index];
   const total = queue.length;
   const done = stats.reviewed;
@@ -241,6 +342,41 @@ function StudySession({
 
   // 当前音标：卡片字段优先，异步获取结果其次；派生值保证切换卡片时同步更新
   const phoneticText = item ? getDisplayPhonetic(item.row.phonetic, phoneticMap, item.row.card_id) : "";
+
+  // 当前卡片是否属于弱词（达到遗忘阈值或手动收录）
+  const isCurrentWeak = Boolean(
+    item && (
+      item.row.lapses >= leechThreshold ||
+      weakCardIds.has(item.row.card_id)
+    )
+  );
+
+  // 快捷加入 / 移出弱词本
+  const handleToggleWeak = async () => {
+    if (!item) return;
+    const cardId = item.row.card_id;
+    try {
+      if (isCurrentWeak) {
+        await db.dismissWeakWord(cardId);
+        setWeakCardIds((prev) => {
+          const next = new Set(prev);
+          next.delete(cardId);
+          return next;
+        });
+        item.row.lapses = 0;
+        setWeakNotice("已从弱词本移出");
+      } else {
+        await db.markCardWeak(cardId, leechThreshold);
+        setWeakCardIds((prev) => new Set(prev).add(cardId));
+        item.row.lapses = Math.max(item.row.lapses, leechThreshold);
+        setWeakNotice("已加入弱词本 ✨");
+      }
+      setTimeout(() => setWeakNotice(null), 2500);
+    } catch (e) {
+      setWeakNotice(`操作失败: ${String(e)}`);
+      setTimeout(() => setWeakNotice(null), 3000);
+    }
+  };
 
   // 预先加载队列前 5 个单词/词组的例句、音标与发音，展示时直接命中本地持久化缓存
   useEffect(() => {
@@ -450,13 +586,97 @@ function StudySession({
             </Link>
           </Button>
           <span className="text-sm text-muted-foreground">
-            词库：{deckName}
-            {tagName && " · 标签：" + tagName}
+            {isOrchestrated ? (
+              <span className="flex items-center gap-1.5 font-medium text-primary">
+                <Sparkles className="size-3.5" />
+                {orchestratedTitle || "AI 备考任务编排"}
+              </span>
+            ) : (
+              <>
+                词库：{deckName}
+                {tagName && " · 标签：" + tagName}
+              </>
+            )}
           </span>
         </div>
 
+        {/* AI 编排备考任务达成专属祝贺卡片 */}
+        {isOrchestrated && done > 0 && (
+          <Card className="border-primary/40 bg-gradient-to-br from-primary/10 via-background to-amber-500/10 shadow-md">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-xl font-bold">
+                  <Sparkles className="size-5 text-amber-500" />
+                  今日备考任务圆满达成 🎉
+                </CardTitle>
+                <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30">
+                  {orchestratedTitle || "AI 编排"}
+                </Badge>
+              </div>
+              <CardDescription>
+                恭喜！今日规划的全部生词与复习任务已顺利完成，备考底气又厚实了一层！
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* 鼓励语卡片 */}
+              <div className="relative rounded-xl border border-primary/20 bg-background/80 p-4 shadow-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="size-3" />
+                      专属备考鼓励语
+                    </p>
+                    {encouragementLoading ? (
+                      <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="size-3.5 animate-spin text-primary" />
+                        AI 备考导师正在根据今日战报为你生成专属鼓励语…
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium italic leading-relaxed text-foreground/95">
+                        “{encouragement || "乾坤未定，你我皆是黑马！今天的任务稳稳拿下，考场见证你的蜕变！🏆"}”
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleRefreshEncouragement}
+                    disabled={encouragementLoading || encouragementRefreshing}
+                    className="shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-primary"
+                    title="换一句鼓励语"
+                  >
+                    <RefreshCw className={encouragementRefreshing ? "size-3 animate-spin" : "size-3"} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* 达成统计小结 */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-primary">{stats.newDone}</div>
+                  <div className="text-[11px] text-muted-foreground">今日新学词汇</div>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                    {stats.reviewed}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">复习巩固词汇</div>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-foreground">
+                    {Math.round(
+                      (done / Math.max(1, orchestratedTarget || done)) * 100
+                    )}%
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">任务达成率</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* 标签学习完成：建议立即进行该标签集的选择/填空测试 */}
-        {finished && done > 0 && tagName && deckId !== null && onStartTagQuiz && (
+        {finished && done > 0 && tagName && deckId !== null && deckId > 0 && onStartTagQuiz && (
           <Card className="border-primary/40 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -481,13 +701,13 @@ function StudySession({
         )}
 
         <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
             {done > 0 ? (
               <CheckCircle2 className="size-10 text-green-500" />
             ) : (
               <BookOpen className="size-10 text-muted-foreground" />
             )}
-            <CardTitle>{done > 0 ? "本轮完成 🎉" : "今日没有需要学习的卡片"}</CardTitle>
+            <CardTitle>{done > 0 ? (isOrchestrated ? "本次学习已完成 🎉" : "本轮完成 🎉") : "今日没有需要学习的卡片"}</CardTitle>
             <CardDescription className="max-w-md">
               {done > 0 ? (
                 <>
@@ -495,7 +715,9 @@ function StudySession({
                   {stats.hard > 0 ? ` · 模糊 ${stats.hard} 张` : ""}
                 </>
               ) : (
-                "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
+                isOrchestrated
+                  ? "选定词库与标签范围内，今日已无可学卡片或已达成今日配额。"
+                  : "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
               )}
             </CardDescription>
             {restLabel && (
@@ -506,7 +728,7 @@ function StudySession({
             )}
             {done > 0 && stats.weakWords.length > 0 && (
               <div className="w-full max-w-md rounded-lg bg-muted/50 p-3 text-left">
-                <p className="mb-1.5 text-xs font-medium text-muted-foreground">需要关注</p>
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">需要关注的生词</p>
                 <div className="flex flex-wrap gap-1.5">
                   {[...new Set(stats.weakWords)].slice(0, 8).map((w) => (
                     <Badge key={w} variant="destructive">{w}</Badge>
@@ -514,8 +736,40 @@ function StudySession({
                 </div>
               </div>
             )}
-            <div className="flex gap-3">
-              <Button onClick={() => reset()}>返回词库选择</Button>
+            {remainingNew !== null && remainingNew > 0 && !isOrchestrated && deckId !== null && deckId > 0 && (
+              <div className="w-full max-w-md rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
+                <p className="text-sm font-medium">
+                  该范围还有 <span className="font-bold text-primary">{remainingNew >= 100 ? "100+" : remainingNew}</span> 张未学习的新词
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  已达今日计划配额？可自主加学新词继续背诵：
+                </p>
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => void loadQueue(deckId, tagName || undefined, keyOnly, 20)}
+                  >
+                    加学 20 张新词
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void loadQueue(deckId, tagName || undefined, keyOnly, 10)}
+                  >
+                    加学 10 张
+                  </Button>
+                </div>
+              </div>
+            )}
+            {remainingNew !== null && remainingNew > 0 && isOrchestrated && (
+              <div className="w-full max-w-md rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
+                <p className="text-xs text-muted-foreground">
+                  编排词库中还有 <span className="font-semibold text-primary">{remainingNew}</span> 张未学新词，已为你平均分摊到后续备考日常。
+                </p>
+              </div>
+            )}
+            <div className="flex gap-3 pt-2">
+              <Button onClick={() => reset()}>{isOrchestrated ? "返回仪表盘" : "返回词库选择"}</Button>
               <Button asChild variant="outline">
                 <Link to="/decks">管理词库</Link>
               </Button>
@@ -538,7 +792,7 @@ function StudySession({
     <AIChatPanel
       embedded={embedded}
       front={item.row.front}
-      back={item.row.back}
+      back={getCardMeaning(item.row)}
       cardState={rowToState(item.row)}
       strategyOverride={modeConfig?.aiStrategy ?? undefined}
       defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
@@ -583,8 +837,31 @@ function StudySession({
         />
       </div>
 
-      {/* 跳过 / 忽略 */}
-      <div className="flex justify-end gap-2">
+      {/* 快捷操作：加入弱词本 / 跳过 / 忽略 */}
+      <div className="flex items-center justify-end gap-2">
+        {weakNotice && (
+          <span className="text-xs font-medium text-amber-600 dark:text-amber-400 animate-in fade-in duration-200">
+            {weakNotice}
+          </span>
+        )}
+        <Button
+          size="sm"
+          variant={isCurrentWeak ? "secondary" : "outline"}
+          onClick={handleToggleWeak}
+          className={`gap-1.5 text-xs transition-all ${
+            isCurrentWeak
+              ? "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25"
+              : "text-muted-foreground hover:text-amber-600 hover:border-amber-500/40"
+          }`}
+          title={isCurrentWeak ? "已在弱词本，点击移出" : "快速将该单词加入弱词本以重点攻克"}
+        >
+          {isCurrentWeak ? (
+            <Check className="size-3.5 text-amber-600 dark:text-amber-400" />
+          ) : (
+            <AlertTriangle className="size-3.5 text-amber-500" />
+          )}
+          {isCurrentWeak ? "已在弱词本" : "加入弱词本"}
+        </Button>
         <Button size="sm" variant="outline" onClick={() => skip()}>
           跳过
         </Button>
@@ -866,10 +1143,36 @@ export default function Study() {
   const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
+  const deckParam = searchParams.get("deck");
   const tagParam = searchParams.get("tag");
   const aiParam = searchParams.get("ai");
   const smartParam = searchParams.get("smart");
   const recordParam = searchParams.get("record");
+
+  // 直接学习入口：/study?deck=<deckId> 或 /study?deck=<deckId>&tag=<tag>
+  useEffect(() => {
+    if (!deckParam) return;
+    const id = parseInt(deckParam, 10);
+    if (!Number.isFinite(id)) return;
+    let cancelled = false;
+    (async () => {
+      const store = useDeckStore.getState();
+      if (!store.decks.some((d) => d.id === id)) await store.refresh();
+      if (cancelled) return;
+      const d = useDeckStore.getState().decks.find((x) => x.id === id);
+      if (d) {
+        if (tagParam) {
+          useStudyStore.getState().reset();
+          await loadQueue(d.id, tagParam);
+        } else {
+          setPendingDeck({ id: d.id, name: d.name });
+        }
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [deckParam, tagParam, loadQueue]);
 
   // 测试入口：/study?quiz=<deckId>（词库详情页）；/study?quiz=<deckId>&tag=<tag>（标签巩固测试）
   useEffect(() => {

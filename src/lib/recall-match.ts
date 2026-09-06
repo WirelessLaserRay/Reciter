@@ -7,7 +7,7 @@
 function normalize(raw: string): string {
   return raw
     .toLowerCase()
-    .replace(/\b(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\./g, "")
+    .replace(/\b(?:vt\.?&vi|vi\.?&vt|vt\.\/vi|vi\.\/vt|n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/gi, "")
     .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "")
     .trim();
 }
@@ -16,10 +16,14 @@ function normalize(raw: string): string {
  *  兼容中文/英文释义：过滤过短片段和纯语法标签，不再限定中文 */
 function splitMeanings(back: string): string[] {
   return back
-    .split(/[;；,，。.]+/)
+    .split(/[;；,，。.\n\r\t/]+/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .filter((s) => s.length >= 2 && !/^(?:n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.?$/i.test(s));
+    .filter(
+      (s) =>
+        s.length >= 2 &&
+        !/^(?:vt\.?&vi|vi\.?&vt|vt\.\/vi|vi\.\/vt|n|v|vt|vi|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.?$/i.test(s)
+    );
 }
 
 function levenshtein(a: string, b: string): number {

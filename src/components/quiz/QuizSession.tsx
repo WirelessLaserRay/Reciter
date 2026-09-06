@@ -33,6 +33,7 @@ import { adaptAIQuestion } from "@/lib/ai-adapter";
 import { pickSimilarWords } from "@/lib/similar-words";
 import { cn } from "@/lib/utils";
 import { getPureTags } from "@/lib/card-examples";
+import { getCardMeaning } from "@/lib/meaning";
 import { optionIndexFromNumberKey } from "@/lib/shortcuts";
 import type { Card as CardType } from "@/types";
 
@@ -98,8 +99,14 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 function pickDistractors(all: CardType[], exclude: CardType, count: number, field: "front" | "back"): string[] {
-  const candidates = all.filter((c) => c.id !== exclude.id && c[field] !== exclude[field]);
-  const values = candidates.map((c) => c[field]);
+  const isBack = field === "back";
+  const excludeVal = isBack ? getCardMeaning(exclude) : exclude.front;
+  const candidates = all.filter((c) => {
+    if (c.id === exclude.id) return false;
+    const val = isBack ? getCardMeaning(c) : c.front;
+    return val !== excludeVal;
+  });
+  const values = candidates.map((c) => (isBack ? getCardMeaning(c) : c.front));
 
   // 英文单词选项优先取形近词（编辑距离 + 前后缀加权），其余随机补足
   const picked: string[] =
@@ -107,7 +114,8 @@ function pickDistractors(all: CardType[], exclude: CardType, count: number, fiel
 
   for (const c of shuffle(candidates)) {
     if (picked.length >= count) break;
-    if (!picked.includes(c[field])) picked.push(c[field]);
+    const val = isBack ? getCardMeaning(c) : c[field];
+    if (val && !picked.includes(val)) picked.push(val);
   }
   return picked;
 }
@@ -125,7 +133,7 @@ function buildItems(cards: CardType[], type: QuizType, count: number): QuizItem[
     const item: QuizItem = {
       card,
       type: itemType,
-      correctAnswer: itemType === "choice-en2cn" ? card.back : card.front,
+      correctAnswer: itemType === "choice-en2cn" ? getCardMeaning(card) : card.front,
       userAnswer: null,
       aiQuestion: null,
       aiOptions: null,
@@ -271,14 +279,15 @@ export default function QuizSession({
             genType = "choice"; // 英译中：选项为中文释义
             direction = "看单词选释义";
           }
+          const meaning = getCardMeaning(it.card);
           const q = await aiClientRef.current.generateQuestion({
             front: it.card.front,
-            back: it.card.back,
+            back: meaning,
             type: genType,
             direction,
           });
           if (q?.question) {
-            const adapted = adaptAIQuestion(q.question, it.type, it.card.front, it.card.back);
+            const adapted = adaptAIQuestion(q.question, it.type, it.card.front, meaning);
             it.aiQuestion = adapted.prompt;
             it.aiOptions = adapted.options ? shuffle(adapted.options) : null;
             it.explanation = adapted.explanation;
@@ -557,7 +566,7 @@ export default function QuizSession({
               </div>
               {isFill && (
                 <p className="text-center text-xs text-muted-foreground">
-                  提示：{item.card.back}（在语境中填出该词）
+                  提示：{getCardMeaning(item.card)}（在语境中填出该词）
                 </p>
               )}
             </div>
@@ -565,7 +574,7 @@ export default function QuizSession({
             <div className="space-y-1.5 text-center">
               <CircleHelp className="mx-auto size-6 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">根据释义拼写单词</p>
-              <p className="text-2xl font-semibold">{item.card.back}</p>
+              <p className="text-2xl font-semibold">{getCardMeaning(item.card)}</p>
             </div>
           ) : (
             <div className="space-y-1.5 text-center">
@@ -574,7 +583,7 @@ export default function QuizSession({
                 {item.type === "choice-cn2en" ? "选择对应的单词" : "选择对应的释义"}
               </p>
               <p className="text-2xl font-semibold">
-                {item.type === "choice-cn2en" ? item.card.back : item.card.front}
+                {item.type === "choice-cn2en" ? getCardMeaning(item.card) : item.card.front}
               </p>
             </div>
           )}

@@ -33,6 +33,7 @@ import { getLeechThreshold } from "@/lib/settings";
 import { getRetrievability } from "@/lib/fsrs";
 import { applyReview } from "@/lib/review";
 import type { Card as CardType, CardState, Deck } from "@/types";
+import { getCardMeaning } from "@/lib/meaning";
 import AIChatPanel from "@/components/ai/AIChatPanel";
 
 type WeakCard = CardType & CardState;
@@ -356,12 +357,12 @@ export default function WeakWords() {
               <Sparkles className="size-4 text-purple-500" />
               AI 攻克 · {attackTarget?.front}
             </DialogTitle>
-            <DialogDescription>{attackTarget?.back}</DialogDescription>
+            <DialogDescription>{attackTarget ? getCardMeaning(attackTarget) : ""}</DialogDescription>
           </DialogHeader>
           {attackTarget && (
             <AIChatPanel
               front={attackTarget.front}
-              back={attackTarget.back}
+              back={getCardMeaning(attackTarget)}
               cardState={attackTarget}
               defaultExpanded
               onGradeDecided={handleGradeDecided}

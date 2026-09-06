@@ -131,7 +131,10 @@ import {
   getSavedAIStudyPlan,
   saveAIStudyPlan,
   saveExamConfig,
+  formatCompactList,
 } from "@/lib/exam-planner";
+import ExamPlanDialog from "@/components/study/ExamPlanDialog";
+import MarkdownView from "@/components/common/MarkdownView";
 
 export default function Settings() {
   const theme = useThemeStore((s) => s.theme);
@@ -171,11 +174,14 @@ export default function Settings() {
 
   // 考试规划
   const { decks, cardCounts, refresh: refreshDecks } = useDeckStore();
+  const [examTitle, setExamTitle] = useState("");
   const [examDate, setExamDate] = useState("");
   const [examDeckIds, setExamDeckIds] = useState<number[]>([]);
+  const [examIgnoredTags, setExamIgnoredTags] = useState<string[]>([]);
   const [examAiPlan, setExamAiPlan] = useState("");
   const [examPlanning, setExamPlanning] = useState(false);
   const [examPlanMsg, setExamPlanMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [examPlanDialogOpen, setExamPlanDialogOpen] = useState(false);
 
   // AI 配置
   const [setupOpen, setSetupOpen] = useState(false);
@@ -280,8 +286,10 @@ export default function Settings() {
       setSyncToken(syncCfg.token);
       setVocabStandard(vocabStd);
       setArticleMaxLength(aml);
+      setExamTitle(examCfg.title || "");
       setExamDate(examCfg.date ?? "");
       setExamDeckIds(examCfg.deckIds);
+      setExamIgnoredTags(examCfg.ignoredTags || []);
       setExamAiPlan(examPlan);
       setAiBaseURL(aiCfg.baseURL);
       setAiKey(aiCfg.apiKey);
@@ -528,14 +536,28 @@ export default function Settings() {
     setExamDeckIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
+  const loadExamSettings = async () => {
+    const [examCfg, examPlan] = await Promise.all([getExamConfig(), getSavedAIStudyPlan()]);
+    setExamTitle(examCfg.title || "");
+    setExamDate(examCfg.date ?? "");
+    setExamDeckIds(examCfg.deckIds);
+    setExamIgnoredTags(examCfg.ignoredTags || []);
+    setExamAiPlan(examPlan);
+  };
+
   const saveExamPlanning = async () => {
     if (!dbReady) return;
     if (!examDate) {
       setExamPlanMsg({ ok: false, text: "请先选择考试日期" });
       return;
     }
-    await saveExamConfig({ date: examDate, deckIds: examDeckIds });
-    setExamPlanMsg({ ok: true, text: "考试规划已保存，主页倒计时已更新" });
+    await saveExamConfig({
+      title: examTitle,
+      date: examDate,
+      deckIds: examDeckIds,
+      ignoredTags: examIgnoredTags,
+    });
+    setExamPlanMsg({ ok: true, text: "考试规划已保存，主页倒计时与任务编排已更新" });
     flashSaved();
   };
 
@@ -548,7 +570,12 @@ export default function Settings() {
     setExamPlanning(true);
     setExamPlanMsg(null);
     try {
-      const plan = await generateAIStudyPlan({ date: examDate, deckIds: examDeckIds }, decks);
+      const plan = await generateAIStudyPlan({
+        title: examTitle,
+        date: examDate,
+        deckIds: examDeckIds,
+        ignoredTags: examIgnoredTags,
+      }, decks);
       setExamAiPlan(plan);
       await saveAIStudyPlan(plan);
       setExamPlanMsg({ ok: true, text: "AI 学习计划已生成并保存" });
@@ -1212,16 +1239,16 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2 pt-2">
-                <Label htmlFor="ignored-tags">学习忽略标签（支持正则，一行一个）</Label>
+                <Label htmlFor="ignored-tags">学习忽略标签（支持模糊包含、通配符与正则，一行一个）</Label>
                 <Textarea
                   id="ignored-tags"
                   rows={3}
-                  placeholder={"词组\n熟词生义\n^临时|^测试$"}
+                  placeholder={"简单\n*四级*\n^CET[46]\n已掌握|生词"}
                   value={ignoredTags}
                   onChange={(e) => saveIgnoredTagsSetting(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  带这些标签的卡片不会进入「今日学习」默认队列；支持正则表达式
+                  带这些标签的卡片不会进入「今日学习」默认队列；支持关键词模糊包含（如“简单”）、通配符（*、?）与正则表达式（如 ^CET[46]、简单|已学）
                 </p>
               </div>
             </CardContent>
@@ -1241,6 +1268,33 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-primary flex items-center gap-1.5">
+                    <Sparkles className="size-4" />
+                    AI 辅助学习任务编排与标签过滤
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    可视化多选学习词库、智能排除忽略标签（如已掌握集合），实时推算每日新学与复习配额。
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => setExamPlanDialogOpen(true)} className="gap-1.5">
+                  <Sparkles className="size-3.5" />
+                  打开编排配置面板
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="exam-title">考试 / 备考名称</Label>
+                <Input
+                  id="exam-title"
+                  className="w-full sm:w-80"
+                  placeholder="例如：大学英语六级、考研英语、雅思核心"
+                  value={examTitle}
+                  onChange={(e) => setExamTitle(e.target.value)}
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="exam-date">考试日期</Label>
                 <Input
@@ -1256,7 +1310,19 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label>目标词库（不选 = 全部词库）</Label>
+                <div className="flex items-center justify-between">
+                  <Label>目标词库（不选 = 全部词库）</Label>
+                  {examDeckIds.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      已选 {examDeckIds.length} 个词库
+                    </span>
+                  )}
+                </div>
+                {examDeckIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    已选：{formatCompactList(decks.filter((d) => examDeckIds.includes(d.id)).map((d) => (d.folder ? `${d.folder}/${d.name}` : d.name)), 3).compactText}
+                  </p>
+                )}
                 {decks.length === 0 ? (
                   <p className="text-xs text-muted-foreground">暂无词库，请先创建词库</p>
                 ) : (
@@ -1325,7 +1391,7 @@ export default function Settings() {
                     <Sparkles className="size-4 text-primary" />
                     AI 备考阶段计划
                   </p>
-                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed font-sans">{examAiPlan}</pre>
+                  <MarkdownView content={examAiPlan} className="text-sm" />
                 </div>
               )}
             </CardContent>
@@ -1959,6 +2025,11 @@ export default function Settings() {
       />
 
       <AISetupWizard open={setupOpen} onOpenChange={setSetupOpen} />
+      <ExamPlanDialog
+        open={examPlanDialogOpen}
+        onOpenChange={setExamPlanDialogOpen}
+        onSaved={loadExamSettings}
+      />
     </div>
   );
 }

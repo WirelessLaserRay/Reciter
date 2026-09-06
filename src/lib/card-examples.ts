@@ -1,5 +1,6 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { httpFetch, translateText } from "@/lib/dictionary";
+import { isPhrase, removePosPrefix } from "./meaning";
 
 export interface CardExampleItem {
   sense: string; // 对应具体释义/词性，如 "v. 放弃"
@@ -181,10 +182,11 @@ export async function matchExamplesForCard(card: {
     const cfg = await getAIConfig();
     const client = new AIClient(cfg);
     if (client.isReady) {
+      const isPhraseWord = isPhrase(front);
       const prompt = [
-        `你是一名专业的英语教学与例句助手。请为单词/短语「${front}」匹配地道英文例句与中文翻译。`,
+        `你是一名专业的英语教学与例句助手。请为英语${isPhraseWord ? "短语/词组" : "单词"}「${front}」匹配地道英文例句与中文翻译。`,
         "",
-        `【单词】${front}`,
+        `【${isPhraseWord ? "短语" : "单词"}】${front}`,
         `【释义】${card.back}`,
         card.meaning_primary ? `【主要释义】${card.meaning_primary}` : "",
         card.meaning_secondary ? `【次要释义】${card.meaning_secondary}` : "",
@@ -194,17 +196,26 @@ export async function matchExamplesForCard(card: {
         "2. 每一个例句必须对应【不同的释义/词性】（严禁多个例句表达相同的含义）。",
         "3. 英文例句必须自然、地道，且准确包含该词或其时态/变形形式。",
         "4. 输出为纯 JSON 数组，每个元素字段：",
-        '   - sense: 该例句对应的中文释义与词性（动词必须严格标明及物 vt. 或不及物 vi.，例如："vt. 放弃"、"vi. 退却"、"n. 放任"）',
+        isPhraseWord
+          ? '   - sense: 该例句对应的中文释义（注意：该词目为短语/词组，严禁带有任何词性前缀，直接写中文释义，如："放弃"、"屈服"）'
+          : '   - sense: 该例句对应的中文释义与词性（动词必须严格标明及物 vt. 或不及物 vi.，例如："vt. 放弃"、"vi. 退却"、"n. 放任"）',
         '   - en: 英文例句',
         '   - cn: 中文翻译',
         "",
         "【输出要求】",
         "仅输出合法 JSON 数组，不要包含 Markdown 代码块标记（如 ```json），不要添加任何额外说明文字。",
-        '示例：[{"sense":"vt. 放弃","en":"They abandoned their car in the snow.","cn":"他们把车弃在雪地里。"}]',
+        isPhraseWord
+          ? '示例：[{"sense":"放弃","en":"They decided to give up the plan.","cn":"他们决定放弃这个计划。"}]'
+          : '示例：[{"sense":"vt. 放弃","en":"They abandoned their car in the snow.","cn":"他们把车弃在雪地里。"}]',
       ].filter(Boolean).join("\n");
 
       const raw = await client.chat([
-        { role: "system", content: "你是专业英语例句生成工具。严格输出 JSON 数组，严禁输出任何非 JSON 字符。" },
+        {
+          role: "system",
+          content: isPhraseWord
+            ? "你是专业英语例句生成工具。短语严禁添加任何词性标签（sense 直接为中文释义），严格输出 JSON 数组，严禁输出任何非 JSON 字符。"
+            : "你是专业英语例句生成工具。动词必须明确区分标注 vt. 或 vi.，严格输出 JSON 数组，严禁输出任何非 JSON 字符。",
+        },
         { role: "user", content: prompt },
       ]);
 
@@ -221,7 +232,10 @@ export async function matchExamplesForCard(card: {
             if (res.length >= 3) break;
             const en = String(item.en || "").trim();
             if (!en) continue;
-            const sense = String(item.sense || "").trim();
+            let sense = String(item.sense || "").trim();
+            if (isPhraseWord) {
+              sense = removePosPrefix(sense);
+            }
             const senseKey = sense.toLowerCase().replace(/\s+/g, "");
             if (senseKey && seenSenses.has(senseKey)) continue;
             if (senseKey) seenSenses.add(senseKey);
@@ -242,6 +256,7 @@ export async function matchExamplesForCard(card: {
 
   // 2. 词典/Tatoeba 回退
   try {
+    const isPhraseWord = isPhrase(front);
     const key = front.toLowerCase();
     const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
     if (res.ok) {
@@ -263,7 +278,7 @@ export async function matchExamplesForCard(card: {
               const defKey = (pos + ":" + (def.definition || "")).slice(0, 30).toLowerCase();
               if (!seenDefs.has(defKey)) {
                 seenDefs.add(defKey);
-                const senseText = pos ? `${pos}.` : "";
+                const senseText = !isPhraseWord && pos ? `${pos}.` : "";
                 candidates.push({
                   sense: senseText,
                   en: def.example.trim(),

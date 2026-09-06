@@ -1,6 +1,6 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { db } from "@/lib/db";
-import { splitMeaningText } from "./meaning";
+import { splitMeaningText, isPhrase, removePosPrefix } from "./meaning";
 import { normalizeWordForPhonetic, httpFetch, translateText, getDeepLApiKey, translateWithDeepL } from "@/lib/dictionary";
 
 export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
@@ -205,10 +205,11 @@ export async function recognizeNewWords(
 
 /** AI 按当前标准拆分释义为主要/次要 */
 export async function aiSplitMeaning(front: string, back: string): Promise<{ primary: string; secondary: string }> {
+  const isPhraseWord = isPhrase(front);
   const client = await getClient();
   const standard = await getVocabStandard();
   const prompt = [
-    `你是一名专业的英语词汇释义整理助手。请按照${standard}学习标准，重新整理单词 "${front}" 的中文释义。`,
+    `你是一名专业的英语词汇释义整理助手。请按照${standard}学习标准，重新整理${isPhraseWord ? "短语/词组" : "单词"} "${front}" 的中文释义。`,
 
     "",
     "【任务】",
@@ -243,11 +244,18 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
     "【整理规则与词性要求（极其重要）】",
     "- 不要丢失原始释义中的重要信息。",
     "- primary 和 secondary 应覆盖原始释义中的有效信息；如果为了学习优先级进行了合并，可以合并同义或高度相近的释义。",
-    "- 动词必须严格保留或准确标明及物动词（vt.）和不及物动词（vi.），严禁笼统标注为 v.！",
-    "- 若原始释义中已标注 vt. 或 vi.，必须准确保留对应词性，不得篡改或降级为 v.；",
-    "- 若原始释义未标明及物性（仅标 v. 或无词性），请根据单词在该含义下的英语语法实际用法，准确标明是 vt. 还是 vi.；若某释义兼具及物与不及物用法，标为 vt.&vi.；",
-    "- 其他词性（如 n.、adj.、adv.、prep. 等）也应清晰标注并保留；",
-    "- 每个词性对应的释义片段前必须清晰带有词性缩写（如“vt. 抛弃；放弃”、“vi. 放弃；屈服”、“n. 放任”）；",
+    ...(isPhraseWord
+      ? [
+          "- 【极其重要：该词目为短语/词组】短语严禁匹配或添加任何词性标签（如 phr.、v.、vt.、vi.、prep.、n. 等全部不要！），词性留空，只输出纯净中文释义。",
+          "- 每个释义片段前绝对不要带词性缩写，直接输出简洁自然的中文含义。",
+        ]
+      : [
+          "- 动词必须严格保留或准确标明及物动词（vt.）和不及物动词（vi.），严禁笼统标注为 v.！",
+          "- 若原始释义中已标注 vt. 或 vi.，必须准确保留对应词性，不得篡改或降级为 v.；",
+          "- 若原始释义未标明及物性（仅标 v. 或无词性），请根据单词在该含义下的英语语法实际用法，准确标明是 vt. 还是 vi.；若某释义兼具及物与不及物用法，标为 vt.&vi.；",
+          "- 其他词性（如 n.、adj.、adv.、prep. 等）也应清晰标注并保留；",
+          "- 每个词性对应的释义片段前必须清晰带有词性缩写（如“vt. 抛弃；放弃”、“vi. 放弃；屈服”、“n. 放任”）；",
+        ]),
     "- 中文释义应简洁、自然、准确，避免解释过长。",
     "- 不要输出英文例句、词源、同义词或额外解释。",
     "- 不要改变单词本身的含义或人为创造不存在的释义。",
@@ -258,11 +266,16 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
     '格式：{"primary":"...","secondary":"..."}',
 
     "",
-    `【单词】${front}`,
+    `【${isPhraseWord ? "短语" : "单词"}】${front}`,
     `【原始释义】${back}`,
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 释义拆分助手。将释义拆分为主要/次要部分，严格以 JSON 对象格式输出。动词必须明确区分并标明及物（vt.）或不及物（vi.），严禁笼统写成 v.，不得输出 JSON 以外的任何内容。" },
+    {
+      role: "system",
+      content: isPhraseWord
+        ? "你是 Reciter 释义拆分助手。将短语释义拆分为主要/次要部分，严格以 JSON 对象格式输出。短语严禁添加任何词性标签（如 phr./v./vt. 等全部不要），直接输出纯净中文释义，不得输出 JSON 以外的任何内容。"
+        : "你是 Reciter 释义拆分助手。将释义拆分为主要/次要部分，严格以 JSON 对象格式输出。动词必须明确区分并标明及物（vt.）或不及物（vi.），严禁笼统写成 v.，不得输出 JSON 以外的任何内容。",
+    },
     { role: "user", content: prompt },
   ]);
   const parsed = extractJsonObject<{ primary?: string; secondary?: string }>(raw);
@@ -272,7 +285,15 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
   const originalLen = back.replace(/\s+/g, "").length;
   // 防丢失：AI 结果为空或明显比原释义短很多时，回退为整条释义作为主要释义
   if (!primary || (originalLen > 0 && combinedLen < originalLen * 0.5)) {
-    return splitMeaningText(back);
+    return splitMeaningText(back, isPhraseWord);
+  }
+
+  // 短语规则：严禁匹配或附加词性，剥除可能残留的词性标记
+  if (isPhraseWord) {
+    return {
+      primary: removePosPrefix(primary),
+      secondary: removePosPrefix(secondary),
+    };
   }
 
   // 动词及物性校准与防降级：若原释义已明确标注 vt. 或 vi.，确保不会被错误降级为纯 v.
@@ -305,27 +326,41 @@ export async function aiSplitMeaning(front: string, back: string): Promise<{ pri
 export async function explainWord(word: string): Promise<WordExplanation> {
   const client = await getClient();
   const standard = await getVocabStandard();
+  const isPhraseWord = isPhrase(word);
   const prompt = [
-    `请讲解英语单词/短语「${word}」，难度适合${standard}水平。`,
+    `请讲解英语${isPhraseWord ? "短语" : "单词"}「${word}」，难度适合${standard}水平。`,
     "",
     "输出以下字段：",
     "- word：单词/短语本身",
-    "- pos：词性（动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统写成 v.；其余如 n./adj./adv./phr. 等）",
-    "- meaning：中文释义（简洁准确，动词请标明及物/不及物）",
+    isPhraseWord
+      ? "- pos：留空字符串 \"\"（注意：该词目为短语/词组，严禁赋予或匹配任何词性标签，必须保持为空字符串）"
+      : "- pos：词性（动词必须严格标明及物 vt. 或不及物 vi.，严禁笼统写成 v.；其余如 n./adj./adv./prep. 等）",
+    "- meaning：中文释义（简洁准确" + (isPhraseWord ? "，短语不要带词性" : "，动词请标明及物/不及物") + "）",
     "- example：一个包含该词的地道英文例句",
     "- exampleCn：该例句的中文翻译",
     "",
     '只输出 JSON，不要使用 markdown 代码块包裹：{"word":"...","pos":"...","meaning":"...","example":"...","exampleCn":"..."}',
   ].join("\n");
   const raw = await client.chat([
-    { role: "system", content: "你是 Reciter 词汇讲解助手。讲解单词的词性、释义和用法，动词必须明确区分标注 vt. 或 vi.，严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。" },
+    {
+      role: "system",
+      content: isPhraseWord
+        ? "你是 Reciter 词汇讲解助手。讲解英语短语的用法与释义，短语严禁添加词性（pos 必须为空），严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。"
+        : "你是 Reciter 词汇讲解助手。讲解单词的词性、释义和用法，动词必须明确区分标注 vt. 或 vi.，严格以 JSON 对象格式输出，不得输出 JSON 以外的任何内容。",
+    },
     { role: "user", content: prompt },
   ]);
   const parsed = extractJsonObject<WordExplanation>(raw);
+  let pos = parsed.pos || "";
+  let meaning = parsed.meaning || "";
+  if (isPhraseWord) {
+    pos = "";
+    meaning = removePosPrefix(meaning);
+  }
   return {
     word: parsed.word || word,
-    pos: parsed.pos || "",
-    meaning: parsed.meaning || "",
+    pos,
+    meaning,
     example: parsed.example || "",
     exampleCn: parsed.exampleCn || "",
   };
@@ -337,42 +372,48 @@ export async function fetchWordDefinition(
 ): Promise<{ pos: string; meaning: string }> {
   const clean = word.trim();
   if (!clean) return { pos: "", meaning: "" };
+  const isPhraseWord = isPhrase(clean);
 
   // 1. 优先尝试 AI 讲解接口
   try {
     const exp = await explainWord(clean);
     if (exp && (exp.meaning || exp.pos)) {
-      return { pos: exp.pos || "", meaning: exp.meaning || "" };
+      return {
+        pos: isPhraseWord ? "" : (exp.pos || ""),
+        meaning: isPhraseWord ? removePosPrefix(exp.meaning || "") : (exp.meaning || ""),
+      };
     }
   } catch {
     // AI 未配置或异常，降级到词典与公共翻译
   }
 
-  // 2. 词典 API + 翻译兜底
-  try {
-    const key = normalizeWordForPhonetic(clean) || clean.toLowerCase();
-    const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
-    if (res.ok) {
-      const data = (await res.json()) as any[];
-      if (Array.isArray(data) && data[0]?.meanings?.length) {
-        const firstMeaning = data[0].meanings[0];
-        const pos = firstMeaning.partOfSpeech ? `${firstMeaning.partOfSpeech}.` : "";
-        const rawDef = firstMeaning.definitions?.[0]?.definition || "";
-        if (rawDef) {
-          const zh = await translateText(rawDef).catch(() => "");
-          if (zh) return { pos, meaning: zh };
+  // 2. 词典 API + 翻译兜底（短语跳过单词词典）
+  if (!isPhraseWord) {
+    try {
+      const key = normalizeWordForPhonetic(clean) || clean.toLowerCase();
+      const res = await httpFetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
+      if (res.ok) {
+        const data = (await res.json()) as any[];
+        if (Array.isArray(data) && data[0]?.meanings?.length) {
+          const firstMeaning = data[0].meanings[0];
+          const pos = firstMeaning.partOfSpeech ? `${firstMeaning.partOfSpeech}.` : "";
+          const rawDef = firstMeaning.definitions?.[0]?.definition || "";
+          if (rawDef) {
+            const zh = await translateText(rawDef).catch(() => "");
+            if (zh) return { pos, meaning: zh };
+          }
         }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
   // 3. 直接翻译文本兜底（兼容短语、成语或无词典条目词）
   try {
     const zh = await translateText(clean).catch(() => "");
     if (zh && zh.toLowerCase() !== clean.toLowerCase()) {
-      return { pos: "", meaning: zh };
+      return { pos: "", meaning: isPhraseWord ? removePosPrefix(zh) : zh };
     }
   } catch {
     // ignore

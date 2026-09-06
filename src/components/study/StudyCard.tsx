@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import type { StudyCardRow } from "@/lib/db";
 import type { IntervalPreview } from "@/lib/fsrs";
 import { matchRecall, type RecallMatchResult } from "@/lib/recall-match";
+import { getCardMeaning, isPhrase, removePosPrefix } from "@/lib/meaning";
 import { speak } from "@/lib/tts";
 import { DictionaryExample } from "./DictionaryExample";
 import { getPureTags } from "@/lib/card-examples";
@@ -53,6 +54,8 @@ const RECALL_HINT_SECONDS = 10;
 export interface Distractor {
   front: string;
   back: string;
+  meaning_primary?: string;
+  meaning_secondary?: string;
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -213,10 +216,12 @@ function RevealContext({ row }: { row: StudyCardRow }) {
   );
 }
 
-/** 主要释义加粗 + 次要释义第二栏 */
+/** 主要释义加粗 + 次要释义第二栏（短语自动去除残留词性） */
 function MeaningBlock({ row, className }: { row: StudyCardRow; className?: string }) {
-  const primary = row.meaning_primary || row.back;
-  const secondary = row.meaning_secondary;
+  const isP = isPhrase(row.front);
+  const rawPrimary = row.meaning_primary || row.back;
+  const primary = isP ? removePosPrefix(rawPrimary) : rawPrimary;
+  const secondary = isP && row.meaning_secondary ? removePosPrefix(row.meaning_secondary) : row.meaning_secondary;
   return (
     <div className={cn("space-y-0.5", className)}>
       <div className="font-semibold whitespace-pre-wrap break-words">{primary}</div>
@@ -345,7 +350,7 @@ function ActiveRecallView(props: ModeViewProps) {
 
   const handleCheckRecall = () => {
     if (!recallInput.trim()) return;
-    const result = matchRecall(recallInput, row.back);
+    const result = matchRecall(recallInput, getCardMeaning(row));
     setRecallResult(result);
     setRecallPhase("result");
     setLimitedRatings(false);
@@ -444,7 +449,7 @@ function ActiveRecallView(props: ModeViewProps) {
             )}
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-            {/* 回答后展示用户答案，而不是原文语境 */}
+            {/* 回答后展示用户答案 */}
             <div className="w-full max-w-lg rounded-md border bg-muted/40 p-3 text-left">
               <p className="text-xs font-medium text-muted-foreground">你的答案</p>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">
@@ -530,27 +535,28 @@ function QuickTestView(props: ModeViewProps) {
       .map((d) => d.front.trim())
       .filter((f) => f && f !== row.front.trim());
     const similarFronts = pickSimilarWords(row.front, fronts, 3);
+    const currentMeaning = getCardMeaning(row);
     if (similarFronts.length >= 1) {
       return {
         useFront: true as const,
         options: shuffle([row.front, ...similarFronts]),
-        prompt: row.back,
+        prompt: currentMeaning,
         correct: row.front,
       };
     }
     const backs: string[] = [];
     for (const d of distractors) {
-      const b = d.back.trim();
-      if (b && b !== row.back && !backs.includes(b)) backs.push(b);
+      const b = getCardMeaning(d).trim();
+      if (b && b !== currentMeaning && !backs.includes(b)) backs.push(b);
       if (backs.length >= 3) break;
     }
     return {
       useFront: false as const,
-      options: shuffle([row.back, ...backs]),
+      options: shuffle([currentMeaning, ...backs]),
       prompt: row.front,
-      correct: row.back,
+      correct: currentMeaning,
     };
-  }, [distractors, row.front, row.back]);
+  }, [distractors, row]);
   const useChoice = choice.options.length >= 2;
 
   useEffect(() => {
