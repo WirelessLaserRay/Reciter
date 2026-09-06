@@ -51,7 +51,7 @@ export default function Sidebar({
   return (
     <aside
       className={cn(
-        "sidebar-aside flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        "sidebar-aside hidden md:flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
         collapsed && "sidebar-collapsed"
       )}
       style={{ width: collapsed ? "3.5rem" : "14rem" }}

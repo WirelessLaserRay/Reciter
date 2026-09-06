@@ -481,7 +481,7 @@ export default function Dashboard() {
                   size="default"
                   onClick={handleStartOrchestratedStudy}
                   disabled={orchestratedPlan.totalTarget === 0}
-                  className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm w-full sm:w-auto"
                 >
                   <Sparkles className="size-4" />
                   开始今日 AI 编排任务 ({orchestratedPlan.totalTarget} 词)

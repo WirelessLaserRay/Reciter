@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import BottomNav from "./BottomNav";
 import { useDbStore } from "@/stores/useDbStore";
 
 const SIDEBAR_KEY = "reciter-sidebar-collapsed";
@@ -22,7 +23,7 @@ export default function MainLayout() {
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen md:h-screen min-h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-background text-foreground">
       <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header />
@@ -31,9 +32,13 @@ export default function MainLayout() {
             数据库不可用：{dbError}。请通过 <code>npm run tauri dev</code> 在桌面环境中运行。
           </div>
         )}
-        <main key={location.pathname} className="flex-1 overflow-y-auto p-6">
+        <main
+          key={location.pathname}
+          className="flex-1 overflow-y-auto p-3.5 sm:p-6 pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-6"
+        >
           <Outlet />
         </main>
+        <BottomNav />
       </div>
     </div>
   );

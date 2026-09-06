@@ -28,7 +28,7 @@ export default function Header() {
     TITLES[window.location.hash.replace("#", "")] ?? "Reciter";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-6">
+    <header className="flex h-13 sm:h-14 shrink-0 items-center justify-between border-b bg-background px-4 sm:px-6 pt-[env(safe-area-inset-top)]">
       <h1 className="text-lg font-semibold">{title}</h1>
       <div className="flex items-center gap-2">
         {runningTasks.map((t) => (
