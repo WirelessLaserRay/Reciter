@@ -63,7 +63,7 @@ export function ConfirmDialog({
             </Button>
           )}
           <Button variant={destructive ? "destructive" : "default"} onClick={onConfirm} disabled={busy}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            {busy ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : null}
             {confirmLabel}
           </Button>
         </DialogFooter>

@@ -92,6 +92,8 @@ import {
   pullSnapshot,
   getSyncMetaInfo,
   undoSyncRestore,
+  getAutoSyncEnabled,
+  saveAutoSyncEnabled,
   type SyncMetaInfo,
 } from "@/lib/sync";
 import {
@@ -203,6 +205,7 @@ export default function Settings() {
   // 跨端同步
   const [syncEndpoint, setSyncEndpoint] = useState("");
   const [syncToken, setSyncToken] = useState("");
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -230,7 +233,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, vocabStd, aml, examCfg, examPlan] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, autoSync, vocabStd, aml, examCfg, examPlan] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -253,6 +256,7 @@ export default function Settings() {
         getDeepLApiUrl(),
         getDeepLCorsProxy(),
         getSyncConfig(),
+        getAutoSyncEnabled(),
         getVocabStandard(),
         getArticleMaxLength(),
         getExamConfig(),
@@ -284,6 +288,7 @@ export default function Settings() {
       setDeeplCorsProxy(dcp);
       setSyncEndpoint(syncCfg.endpoint);
       setSyncToken(syncCfg.token);
+      setAutoSyncEnabled(autoSync);
       setVocabStandard(vocabStd);
       setArticleMaxLength(aml);
       setExamTitle(examCfg.title || "");
@@ -701,18 +706,40 @@ export default function Settings() {
   const handlePushSync = async (force = false) => {
     setSyncBusy(true);
     setSyncMsg(null);
-    const r = await pushSnapshot({ force });
-    setSyncBusy(false);
-    if (r.conflict) {
-      setConflictInfo({
-        remoteUpdatedAt: r.remoteUpdatedAt ?? null,
-        localLastSync: r.localLastSync ?? null,
-      });
-      setConflictDialogOpen(true);
-      return;
+    try {
+      const r = await pushSnapshot({ force });
+      if (r.conflict) {
+        setConflictInfo({
+          remoteUpdatedAt: r.remoteUpdatedAt ?? null,
+          localLastSync: r.localLastSync ?? null,
+        });
+        setConflictDialogOpen(true);
+        return;
+      }
+      setSyncMsg({ ok: r.ok, text: r.message });
+      await refreshSyncStatus();
+    } finally {
+      setSyncBusy(false);
     }
-    setSyncMsg({ ok: r.ok, text: r.message });
-    await refreshSyncStatus();
+  };
+
+  const handleConfirmForcePush = async () => {
+    setConflictDialogOpen(false);
+    setConflictInfo(null);
+    await handlePushSync(true);
+  };
+
+  const handleCancelConflict = () => {
+    setConflictDialogOpen(false);
+    setConflictInfo(null);
+    setSyncMsg({ ok: false, text: "已取消上传，云端数据保持不变" });
+  };
+
+  const handleAutoSyncToggle = async (enabled: boolean) => {
+    setAutoSyncEnabled(enabled);
+    if (!dbReady) return;
+    await saveAutoSyncEnabled(enabled);
+    flashSaved();
   };
 
   const handlePullSyncClick = () => {
@@ -1788,6 +1815,20 @@ export default function Settings() {
                   placeholder="与 Worker 环境变量 SYNC_TOKEN 一致"
                 />
               </div>
+              <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/20">
+                <div className="space-y-0.5">
+                  <Label htmlFor="auto-sync" className="text-sm font-medium">自动同步学习进度</Label>
+                  <p className="text-xs text-muted-foreground">
+                    打开应用时自动拉取云端新进度，学完后自动上传（仅同步词库与学习记录，本地设置互不干扰）
+                  </p>
+                </div>
+                <Switch
+                  id="auto-sync"
+                  checked={autoSyncEnabled}
+                  onCheckedChange={handleAutoSyncToggle}
+                />
+              </div>
+
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <Button variant="outline" size="sm" onClick={handleSaveSync}>
                   保存设置
@@ -1850,9 +1891,9 @@ export default function Settings() {
               )}
               <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Database className="mt-0.5 size-3.5 shrink-0" />
-                <div>
+                <div className="space-y-1">
+                  <p><b>纯净学习进度同步</b>：跨端仅同步词库、卡片 FSRS 算法状态与复习记录，各端本地设置（AI 密钥、偏好配置、主题）保持独立，绝不会被云端覆盖冲刷。</p>
                   <p><b>安全防线已启用</b>：上传前自动检测多端冲突；下载或覆盖恢复前会自动生成本地安全快照，随时可一键撤销回退。</p>
-                  <p>需先在 Cloudflare 部署 Worker 并配置 KV 命名空间与 SYNC_TOKEN。</p>
                 </div>
               </div>
             </CardContent>
@@ -1976,8 +2017,11 @@ export default function Settings() {
       {/* 推送冲突确认弹窗 */}
       <ConfirmDialog
         open={conflictDialogOpen}
-        onOpenChange={setConflictDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) handleCancelConflict();
+        }}
         title="云端检测到更新的快照"
+        busy={syncBusy}
         description={
           conflictInfo ? (
             <div className="space-y-2 text-xs">
@@ -1995,8 +2039,8 @@ export default function Settings() {
         destructive
         confirmLabel="强制覆盖云端"
         cancelLabel="取消"
-        onConfirm={() => handlePushSync(true)}
-        onCancel={() => setConflictDialogOpen(false)}
+        onConfirm={handleConfirmForcePush}
+        onCancel={handleCancelConflict}
       />
 
       {/* 拉取下载覆盖确认弹窗 */}

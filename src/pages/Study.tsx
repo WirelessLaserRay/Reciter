@@ -62,6 +62,7 @@ import {
   getExamConfig,
   markTodayPlanCompleted,
 } from "@/lib/exam-planner";
+import { autoPushIfConfigured, autoPullIfRemoteNewer } from "@/lib/sync";
 
 function formatDuration(totalSeconds: number): string {
   const sec = Math.max(0, Math.floor(totalSeconds));
@@ -262,6 +263,27 @@ function StudySession({
     }
   }, [finished, isOrchestrated, stats.reviewed, stats.newDone, orchestratedTitle]);
 
+  // 学习完成时自动同步进度至云端
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (finished && (stats.reviewed + stats.newDone > 0)) {
+      setSyncNotice("正在自动同步云端进度...");
+      autoPushIfConfigured()
+        .then((res) => {
+          if (res.pushed) {
+            setSyncNotice("学习进度已自动同步至云端");
+          } else if (res.reason === "conflict") {
+            setSyncNotice("云端有新进度冲突，已保留本地学习记录，可在设置页处理");
+          } else {
+            setSyncNotice(null);
+          }
+        })
+        .catch(() => {
+          setSyncNotice(null);
+        });
+    }
+  }, [finished, stats.reviewed, stats.newDone]);
+
   const handleRefreshEncouragement = async () => {
     setEncouragementRefreshing(true);
     try {
@@ -369,7 +391,7 @@ function StudySession({
         await db.markCardWeak(cardId, leechThreshold);
         setWeakCardIds((prev) => new Set(prev).add(cardId));
         item.row.lapses = Math.max(item.row.lapses, leechThreshold);
-        setWeakNotice("已加入弱词本 ✨");
+        setWeakNotice("已加入弱词本");
       }
       setTimeout(() => setWeakNotice(null), 2500);
     } catch (e) {
@@ -707,7 +729,7 @@ function StudySession({
             ) : (
               <BookOpen className="size-10 text-muted-foreground" />
             )}
-            <CardTitle>{done > 0 ? (isOrchestrated ? "本次学习已完成 🎉" : "本轮完成 🎉") : "今日没有需要学习的卡片"}</CardTitle>
+            <CardTitle>{done > 0 ? (isOrchestrated ? "本次学习已完成" : "本轮完成") : "今日没有需要学习的卡片"}</CardTitle>
             <CardDescription className="max-w-md">
               {done > 0 ? (
                 <>
@@ -725,6 +747,9 @@ function StudySession({
             )}
             {done > 0 && (
               <p className="text-xs text-muted-foreground">本次学习时长：{sessionDuration}</p>
+            )}
+            {syncNotice && (
+              <p className="text-xs text-muted-foreground">{syncNotice}</p>
             )}
             {done > 0 && stats.weakWords.length > 0 && (
               <div className="w-full max-w-md rounded-lg bg-muted/50 p-3 text-left">
@@ -982,6 +1007,9 @@ function StudySession({
         cancelLabel="继续学习"
         onConfirm={() => {
           setExitOpen(false);
+          if (done > 0) {
+            void autoPushIfConfigured().catch(() => {});
+          }
           useStudyStore.getState().reset();
           navigate("/decks");
         }}
@@ -996,6 +1024,13 @@ function DeckPicker({ onStudy }: { onStudy: (id: number, name: string) => void }
 
   useEffect(() => {
     refresh();
+    void autoPullIfRemoteNewer()
+      .then((pulled) => {
+        if (pulled) {
+          refresh();
+        }
+      })
+      .catch(() => {});
   }, [refresh]);
 
   if (decks.length === 0) {

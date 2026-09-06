@@ -261,8 +261,11 @@ export async function pullSnapshot(): Promise<SyncResult> {
     const remoteHeaderTime = res.headers.get("X-Snapshot-Updated-At");
     const rawData = await res.json();
 
-    // 执行恢复（内部自动生成覆盖前的本地安全快照与数据清洗）
-    const restoreRes = await restoreBackupData(rawData, { reason: "pre_sync" });
+    // 执行恢复（内部自动生成覆盖前的本地安全快照与数据清洗，严格保留本地所有独立设置）
+    const restoreRes = await restoreBackupData(rawData, {
+      reason: "pre_sync",
+      preserveSettings: true,
+    });
     if (!restoreRes.ok) {
       return { ok: false, message: restoreRes.message };
     }
@@ -298,4 +301,90 @@ export async function undoSyncRestore(): Promise<SyncResult> {
   } catch (e) {
     return { ok: false, message: `撤销失败: ${String(e)}` };
   }
+}
+
+/** 获取是否开启自动同步学习进度（默认开启） */
+export async function getAutoSyncEnabled(): Promise<boolean> {
+  const v = await db.getSetting("sync_auto_enabled");
+  return v !== "0";
+}
+
+/** 设置是否开启自动同步学习进度 */
+export async function saveAutoSyncEnabled(enabled: boolean): Promise<void> {
+  await db.setSetting("sync_auto_enabled", enabled ? "1" : "0");
+}
+
+export interface AutoPullResult {
+  synced: boolean;
+  message?: string;
+  decks?: number;
+  cards?: number;
+  error?: string;
+}
+
+/**
+ * 启动时静默检查并自动拉取云端新学习进度
+ * - 只有当云端快照明确比本地记录更新时才自动拉取
+ * - 严格只更新词库、卡片 FSRS 算法状态、复习记录，绝不覆盖本地独立设置
+ */
+export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
+  const autoEnabled = await getAutoSyncEnabled();
+  if (!autoEnabled) return { synced: false };
+
+  const cfg = await getSyncConfig();
+  if (!cfg.endpoint || !cfg.token) return { synced: false };
+
+  try {
+    const meta = await getSyncMetaInfo();
+    if (!meta.ok || !meta.remoteUpdatedAt) return { synced: false };
+
+    const remoteTime = new Date(meta.remoteUpdatedAt).getTime();
+    if (meta.localLastRemoteTime) {
+      const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
+      if (remoteTime <= localRemoteTime) {
+        // 本地已是最新
+        return { synced: false };
+      }
+    } else {
+      // 本地无上次远端时间，若本地已有卡片，不强制静默覆盖，交由用户手动确认
+      const localCount = await db.getTotalCardCount();
+      if (localCount > 0) return { synced: false };
+    }
+
+    const res = await pullSnapshot();
+    if (res.ok) {
+      return {
+        synced: true,
+        message: res.message,
+        decks: res.decks,
+        cards: res.cards,
+      };
+    }
+    return { synced: false, error: res.message };
+  } catch (e) {
+    return { synced: false, error: String(e) };
+  }
+}
+
+/**
+ * 学习完成退出时自动静默推送到云端
+ * - 若云端有更新快照，则暂缓推送，避免冲刷其他设备数据
+ */
+export async function autoPushIfConfigured(): Promise<SyncResult> {
+  const autoEnabled = await getAutoSyncEnabled();
+  if (!autoEnabled) return { ok: false, message: "自动同步已关闭" };
+
+  const cfg = await getSyncConfig();
+  if (!cfg.endpoint || !cfg.token) return { ok: false, message: "未配置同步服务" };
+
+  const check = await checkPushConflict();
+  if (check.hasConflict) {
+    return {
+      ok: false,
+      conflict: true,
+      message: "云端检测到更新的快照，已暂缓自动上传",
+    };
+  }
+
+  return pushSnapshot({ force: false });
 }

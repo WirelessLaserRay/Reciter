@@ -267,6 +267,7 @@ export async function restoreSafetyBackup(): Promise<BackupResult> {
 export interface RestoreOptions {
   skipSafetyBackup?: boolean;
   reason?: "pre_restore" | "pre_sync";
+  preserveSettings?: boolean;
 }
 
 /** 从 BackupData 整体恢复（带安全快照备份、本地设置保护、向下兼容清洗与自校验） */
@@ -294,12 +295,13 @@ export async function restoreBackupData(
     }
   }
 
-  // 2. 提取本地需要保留的关键设备配置（凭据与同步状态）
+  // 2. 提取本地需要保留的设备配置（云端同步时保留全部本地独立设置；普通文件恢复仅保留私有凭据）
+  const preserveAllSettings = options?.preserveSettings ?? options?.reason === "pre_sync";
   const preservedMap = new Map<string, string>();
   try {
     const localSettings = await db.getAllSettings();
     for (const s of localSettings) {
-      if (DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
+      if (preserveAllSettings || DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
         preservedMap.set(s.key, s.value);
       }
     }
@@ -313,14 +315,18 @@ export async function restoreBackupData(
       for (const d of data.decks) await db.restoreDeck(d);
       for (const c of data.cards) await db.restoreCard(c as never);
       for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
-      for (const s of data.settings ?? []) {
-        if (!DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
-          await db.restoreSetting(s.key, s.value);
+
+      // 若不保留全部本地设置，才从备份中恢复设置
+      if (!preserveAllSettings) {
+        for (const s of data.settings ?? []) {
+          if (!DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
+            await db.restoreSetting(s.key, s.value);
+          }
         }
       }
       for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
 
-      // 写回保留的本地私有配置
+      // 写回保留的本地配置
       for (const [key, val] of preservedMap.entries()) {
         await db.restoreSetting(key, val);
       }

@@ -1,19 +1,33 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import BottomNav from "./BottomNav";
 import { useDbStore } from "@/stores/useDbStore";
+import { useDeckStore } from "@/stores/useDeckStore";
+import { autoPullIfRemoteNewer } from "@/lib/sync";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "reciter-sidebar-collapsed";
 
 export default function MainLayout() {
   const location = useLocation();
+  const dbReady = useDbStore((s) => s.ready);
   const dbError = useDbStore((s) => s.error);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(SIDEBAR_KEY) === "1"
   );
+
+  useEffect(() => {
+    if (!dbReady) return;
+    void autoPullIfRemoteNewer()
+      .then((pulled) => {
+        if (pulled) {
+          useDeckStore.getState().refresh();
+        }
+      })
+      .catch(() => {});
+  }, [dbReady]);
 
   const isStudy = location.pathname === "/study";
 
