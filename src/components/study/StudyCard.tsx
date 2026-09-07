@@ -29,7 +29,7 @@ import {
   getWordMaskHint,
 } from "@/lib/recall-match";
 import { getCardMeaning, isPhrase, removePosPrefix } from "@/lib/meaning";
-import { speak } from "@/lib/tts";
+import { speak, stopAudio } from "@/lib/tts";
 import { DictionaryExample } from "./DictionaryExample";
 import { getPureTags } from "@/lib/card-examples";
 import { findRelatedWords } from "@/lib/word-family";
@@ -37,6 +37,7 @@ import { pickSimilarWords } from "@/lib/similar-words";
 import { optionIndexFromNumberKey } from "@/lib/shortcuts";
 import type { StudyModeConfig } from "@/lib/study-mode";
 import { STUDY_MODE_LABELS } from "@/lib/study-mode";
+import { getAutoPronounceEnabled } from "@/lib/study-prefs";
 import MarkdownContext from "./MarkdownContext";
 
 // ============ 评分常量（Phase 6A：三档默认 / 四档可选） ============
@@ -386,6 +387,7 @@ function DesktopActiveRecallView(props: ModeViewProps) {
     setRecallPhase("result");
     setRecallResult(null);
     setLimitedRatings(true);
+    speak(row.front);
     onReveal();
   };
 
@@ -393,6 +395,7 @@ function DesktopActiveRecallView(props: ModeViewProps) {
     setRecallPhase("result");
     setRecallResult(null);
     setLimitedRatings(false);
+    speak(row.front);
     onReveal();
   };
 
@@ -405,7 +408,7 @@ function DesktopActiveRecallView(props: ModeViewProps) {
     onReveal();
   };
 
-  // 统一快捷键：主动回忆提问阶段 Y/回车/空格 = 确定（想起来了），N = 不确定/不知道
+  // 统一快捷键：主动回忆提问阶段 Y/回车/空格 = 确定（我知道，去输入），N = 不确定/不知道
   useEffect(() => {
     if (recallPhase !== "prompt") return;
     const onKey = (e: KeyboardEvent) => {
@@ -421,7 +424,7 @@ function DesktopActiveRecallView(props: ModeViewProps) {
       if (e.key === "Enter" || e.key === " " || e.key === "y" || e.key === "Y") {
         if (interactive) return;
         e.preventDefault();
-        handleRecallDirect();
+        setRecallPhase("input");
       } else if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         handleDontKnow();
@@ -429,66 +432,39 @@ function DesktopActiveRecallView(props: ModeViewProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [recallPhase, handleDontKnow, handleRecallDirect]);
+  }, [recallPhase, handleDontKnow]);
 
   // 计时提示仅在「知道/不知道」选择前显示；点击后不再提示
   const recallHint =
     recallPhase === "prompt" && elapsed >= RECALL_HINT_SECONDS ? (
       <p className="text-xs text-amber-500">
-        已思考 {elapsed} 秒 — 超过 10 秒仍想不起来？建议直接点「记不清 / 忘了」，别在一张卡上停留太久。
+        已思考 {elapsed} 秒 — 超过 10 秒仍想不起来？建议直接点「不确定 / 不知道」，别在一张卡上停留太久。
       </p>
     ) : null;
 
   return (
-    <div className="space-y-3 sm:space-y-4">
+    <div className="space-y-4">
       {recallPhase === "prompt" && (
-        <div
-          onClick={handleRecallDirect}
-          className="flex min-h-[50vh] sm:min-h-80 w-full flex-col items-center justify-center gap-4 sm:gap-5 rounded-xl border bg-card p-5 sm:p-8 cursor-pointer active:scale-[0.99] transition-transform select-none"
-        >
+        <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
           <CardMetaBadges row={row} />
           <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
           <p className="text-sm text-muted-foreground">你知道这个词的意思吗？</p>
-          <div
-            className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-2 sm:gap-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Button
-              onClick={handleRecallDirect}
-              size="lg"
-              className="h-11 sm:h-12 text-base font-semibold px-6 sm:px-8"
-            >
-              想起来了（看释义）
+          <div className="flex gap-3">
+            <Button onClick={() => setRecallPhase("input")} size="lg">
+              我知道
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleDontKnow}
-              size="lg"
-              className="h-11 sm:h-12 text-base px-6 text-muted-foreground hover:text-foreground"
-            >
-              记不清 / 忘了
+            <Button variant="outline" onClick={handleDontKnow} size="lg">
+              不确定 / 不知道
             </Button>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setRecallPhase("input")}
-              className="h-7 text-xs text-muted-foreground hover:text-foreground"
-            >
-              打字精确比对…
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground hidden sm:block">
-            快捷键：Y / Enter / 空格 确定 · N 不确定
-          </p>
+          <p className="text-xs text-muted-foreground">快捷键：Y / Enter / 空格 确定 · N 不确定</p>
           {recallHint}
-          <p className="text-[11px] text-muted-foreground sm:hidden">轻触卡片或点击按钮查看释义</p>
+          <p className="text-xs text-muted-foreground">主动回忆 · 先回忆再看释义</p>
         </div>
       )}
 
       {recallPhase === "input" && (
-        <div className="flex min-h-[50vh] sm:min-h-80 w-full flex-col items-center justify-center gap-4 sm:gap-5 rounded-xl border bg-card p-5 sm:p-8">
+        <div className="flex min-h-80 w-full flex-col items-center justify-center gap-5 rounded-xl border bg-card p-8">
           <CardMetaBadges row={row} />
           <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
           <p className="text-sm text-muted-foreground">请输入你记得的释义：</p>
@@ -506,46 +482,45 @@ function DesktopActiveRecallView(props: ModeViewProps) {
               检查
             </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRecallDirect}
-            className="h-7 text-xs text-muted-foreground"
-          >
-            跳过打字，直接查看释义
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRecallDirect}
+              className="h-7 text-xs text-muted-foreground hover:text-foreground"
+            >
+              直接看答案
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">系统会模糊比对，不完全一致也没关系</p>
         </div>
       )}
 
       {recallPhase === "result" && (
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex min-h-[50vh] sm:min-h-80 w-full flex-col items-center justify-start sm:justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-4 sm:p-6">
+        <div className="space-y-4">
+          <div className="flex min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-8">
             <CardMetaBadges row={row} />
             <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-            <MeaningBlock row={row} className="max-w-md text-center text-xl sm:text-2xl" />
+            <MeaningBlock row={row} className="max-w-md text-center text-2xl" />
             {recallResult && (
-              <p className={recallResult.match ? "text-sm text-green-600" : "text-sm text-amber-600"}>
+              <p className={recallResult.match ? "text-sm text-green-600 dark:text-green-400 font-medium" : "text-sm text-amber-600 dark:text-amber-400 font-medium"}>
                 {recallResult.match
                   ? `基本正确！相似度 ${Math.round(recallResult.similarity * 100)}%`
                   : `和标准释义有差距（相似度 ${Math.round(recallResult.similarity * 100)}%），请对照记忆`}
               </p>
             )}
             {!recallResult && (
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                看释义与例句，根据脑海回忆对照评分
-              </p>
+              <p className="text-sm text-muted-foreground">没想起来也没关系，先看释义再评分</p>
             )}
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-            {recallInput.trim() && (
-              <div className="w-full max-w-lg rounded-md border bg-muted/40 p-3 text-left">
-                <p className="text-xs font-medium text-muted-foreground">你的答案</p>
-                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">
-                  {recallInput.trim()}
-                </p>
-              </div>
-            )}
+            {/* 回答后展示用户答案 */}
+            <div className="w-full max-w-lg rounded-md border bg-muted/40 p-3 text-left">
+              <p className="text-xs font-medium text-muted-foreground">你的答案</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">
+                {recallInput.trim() || "（未填写）"}
+              </p>
+            </div>
             <RevealContext row={row} />
             <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
           </div>
@@ -943,6 +918,40 @@ function QuickTestView(props: ModeViewProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [checked, useChoice, busy, choice, submitChoice]);
 
+  // 快速测试自动发音：若题目显示单词则卡片展示时朗读；若题目显示释义则作答后朗读
+  const spokenPromptRef = useRef(false);
+  const spokenCheckedRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!choice.useFront && !spokenPromptRef.current) {
+      spokenPromptRef.current = true;
+      getAutoPronounceEnabled()
+        .then((enabled) => {
+          if (active && enabled) speak(row.front);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      active = false;
+    };
+  }, [choice.useFront, row.front]);
+
+  useEffect(() => {
+    let active = true;
+    if (checked !== null && choice.useFront && !spokenCheckedRef.current) {
+      spokenCheckedRef.current = true;
+      getAutoPronounceEnabled()
+        .then((enabled) => {
+          if (active && enabled) speak(row.front);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      active = false;
+    };
+  }, [checked, choice.useFront, row.front]);
+
   return (
     <div className="space-y-4">
       <div className="flex min-h-[50vh] sm:min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-5 sm:p-8">
@@ -1107,11 +1116,48 @@ export interface StudyCardProps {
  */
 export default function StudyCard(props: StudyCardProps) {
   const { config } = props;
+  const isMobile = useIsMobile();
 
-  // 卡片切换卸载时复位父组件评分快捷键就绪状态
+  // 卡片切换卸载时复位父组件评分快捷键就绪状态，并立即打断正在播放的音频
   useEffect(() => {
-    return () => props.onRateReadyChange(false);
+    return () => {
+      props.onRateReadyChange(false);
+      stopAudio();
+    };
   }, [props.onRateReadyChange]);
+
+  // 学习单词时自动朗读单词（新卡教学、经典翻转、AI 深度攻克、桌面端主动回忆）
+  // 移动端主动回忆正面为中文防剧透，已在揭示答案时自动朗读
+  const spokenCardIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const cardId = props.row.card_id;
+    if (spokenCardIdRef.current === cardId) {
+      return;
+    }
+
+    const shouldSpeakOnMount =
+      config.mode === "new_teach" ||
+      config.mode === "classic" ||
+      config.mode === "ai_drill" ||
+      (config.mode === "recall" && !isMobile);
+
+    if (shouldSpeakOnMount) {
+      spokenCardIdRef.current = cardId;
+      getAutoPronounceEnabled()
+        .then((enabled) => {
+          if (active && enabled) {
+            speak(props.row.front);
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [props.row.card_id, props.row.front, config.mode, isMobile]);
 
   let view: ReactNode;
   switch (config.mode) {

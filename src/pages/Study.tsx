@@ -270,9 +270,9 @@ function StudySession({
       setSyncNotice("正在自动同步云端进度...");
       autoPushIfConfigured()
         .then((res) => {
-          if (res.pushed) {
+          if (res.ok) {
             setSyncNotice("学习进度已自动同步至云端");
-          } else if (res.reason === "conflict") {
+          } else if (res.conflict) {
             setSyncNotice("云端有新进度冲突，已保留本地学习记录，可在设置页处理");
           } else {
             setSyncNotice(null);

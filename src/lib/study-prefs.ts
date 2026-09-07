@@ -184,3 +184,14 @@ export async function getRestUntil(): Promise<number> {
 export async function setRestUntil(ts: number): Promise<void> {
   await db.setSetting("rest_until", String(ts));
 }
+
+/** 学习时自动发音（默认开启） */
+export async function getAutoPronounceEnabled(): Promise<boolean> {
+  const raw = await db.getSetting("auto_pronounce_enabled");
+  return raw !== "false";
+}
+
+export async function saveAutoPronounceEnabled(enabled: boolean): Promise<void> {
+  await db.setSetting("auto_pronounce_enabled", enabled ? "true" : "false");
+}
+

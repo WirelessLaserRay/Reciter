@@ -108,6 +108,7 @@ import { getCustomRssSources, getArticleMaxLength, saveCustomRssSources, type Cu
 import AISetupWizard from "@/components/ai/AISetupWizard";
 import {
   getActiveRecallEnabled,
+  getAutoPronounceEnabled,
   getIgnoredTags,
   getInterleaveRatio,
   getLearningSteps,
@@ -117,6 +118,7 @@ import {
   getRestDurationMinutes,
   getSummaryInterval,
   saveActiveRecallEnabled,
+  saveAutoPronounceEnabled,
   saveIgnoredTags,
   saveInterleaveRatio,
   saveLearningSteps,
@@ -160,6 +162,7 @@ export default function Settings() {
   const [ignoredTags, setIgnoredTags] = useState("");
   const [easyDaysEnabled, setEasyDaysEnabled] = useState(false);
   const [ttsSource, setTtsSource] = useState<TTSSource>("auto");
+  const [autoPronounceEnabled, setAutoPronounceEnabled] = useState(true);
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider>("deepl");
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [deeplApiUrl, setDeeplApiUrl] = useState("");
@@ -233,7 +236,7 @@ export default function Settings() {
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, tr, dlk, dlu, dcp, syncCfg, autoSync, vocabStd, aml, examCfg, examPlan] = await Promise.all([
+      const [r, d, npd, rl, aiCfg, rm, ar, si, ir, qt, msc, rdm, ls, lt, ig, ed, tts, ape, tr, dlk, dlu, dcp, syncCfg, autoSync, vocabStd, aml, examCfg, examPlan] = await Promise.all([
         db.getSetting("desired_retention"),
         db.getSetting("day_start"),
         db.getSetting("default_new_per_day"),
@@ -251,6 +254,7 @@ export default function Settings() {
         getIgnoredTags(),
         getEasyDaysConfig(),
         getTTSSource(),
+        getAutoPronounceEnabled(),
         getTranslationProvider(),
         getDeepLApiKey(),
         getDeepLApiUrl(),
@@ -282,6 +286,7 @@ export default function Settings() {
       setIgnoredTags(ig.join("、"));
       setEasyDaysEnabled(ed.enabled);
       setTtsSource(tts);
+      setAutoPronounceEnabled(ape);
       setTranslationProvider(tr);
       setDeeplApiKey(dlk);
       setDeeplApiUrl(dlu);
@@ -423,6 +428,13 @@ export default function Settings() {
     setTtsSource(v);
     if (!dbReady) return;
     await saveTTSSource(v);
+    flashSaved();
+  };
+
+  const handleAutoPronounceChange = async (v: boolean) => {
+    setAutoPronounceEnabled(v);
+    if (!dbReady) return;
+    await saveAutoPronounceEnabled(v);
     flashSaved();
   };
 
@@ -973,9 +985,22 @@ export default function Settings() {
                     <SelectItem value="google">Google TTS（需科学网络）</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  系统 TTS 离线可用；Google TTS 需要网络/代理；有道 TTS 适合国内直连。
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  系统 TTS 离线可用且支持无限长例句（推荐）；有道 TTS 适合国内单词极速发音（例句智能由系统引擎朗读）；Google TTS 适合单词发音（例句长句超过限制时自动由系统引擎朗读）。
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t">
+                <div className="space-y-0.5">
+                  <Label>学习时自动朗读单词</Label>
+                  <p className="text-xs text-muted-foreground">
+                    切换到新单词卡片时自动播放发音，强化听觉联想记忆
+                  </p>
+                </div>
+                <Switch
+                  checked={autoPronounceEnabled}
+                  onCheckedChange={handleAutoPronounceChange}
+                />
               </div>
             </CardContent>
           </Card>
