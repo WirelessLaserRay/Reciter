@@ -98,6 +98,7 @@ export interface WordSpellingResult {
 /**
  * 根据中文释义拼写英文单词的匹配比对
  * - 大小写不敏感、自动去除首尾空白与尾部多余标点
+ * - 支持带 "/" 的多变体单词（如 programme/program、analyse/analyze），只要匹配其中任意一侧即判定正确
  * - 支持微小拼写错误（编辑距离 <= 1 且长度 >= 4，或相似度 >= 0.82）作为基本匹配
  */
 export function matchWordSpelling(userInput: string, targetWord: string): WordSpellingResult {
@@ -114,6 +115,7 @@ export function matchWordSpelling(userInput: string, targetWord: string): WordSp
     };
   }
 
+  // 1. 如果整体完全相等（含用户可能完整输入了带有斜杠的形式）
   if (normUser === normTarget) {
     return {
       match: true,
@@ -124,15 +126,78 @@ export function matchWordSpelling(userInput: string, targetWord: string): WordSp
     };
   }
 
-  const dist = levenshtein(normUser, normTarget);
-  const maxLen = Math.max(normUser.length, normTarget.length, 1);
-  const similarity = Math.max(0, 1 - dist / maxLen);
-  const match = (dist <= 1 && maxLen >= 4) || similarity >= 0.82;
+  // 2. 收集目标词的所有候选变体（带 "/" 时拆分为多变体，如 "programme/program" -> ["programme", "program"]）
+  const targetCandidates: string[] = [];
+  if (targetWord.includes("/")) {
+    for (const part of targetWord.split("/")) {
+      const p = part.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,!?;:]+$/, "");
+      if (p && !targetCandidates.includes(p)) {
+        targetCandidates.push(p);
+      }
+      // 去除可能存在的括号注释（例如 "programme (英)" -> "programme"）
+      const stripped = p.replace(/\s*[(（][^()（）]*[)）]/g, "").trim();
+      if (stripped && !targetCandidates.includes(stripped)) {
+        targetCandidates.push(stripped);
+      }
+    }
+  }
+  if (!targetCandidates.includes(normTarget)) {
+    targetCandidates.push(normTarget);
+  }
+
+  // 3. 用户输入也同样支持拆分变体
+  const userCandidates: string[] = [];
+  if (userInput.includes("/")) {
+    for (const part of userInput.split("/")) {
+      const p = part.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,!?;:]+$/, "");
+      if (p && !userCandidates.includes(p)) {
+        userCandidates.push(p);
+      }
+    }
+  }
+  if (!userCandidates.includes(normUser)) {
+    userCandidates.push(normUser);
+  }
+
+  // 4. 优先检查是否存在任意一侧的完全精确匹配
+  for (const u of userCandidates) {
+    for (const t of targetCandidates) {
+      if (u === t) {
+        return {
+          match: true,
+          exact: true,
+          similarity: 1,
+          userWord: userInput.trim(),
+          targetWord: targetWord.trim(),
+        };
+      }
+    }
+  }
+
+  // 5. 模糊比对：在所有用户候选与目标候选组合中计算最优编辑距离与相似度
+  let bestSim = 0;
+  let bestMatch = false;
+
+  for (const u of userCandidates) {
+    for (const t of targetCandidates) {
+      const dist = levenshtein(u, t);
+      const maxLen = Math.max(u.length, t.length, 1);
+      const similarity = Math.max(0, 1 - dist / maxLen);
+      const isMatch = (dist <= 1 && maxLen >= 4) || similarity >= 0.82;
+
+      if (similarity > bestSim) {
+        bestSim = similarity;
+      }
+      if (isMatch) {
+        bestMatch = true;
+      }
+    }
+  }
 
   return {
-    match,
+    match: bestMatch,
     exact: false,
-    similarity,
+    similarity: bestSim,
     userWord: userInput.trim(),
     targetWord: targetWord.trim(),
   };
@@ -140,9 +205,16 @@ export function matchWordSpelling(userInput: string, targetWord: string): WordSp
 
 /**
  * 生成单词掩码提示（例如 "abandon" -> "a _ _ _ _ _ _"；showMore 为 true 时显示首尾字母 "a _ _ _ _ _ n"）
- * 适合看释义拼单词时提供字母数与首字母线索
+ * 支持带 "/" 的多变体（如 "programme/program" -> "p _ _ _ _ _ _ _ _ / p _ _ _ _ _ _"）
  */
 export function getWordMaskHint(word: string, showMore: boolean = false): string {
+  if (word.includes("/")) {
+    return word
+      .split("/")
+      .map((part) => getWordMaskHint(part.trim(), showMore))
+      .join(" / ");
+  }
+
   const parts = word.trim().split(/\s+/);
   return parts
     .map((p) => {

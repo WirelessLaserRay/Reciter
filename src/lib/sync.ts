@@ -2,6 +2,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@/lib/env";
 import { db } from "@/lib/db";
 import { buildBackup, restoreBackupData, restoreSafetyBackup } from "@/lib/backup";
+import { useSyncStore } from "@/stores/useSyncStore";
 
 export interface SyncConfig {
   endpoint: string;
@@ -224,6 +225,8 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
       db.setSetting("sync_last_local_time", new Date().toISOString()),
     ]);
 
+    useSyncStore.getState().setSynced(updatedAt, "快照已成功同步上传至云端");
+
     return {
       ok: true,
       message: "快照已成功同步上传至云端",
@@ -275,6 +278,11 @@ export async function pullSnapshot(): Promise<SyncResult> {
       db.setSetting("sync_last_remote_time", updatedAt),
       db.setSetting("sync_last_local_time", new Date().toISOString()),
     ]);
+
+    useSyncStore.getState().setSynced(
+      updatedAt,
+      `云端快照下载恢复成功（${restoreRes.decks} 词库 / ${restoreRes.cards} 卡片）`
+    );
 
     return {
       ok: true,
@@ -332,7 +340,11 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
   if (!autoEnabled) return { synced: false };
 
   const cfg = await getSyncConfig();
-  if (!cfg.endpoint || !cfg.token) return { synced: false };
+  if (!cfg.endpoint || !cfg.token) {
+    useSyncStore.getState().setIsConfigured(false);
+    return { synced: false };
+  }
+  useSyncStore.getState().setIsConfigured(true);
 
   try {
     const meta = await getSyncMetaInfo();
@@ -343,16 +355,22 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
       const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
       if (remoteTime <= localRemoteTime) {
         // 本地已是最新
+        useSyncStore.getState().setSynced(meta.localLastSyncTime || meta.remoteUpdatedAt, "学习进度已是最新");
         return { synced: false };
       }
     } else {
       // 本地无上次远端时间，若本地已有卡片，不强制静默覆盖，交由用户手动确认
       const localCount = await db.getTotalCardCount();
-      if (localCount > 0) return { synced: false };
+      if (localCount > 0) {
+        useSyncStore.getState().setConflict("云端检测到历史快照，请在设置页完成首次同步确认");
+        return { synced: false };
+      }
     }
 
+    useSyncStore.getState().setSyncing("检测到云端有新进度，正在自动拉取...");
     const res = await pullSnapshot();
     if (res.ok) {
+      useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "已自动拉取云端最新学习进度");
       return {
         synced: true,
         message: res.message,
@@ -360,14 +378,16 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
         cards: res.cards,
       };
     }
+    useSyncStore.getState().setError(res.message);
     return { synced: false, error: res.message };
   } catch (e) {
+    useSyncStore.getState().setError(String(e));
     return { synced: false, error: String(e) };
   }
 }
 
 /**
- * 学习完成退出时自动静默推送到云端
+ * 学习完成或离开学习时自动静默推送到云端
  * - 若云端有更新快照，则暂缓推送，避免冲刷其他设备数据
  */
 export async function autoPushIfConfigured(): Promise<SyncResult> {
@@ -375,16 +395,37 @@ export async function autoPushIfConfigured(): Promise<SyncResult> {
   if (!autoEnabled) return { ok: false, message: "自动同步已关闭" };
 
   const cfg = await getSyncConfig();
-  if (!cfg.endpoint || !cfg.token) return { ok: false, message: "未配置同步服务" };
+  if (!cfg.endpoint || !cfg.token) {
+    useSyncStore.getState().setIsConfigured(false);
+    return { ok: false, message: "未配置同步服务" };
+  }
+  useSyncStore.getState().setIsConfigured(true);
+
+  useSyncStore.getState().setSyncing("正在自动同步学习进度到云端...");
 
   const check = await checkPushConflict();
   if (check.hasConflict) {
+    const msg =
+      check.reason === "first_push_remote_exists"
+        ? "云端存在历史快照，请前往设置页完成首次同步确认"
+        : "云端检测到更新的快照，已暂缓自动上传以防冲刷数据";
+    useSyncStore.getState().setConflict(msg);
     return {
       ok: false,
       conflict: true,
-      message: "云端检测到更新的快照，已暂缓自动上传",
+      remoteUpdatedAt: check.remoteUpdatedAt,
+      localLastSync: check.localLastSync,
+      message: msg,
     };
   }
 
-  return pushSnapshot({ force: false });
+  const res = await pushSnapshot({ force: false });
+  if (res.ok) {
+    useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "学习进度已成功上传至云端");
+  } else if (res.conflict) {
+    useSyncStore.getState().setConflict(res.message);
+  } else {
+    useSyncStore.getState().setError(res.message);
+  }
+  return res;
 }

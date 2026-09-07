@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -263,15 +263,20 @@ function StudySession({
     }
   }, [finished, isOrchestrated, stats.reviewed, stats.newDone, orchestratedTitle]);
 
+  // 跟踪本轮会话是否已向云端提交推送，避免重复推送
+  const hasPushedInSessionRef = useRef(false);
+
   // 学习完成时自动同步进度至云端
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   useEffect(() => {
     if (finished && (stats.reviewed + stats.newDone > 0)) {
+      hasPushedInSessionRef.current = true;
       setSyncNotice("正在自动同步云端进度...");
       autoPushIfConfigured()
         .then((res) => {
           if (res.ok) {
             setSyncNotice("学习进度已自动同步至云端");
+            setTimeout(() => setSyncNotice(null), 3500);
           } else if (res.conflict) {
             setSyncNotice("云端有新进度冲突，已保留本地学习记录，可在设置页处理");
           } else {
@@ -283,6 +288,18 @@ function StudySession({
         });
     }
   }, [finished, stats.reviewed, stats.newDone]);
+
+  // 页面离开/侧边栏切换/路由跳转/组件卸载时：若本轮有评分操作且未推送过，静默触发自动上传
+  useEffect(() => {
+    return () => {
+      const store = useStudyStore.getState();
+      const ratedCount = store.stats.reviewed + store.stats.newDone + store.stats.actions;
+      if (ratedCount > 0 && !hasPushedInSessionRef.current) {
+        hasPushedInSessionRef.current = true;
+        void autoPushIfConfigured().catch(() => {});
+      }
+    };
+  }, []);
 
   const handleRefreshEncouragement = async () => {
     setEncouragementRefreshing(true);
@@ -484,9 +501,8 @@ function StudySession({
 
   // P2-⑧：加载全词库干扰项池（只取 front/back，供选择题与同族词使用）
   useEffect(() => {
-    if (deckId === null) return;
     let cancelled = false;
-    db.getRandomDistractors(deckId, 0, 50)
+    db.getRandomDistractors(deckId ?? 0, 0, 100)
       .then((cards) => {
         if (cancelled) return;
         setDeckDistractors(cards);
@@ -496,6 +512,21 @@ function StudySession({
       cancelled = true;
     };
   }, [deckId]);
+
+  // 将数据库干扰项池与当前队列卡片融合，确保随时有充足的干扰项
+  const effectiveDistractors = useMemo(() => {
+    const map = new Map<string, Distractor>();
+    for (const c of deckDistractors) {
+      if (c.front) map.set(c.front.trim().toLowerCase(), c);
+    }
+    for (const q of queue) {
+      const c = q.row;
+      if (c.front && !map.has(c.front.trim().toLowerCase())) {
+        map.set(c.front.trim().toLowerCase(), c);
+      }
+    }
+    return Array.from(map.values());
+  }, [deckDistractors, queue]);
 
   // 卡片切换时：重置间隔预览/可检索度；迷你小结出现时先不开始计时
   useEffect(() => {
@@ -923,7 +954,7 @@ function StudySession({
                   preview={preview}
                   retrievability={retrievability}
                   busy={busy}
-                  distractors={deckDistractors}
+                  distractors={effectiveDistractors}
                   quickMs={quickMs}
                   onReveal={() => void handleReveal()}
                   onRate={(grade) => void handleRate(grade)}
@@ -935,7 +966,7 @@ function StudySession({
 
             <div className="hidden sm:flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <Keyboard className="size-3.5" />
-              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 记得" : "快捷键：1 忘了 · 2 困难 · 3 良好 · 4 简单"}
+              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 已掌握" : "快捷键：1 忘了 · 2 困难 · 3 已掌握 · 4 简单"}
             </div>
           </div>
         </div>
@@ -1007,7 +1038,9 @@ function StudySession({
         cancelLabel="继续学习"
         onConfirm={() => {
           setExitOpen(false);
-          if (done > 0) {
+          const ratedCount = stats.reviewed + stats.newDone + stats.actions;
+          if (ratedCount > 0 && !hasPushedInSessionRef.current) {
+            hasPushedInSessionRef.current = true;
             void autoPushIfConfigured().catch(() => {});
           }
           useStudyStore.getState().reset();

@@ -6,6 +6,7 @@ import BottomNav from "./BottomNav";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { autoPullIfRemoteNewer } from "@/lib/sync";
+import { initSyncStore } from "@/stores/useSyncStore";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "reciter-sidebar-collapsed";
@@ -20,9 +21,10 @@ export default function MainLayout() {
 
   useEffect(() => {
     if (!dbReady) return;
+    void initSyncStore();
     void autoPullIfRemoteNewer()
       .then((pulled) => {
-        if (pulled) {
+        if (pulled?.synced) {
           useDeckStore.getState().refresh();
         }
       })

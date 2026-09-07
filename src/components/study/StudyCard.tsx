@@ -45,14 +45,14 @@ import MarkdownContext from "./MarkdownContext";
 const RATINGS_4 = [
   { grade: 1 as const, label: "忘了", emoji: null, hint: "Again", desc: "没想起来 → 立即重学" },
   { grade: 2 as const, label: "困难", emoji: null, hint: "Hard", desc: "很吃力 → 较短间隔" },
-  { grade: 3 as const, label: "良好", emoji: null, hint: "Good", desc: "基本掌握 → 正常安排" },
+  { grade: 3 as const, label: "已掌握", emoji: null, hint: "Good", desc: "良好 / 基本掌握 → 正常安排" },
   { grade: 4 as const, label: "简单", emoji: null, hint: "Easy", desc: "非常轻松 → 大幅延长间隔" },
 ];
 
 const RATINGS_3 = [
   { grade: 1 as const, label: "不记得", emoji: null, hint: "Again", desc: "没想起来 → 立即重学" },
   { grade: 2 as const, label: "模糊", emoji: null, hint: "Hard", desc: "不确定 → 较短间隔" },
-  { grade: 3 as const, label: "记得", emoji: null, hint: "Good", desc: "基本掌握 → 正常安排" },
+  { grade: 3 as const, label: "已掌握", emoji: null, hint: "Good", desc: "记得 / 基本掌握 → 正常安排" },
 ];
 
 /** 回忆时限提示（P1-④）：超过该秒数仍想不起来时给出柔和建议 */
@@ -65,6 +65,33 @@ export interface Distractor {
   meaning_primary?: string;
   meaning_secondary?: string;
 }
+
+const FALLBACK_DISTRACTOR_WORDS = [
+  "acquire", "benefit", "concept", "diverse", "evident",
+  "feature", "glimpse", "horizon", "impact", "journey",
+  "logical", "method", "notion", "obtain", "precise",
+  "quality", "reveal", "stable", "thrive", "urgent",
+  "valid", "welfare", "yield", "zeal", "adapt",
+  "balance", "crucial", "demand", "evolve", "fluent",
+];
+
+const FALLBACK_DISTRACTOR_MEANINGS = [
+  "v. 获得；取得；学到",
+  "n. 利益；好处 v. 有益于",
+  "n. 概念；观念；想法",
+  "adj. 不同的；多种多样的",
+  "adj. 明显的；明白的",
+  "n. 特征；特色；容貌",
+  "n. 一瞥；微光 v. 瞥见",
+  "n. 地平线；视野；眼界",
+  "n. 影响；冲击 v. 产生影响",
+  "n. 旅行；历程 v. 旅行",
+  "adj. 符合逻辑的；合理的",
+  "n. 方法；条理",
+  "n. 概念；见解；打算",
+  "v. 获得；得到",
+  "adj. 精确的；准确的",
+];
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -108,15 +135,26 @@ function RatingButtons({
   ratingMode: "3" | "4";
   preview: IntervalPreview | null;
   busy: boolean;
-  /** 仅显示「不记得 / 模糊」两档（主动回忆不知道、快速测试答错时） */
+  /** 是否处于受限/改判模式（答错或未回忆出来时，仍始终保留「已掌握」选项供用户手动改判 override） */
   limited?: boolean;
   onRate: (grade: 1 | 2 | 3 | 4) => void;
 }) {
+  const baseItems = ratingMode === "3" ? RATINGS_3 : RATINGS_4;
   const items = limited
-    ? RATINGS_3.slice(0, 2)
-    : ratingMode === "3"
-      ? RATINGS_3
-      : RATINGS_4;
+    ? baseItems
+        .filter((r) => r.grade <= 3)
+        .map((r) => {
+          if (r.grade === 3) {
+            return {
+              ...r,
+              label: "已掌握",
+              hint: "Override",
+              desc: "手动改判为已掌握 → 正常安排复习",
+            };
+          }
+          return r;
+        })
+    : baseItems;
   return (
     <div
       className={cn(
@@ -510,7 +548,9 @@ function DesktopActiveRecallView(props: ModeViewProps) {
               </p>
             )}
             {!recallResult && (
-              <p className="text-sm text-muted-foreground">没想起来也没关系，先看释义再评分</p>
+              <p className="text-sm text-muted-foreground">
+                {limitedRatings ? "记不清了？请对照标准释义强化记忆（若已掌握可点击「已掌握」改判）" : "没想起来也没关系，先看释义再评分"}
+              </p>
             )}
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
@@ -611,9 +651,15 @@ function MobileActiveRecallView(props: ModeViewProps) {
       </p>
     ) : null;
 
-  const wordLengthText = row.front.trim().includes(" ")
-    ? `短语 (${row.front.trim().split(/\s+/).length} 词)`
-    : `${row.front.trim().length} 个字母`;
+  const wordLengthText = row.front.trim().includes("/")
+    ? row.front
+        .trim()
+        .split("/")
+        .map((s) => `${s.trim().length} 字母`)
+        .join(" / ")
+    : row.front.trim().includes(" ")
+      ? `短语 (${row.front.trim().split(/\s+/).length} 词)`
+      : `${row.front.trim().length} 个字母`;
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -754,7 +800,7 @@ function MobileActiveRecallView(props: ModeViewProps) {
                     ? "拼写完全正确！"
                     : recallResult.match
                       ? `拼写基本正确（相似度 ${Math.round(recallResult.similarity * 100)}%）`
-                      : "拼写有误，请对照加深记忆"}
+                      : "拼写有误，请对照加深记忆（若认为正确可点击「已掌握」改判）"}
                 </p>
                 {!recallResult.exact && (
                   <p className="text-xs">
@@ -768,7 +814,7 @@ function MobileActiveRecallView(props: ModeViewProps) {
 
             {!recallResult && (
               <p className="text-xs sm:text-sm text-muted-foreground">
-                {limitedRatings ? "记不清了？请对照标准拼写、音标与例句强化记忆" : "看单词与释义，对照脑海回忆评分"}
+                {limitedRatings ? "记不清了？请对照标准拼写与音标强化记忆（若已掌握可点击「已掌握」改判）" : "看单词与释义，对照脑海回忆评分"}
               </p>
             )}
 
@@ -853,34 +899,58 @@ function QuickTestView(props: ModeViewProps) {
   const [checked, setChecked] = useState<boolean | null>(null);
   const [fast, setFast] = useState(false);
 
-  // 形近词干扰项优先：看释义选单词（中译英），干扰项取编辑距离最近的全词库单词；
-  // 形近候选不足时退回「看单词选释义」，最后回退填空。
+  // 快速测试（熟练卡秒答）：优先看释义选单词（中译英选项题）。
+  // 题干为中文释义，选项为 4 个英文单词（形近词优先）。
+  // 仅在当前卡片缺失中文释义时，才切换为看单词选释义（英译中）。
   const choice = useMemo(() => {
-    const fronts = distractors
-      .map((d) => d.front.trim())
-      .filter((f) => f && f !== row.front.trim());
-    const similarFronts = pickSimilarWords(row.front, fronts, 3);
-    const currentMeaning = getCardMeaning(row);
-    if (similarFronts.length >= 1) {
+    const targetWord = row.front.trim();
+    const currentMeaning = getCardMeaning(row).trim();
+    const isChineseToEnglish = Boolean(currentMeaning);
+
+    if (isChineseToEnglish) {
+      // 1. 中译英（看释义选单词）：Prompt 为中文释义，Options 为 4 个英文单词
+      const candidateFronts = Array.from(
+        new Set(
+          distractors
+            .map((d) => d.front.trim())
+            .filter((f) => f && f.toLowerCase() !== targetWord.toLowerCase())
+            .concat(FALLBACK_DISTRACTOR_WORDS.filter((w) => w.toLowerCase() !== targetWord.toLowerCase()))
+        )
+      );
+
+      const similar = pickSimilarWords(targetWord, candidateFronts, 3);
+      const remaining = candidateFronts.filter((f) => !similar.includes(f));
+      const needed = Math.max(0, 3 - similar.length);
+      const otherChoices = [...similar, ...remaining.slice(0, needed)];
+      const options = shuffle([targetWord, ...otherChoices]);
+
       return {
         useFront: true as const,
-        options: shuffle([row.front, ...similarFronts]),
+        options,
         prompt: currentMeaning,
-        correct: row.front,
+        correct: targetWord,
+      };
+    } else {
+      // 2. 英译中（无中文释义时的备选）：Prompt 为英文单词，Options 为 4 个中文释义
+      const candidateMeanings = Array.from(
+        new Set(
+          distractors
+            .map((d) => getCardMeaning(d).trim())
+            .filter((b) => b && b !== currentMeaning)
+            .concat(FALLBACK_DISTRACTOR_MEANINGS.filter((m) => m !== currentMeaning))
+        )
+      );
+      const otherChoices = candidateMeanings.slice(0, 3);
+      const correctMeaning = currentMeaning || row.back || targetWord;
+      const options = shuffle([correctMeaning, ...otherChoices]);
+
+      return {
+        useFront: false as const,
+        options,
+        prompt: targetWord,
+        correct: correctMeaning,
       };
     }
-    const backs: string[] = [];
-    for (const d of distractors) {
-      const b = getCardMeaning(d).trim();
-      if (b && b !== currentMeaning && !backs.includes(b)) backs.push(b);
-      if (backs.length >= 3) break;
-    }
-    return {
-      useFront: false as const,
-      options: shuffle([currentMeaning, ...backs]),
-      prompt: row.front,
-      correct: currentMeaning,
-    };
   }, [distractors, row]);
   const useChoice = choice.options.length >= 2;
 
@@ -896,12 +966,18 @@ function QuickTestView(props: ModeViewProps) {
 
   const submitChoice = (opt: string) => {
     if (checked !== null || busy) return;
-    finish(opt.trim() === choice.correct.trim());
+    const isCorrect =
+      opt.trim().toLowerCase() === choice.correct.trim().toLowerCase() ||
+      matchWordSpelling(opt, choice.correct).match;
+    finish(isCorrect);
   };
 
   const submitFill = () => {
     if (!typed.trim() || checked !== null || busy) return;
-    finish(typed.trim().toLowerCase() === row.front.trim().toLowerCase());
+    const isCorrect =
+      typed.trim().toLowerCase() === choice.correct.trim().toLowerCase() ||
+      matchWordSpelling(typed, choice.correct).match;
+    finish(isCorrect);
   };
 
   // 快速测试选择题：1-4 对应选项 A-D
@@ -957,12 +1033,17 @@ function QuickTestView(props: ModeViewProps) {
       <div className="flex min-h-[50vh] sm:min-h-80 w-full flex-col items-center justify-center gap-4 rounded-xl border bg-card p-5 sm:p-8">
         <CardMetaBadges row={row} />
         <p className="text-sm text-muted-foreground">
-          快速测试 · {Math.round(quickMs / 1000)} 秒内答对建议「记得」 ·{" "}
-          {choice.useFront ? "看释义选单词" : "看单词选释义"}
+          快速测试 · {Math.round(quickMs / 1000)} 秒内答对建议「已掌握」 ·{" "}
+          {choice.useFront ? "看释义选单词（中译英）" : "看单词选释义（英译中）"}
         </p>
         {choice.useFront ? (
-          <div className="text-center text-3xl font-bold break-words">{choice.prompt}</div>
+          <div className="text-center text-3xl font-bold break-words px-4">{choice.prompt}</div>
         ) : (
+          <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
+        )}
+
+        {/* 作答完毕后如果是中译英，补充展示英文单词及音标发音 */}
+        {checked !== null && choice.useFront && (
           <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
         )}
 
@@ -991,12 +1072,12 @@ function QuickTestView(props: ModeViewProps) {
         )}
 
         {checked === null && !useChoice && (
-          <>
-            <div className="flex w-full max-w-md gap-2">
+          <div className="flex flex-col items-center gap-3 w-full max-w-md">
+            <div className="flex w-full gap-2">
               <Input
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
-                placeholder="输入对应的单词…"
+                placeholder="输入对应的英文单词…"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submitFill();
                 }}
@@ -1007,7 +1088,7 @@ function QuickTestView(props: ModeViewProps) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">快捷键：Enter 提交</p>
-          </>
+          </div>
         )}
 
         {checked !== null && (
@@ -1024,7 +1105,11 @@ function QuickTestView(props: ModeViewProps) {
                 <XCircle className="size-4 text-red-500" />
               )}
               <span className="font-medium">
-                {checked ? (fast ? "回答正确，秒答 → 建议记为「记得」" : "回答正确") : "回答错误"}
+                {checked
+                  ? fast
+                    ? "回答正确，秒答 → 建议记为「已掌握」"
+                    : "回答正确"
+                  : "回答错误（若误触或已掌握，可点击下方「已掌握」改判）"}
               </span>
             </div>
             {!checked && (

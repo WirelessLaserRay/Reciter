@@ -94,12 +94,16 @@ export function pickSimilarWords(
   candidates: string[],
   count = 3
 ): string[] {
-  const t = target.trim().toLowerCase();
-  const seen = new Set<string>();
+  const targetVariants = target.includes("/")
+    ? target.split("/").map((p) => p.trim().toLowerCase()).filter(Boolean)
+    : [target.trim().toLowerCase()];
+  const t = targetVariants[0] || target.trim().toLowerCase();
+  const seen = new Set<string>(targetVariants);
+  seen.add(target.trim().toLowerCase());
   const scored = candidates
     .map((c) => c.trim())
     .filter((c) => {
-      if (!c || c.toLowerCase() === t || seen.has(c.toLowerCase())) return false;
+      if (!c || seen.has(c.toLowerCase())) return false;
       seen.add(c.toLowerCase());
       return true;
     })

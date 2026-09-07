@@ -96,6 +96,7 @@ import {
   saveAutoSyncEnabled,
   type SyncMetaInfo,
 } from "@/lib/sync";
+import { initSyncStore } from "@/stores/useSyncStore";
 import {
   getVocabStandard,
   saveVocabStandard,
@@ -702,6 +703,7 @@ export default function Settings() {
 
   const handleSaveSync = async () => {
     await saveSyncConfig(syncEndpoint, syncToken);
+    await initSyncStore();
     setSyncMsg({ ok: true, text: "同步设置已保存" });
     await refreshSyncStatus();
   };
@@ -751,6 +753,7 @@ export default function Settings() {
     setAutoSyncEnabled(enabled);
     if (!dbReady) return;
     await saveAutoSyncEnabled(enabled);
+    await initSyncStore();
     flashSaved();
   };
 

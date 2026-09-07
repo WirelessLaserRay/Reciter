@@ -313,15 +313,23 @@ class ReciterDB {
     );
   }
 
-  /** 随机取样干扰项（避免全量词库载入内存） */
+  /** 随机取样干扰项（避免全量词库载入内存，不足或跨词库时从全局取样） */
   async getRandomDistractors(
     deckId: number,
     excludeCardId: number,
     limit = 50
   ): Promise<{ front: string; back: string; meaning_primary?: string; meaning_secondary?: string }[]> {
-    return this.requireDb().select(
-      "SELECT front, back, meaning_primary, meaning_secondary FROM cards WHERE deck_id = ? AND id != ? ORDER BY RANDOM() LIMIT ?",
-      [deckId, excludeCardId, limit]
+    const db = this.requireDb();
+    if (deckId > 0) {
+      const rows = await db.select<{ front: string; back: string; meaning_primary?: string; meaning_secondary?: string }[]>(
+        "SELECT front, back, meaning_primary, meaning_secondary FROM cards WHERE deck_id = ? AND id != ? ORDER BY RANDOM() LIMIT ?",
+        [deckId, excludeCardId, limit]
+      );
+      if (rows.length >= 10) return rows;
+    }
+    return db.select(
+      "SELECT front, back, meaning_primary, meaning_secondary FROM cards WHERE id != ? ORDER BY RANDOM() LIMIT ?",
+      [excludeCardId, limit]
     );
   }
 
