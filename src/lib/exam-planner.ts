@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { AIClient, getAIConfig } from "@/lib/ai-client";
+import { getDayStartDate, parseDayStartHour, todayKey } from "@/lib/day";
 import type { Deck } from "@/types";
 
 export interface ExamConfig {
@@ -21,9 +22,12 @@ export interface TodayOrchestratedPlan {
   ignoredTags: string[];
   remainingNew: number; // 范围内剩余新词总数
   dueToday: number; // 范围内今日到期复习数
-  targetNew: number; // 今日安排新词数
-  targetReview: number; // 今日安排复习数
-  totalTarget: number; // targetNew + targetReview
+  plannedNew: number; // 今日新学目标指标
+  learnedNewToday: number; // 今日已完成新学卡片数
+  targetNew: number; // 今日剩余安排新词数
+  reviewedToday: number; // 今日已完成复习卡片数
+  targetReview: number; // 今日剩余安排复习数
+  totalTarget: number; // targetNew + targetReview (今日剩余待学总量)
   advice: string; // AI 或规则生成的今日编排建议与重点
   aiGenerated: boolean; // advice 是否来自 AI
   isCompleted: boolean; // 今日编排任务是否已达成
@@ -131,8 +135,12 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const cfg = await getExamConfig();
   if (!cfg.date) return null;
   const days = getDaysUntilExam(cfg.date);
+
+  const hourRaw = await db.getSetting("day_start");
+  const hour = parseDayStartHour(hourRaw);
   const now = new Date();
-  const dateKey = now.toISOString().slice(0, 10);
+  const dayStart = getDayStartDate(hour, now);
+  const dateKey = todayKey(hour, now);
 
   const selectedDecks = decks.filter((d) => cfg.deckIds.length === 0 || cfg.deckIds.includes(d.id));
   const deckNames =
@@ -140,34 +148,62 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
       ? "全部词库"
       : selectedDecks.map((d) => (d.folder ? `${d.folder}/${d.name}` : d.name)).join("、") || "全部词库";
 
-  const [remainingNew, dueToday, reviewLimitRaw, completedDate, savedEncouragement, savedAdvice] =
-    await Promise.all([
-      db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags),
-      db.getDueCountByDecks(cfg.deckIds, now.toISOString(), cfg.ignoredTags),
-      db.getSetting("daily_review_limit"),
-      db.getSetting("exam_last_completed_date"),
-      db.getSetting("exam_last_encouragement"),
-      db.getSetting(`exam_today_advice_${dateKey}`),
-    ]);
+  const [
+    remainingNew,
+    dueToday,
+    learnedNewToday,
+    reviewedToday,
+    reviewLimitRaw,
+    completedDate,
+    savedEncouragement,
+    savedAdvice,
+  ] = await Promise.all([
+    db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags),
+    db.getDueCountByDecks(cfg.deckIds, now.toISOString(), cfg.ignoredTags),
+    db.countMultiDeckNewLearnedToday(cfg.deckIds, dayStart.toISOString(), cfg.ignoredTags),
+    db.countMultiDeckReviewsToday(cfg.deckIds, dayStart.toISOString(), cfg.ignoredTags),
+    db.getSetting("daily_review_limit"),
+    db.getSetting("exam_last_completed_date"),
+    db.getSetting("exam_last_encouragement"),
+    db.getSetting(`exam_today_advice_${dateKey}`),
+  ]);
+
+  // 今日未学新词总量基准（包含今日已学新卡，保持每日学习基准平稳）
+  const totalUnlearned = remainingNew + learnedNewToday;
+  let plannedNew = 0;
+  if (totalUnlearned > 0) {
+    if (cfg.dailyNewOverride && cfg.dailyNewOverride > 0) {
+      plannedNew = Math.min(totalUnlearned, cfg.dailyNewOverride);
+    } else if (days > 0) {
+      plannedNew = Math.min(totalUnlearned, Math.max(5, Math.ceil(totalUnlearned / days)));
+    } else {
+      plannedNew = Math.min(totalUnlearned, 30);
+    }
+  }
+
+  // 今日剩余待学新卡数（扣除今日已学新卡数）
+  const targetNew = Math.max(0, Math.min(remainingNew, plannedNew - learnedNewToday));
 
   const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
   const targetReview = Math.min(dueToday, reviewLimit);
 
-  let targetNew = 0;
-  if (remainingNew > 0) {
-    if (cfg.dailyNewOverride && cfg.dailyNewOverride > 0) {
-      targetNew = Math.min(remainingNew, cfg.dailyNewOverride);
-    } else if (days > 0) {
-      targetNew = Math.min(remainingNew, Math.max(5, Math.ceil(remainingNew / days)));
-    } else {
-      targetNew = Math.min(remainingNew, 30);
-    }
-  }
+  // 判定今日任务是否已达成：
+  // 1) 显式记录的完成日期等于今日学习日；
+  // 2) 或当前到期复习数为 0，且今日新词指标已达成（或无剩余新词），并且今日已有实际学习产出
+  const isGoalAchieved =
+    dueToday === 0 &&
+    (remainingNew === 0 || learnedNewToday >= plannedNew) &&
+    (learnedNewToday > 0 || reviewedToday > 0);
 
-  const isCompleted = completedDate === dateKey;
+  const isCompleted = completedDate === dateKey || isGoalAchieved;
+
   let encouragement: string | null = null;
   if (isCompleted) {
     encouragement = savedEncouragement || LOCAL_ENCOURAGEMENTS[0];
+    // 若学情已达成但尚未打戳，自动异步打戳使各端状态即时对齐
+    if (completedDate !== dateKey) {
+      void markTodayPlanCompleted(encouragement).catch(() => {});
+    }
   }
 
   // 检查并获取今日学情建议与规划
@@ -185,7 +221,10 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     ignoredTags: cfg.ignoredTags,
     remainingNew,
     dueToday,
+    plannedNew,
+    learnedNewToday,
     targetNew,
+    reviewedToday,
     targetReview,
     totalTarget: targetNew + targetReview,
   };
@@ -432,9 +471,11 @@ export async function generateCompletionEncouragement(context: {
 
 /** 标记今日任务已完成并持久化鼓励语 */
 export async function markTodayPlanCompleted(encouragement: string): Promise<void> {
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const hourRaw = await db.getSetting("day_start");
+  const hour = parseDayStartHour(hourRaw);
+  const dateKey = todayKey(hour, new Date());
   await Promise.all([
-    db.setSetting("exam_last_completed_date", todayKey),
+    db.setSetting("exam_last_completed_date", dateKey),
     db.setSetting("exam_last_encouragement", encouragement),
   ]);
 }

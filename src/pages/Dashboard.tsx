@@ -45,6 +45,7 @@ import {
   formatCompactList,
   type TodayOrchestratedPlan,
 } from "@/lib/exam-planner";
+import { useSyncStore } from "@/stores/useSyncStore";
 import type { Deck } from "@/types";
 import ExamPlanDialog from "@/components/study/ExamPlanDialog";
 import MarkdownView from "@/components/common/MarkdownView";
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const dbReady = useDbStore((s) => s.ready);
   const navigate = useNavigate();
   const { decks, cardCounts, refresh } = useDeckStore();
+  const lastSyncTime = useSyncStore((s) => s.lastSyncTime);
   const loadQueue = useStudyStore((s) => s.loadQueue);
   const loadOrchestratedQueue = useStudyStore((s) => s.loadOrchestratedQueue);
   const [dueCount, setDueCount] = useState(0);
@@ -154,7 +156,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData().catch(() => {});
-  }, [loadDashboardData, currentDateKey]);
+  }, [loadDashboardData, currentDateKey, lastSyncTime]);
 
   const handleStartOrchestratedStudy = async () => {
     if (!orchestratedPlan) return;
@@ -405,15 +407,23 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
               <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
                 <div className="text-2xl font-bold text-primary">{orchestratedPlan.targetNew}</div>
-                <div className="text-xs text-muted-foreground">今日新学目标</div>
+                <div className="text-xs text-muted-foreground">
+                  {orchestratedPlan.learnedNewToday > 0
+                    ? `待新学 (已学 ${orchestratedPlan.learnedNewToday})`
+                    : "今日新学目标"}
+                </div>
               </div>
               <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
                 <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{orchestratedPlan.targetReview}</div>
-                <div className="text-xs text-muted-foreground">今日到期复习</div>
+                <div className="text-xs text-muted-foreground">
+                  {orchestratedPlan.reviewedToday > 0
+                    ? `待复习 (已复习 ${orchestratedPlan.reviewedToday})`
+                    : "今日到期复习"}
+                </div>
               </div>
               <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
                 <div className="text-2xl font-bold text-foreground">{orchestratedPlan.totalTarget}</div>
-                <div className="text-xs text-muted-foreground">今日学习总量</div>
+                <div className="text-xs text-muted-foreground">今日待学总量</div>
               </div>
               <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
                 <div className="text-2xl font-bold text-muted-foreground">{orchestratedPlan.remainingNew}</div>

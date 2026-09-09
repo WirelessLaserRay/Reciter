@@ -295,8 +295,8 @@ export async function restoreBackupData(
     }
   }
 
-  // 2. 提取本地需要保留的设备配置（云端同步时保留全部本地独立设置；普通文件恢复仅保留私有凭据）
-  const preserveAllSettings = options?.preserveSettings ?? options?.reason === "pre_sync";
+  // 2. 提取本地需要保留的设备私有配置（同步或恢复时仅保护设备本地连接凭据与同步时间戳，业务设置均从云端/备份恢复）
+  const preserveAllSettings = options?.preserveSettings ?? false;
   const preservedMap = new Map<string, string>();
   try {
     const localSettings = await db.getAllSettings();
@@ -316,7 +316,7 @@ export async function restoreBackupData(
       for (const c of data.cards) await db.restoreCard(c as never);
       for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
 
-      // 若不保留全部本地设置，才从备份中恢复设置
+      // 从备份/云端恢复业务配置（如 exam_* 备考规划、学习目标等，排除 DEVICE_PRESERVED_SETTINGS）
       if (!preserveAllSettings) {
         for (const s of data.settings ?? []) {
           if (!DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
@@ -326,7 +326,7 @@ export async function restoreBackupData(
       }
       for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
 
-      // 写回保留的本地配置
+      // 写回保留的本地设备配置（如 sync_endpoint、sync_token 等）
       for (const [key, val] of preservedMap.entries()) {
         await db.restoreSetting(key, val);
       }

@@ -771,6 +771,60 @@ class ReciterDB {
     return rows[0]?.cnt ?? 0;
   }
 
+  /** 多词库或全词库今日已学习的新卡数（支持忽略指定标签规则） */
+  async countMultiDeckNewLearnedToday(
+    deckIds: number[] = [],
+    dayStart: string,
+    ignoreTags: string[] = []
+  ): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      dayStart,
+      dayStart,
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(*) AS cnt FROM cards c
+       WHERE c.ignored = 0
+         AND EXISTS (SELECT 1 FROM review_logs r WHERE r.card_id = c.id AND r.reviewed_at >= ?)
+         AND NOT EXISTS (SELECT 1 FROM review_logs r2 WHERE r2.card_id = c.id AND r2.reviewed_at < ?)
+         ${deckWhere}${ignoredTagsWhere(resolvedTags)}`,
+      params
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
+  /** 多词库或全词库今日已复习的到期卡片数（独立卡片去重，且排除今日首次学的新卡） */
+  async countMultiDeckReviewsToday(
+    deckIds: number[] = [],
+    dayStart: string,
+    ignoreTags: string[] = []
+  ): Promise<number> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const params: (string | number)[] = [
+      dayStart,
+      dayStart,
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
+    const rows = await this.requireDb().select<{ cnt: number }[]>(
+      `SELECT COUNT(DISTINCT r.card_id) AS cnt FROM review_logs r
+       JOIN cards c ON c.id = r.card_id
+       WHERE r.reviewed_at >= ?
+         AND EXISTS (SELECT 1 FROM review_logs r2 WHERE r2.card_id = c.id AND r2.reviewed_at < ?)
+         AND c.ignored = 0${deckWhere}${ignoredTagsWhere(resolvedTags)}`,
+      params
+    );
+    return rows[0]?.cnt ?? 0;
+  }
+
   /** 全局今日已复习数（日报复习预算）：按独立卡片去重，避免同一张卡多次 Again 提前耗尽额度 */
   async countReviewsToday(dayStart: string): Promise<number> {
     const rows = await this.requireDb().select<{ cnt: number }[]>(

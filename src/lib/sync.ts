@@ -264,10 +264,10 @@ export async function pullSnapshot(): Promise<SyncResult> {
     const remoteHeaderTime = res.headers.get("X-Snapshot-Updated-At");
     const rawData = await res.json();
 
-    // 执行恢复（内部自动生成覆盖前的本地安全快照与数据清洗，严格保留本地所有独立设置）
+    // 执行恢复（内部自动生成覆盖前的本地安全快照与数据清洗，安全保留本地连接凭据与同步时间戳，同步业务配置）
     const restoreRes = await restoreBackupData(rawData, {
       reason: "pre_sync",
-      preserveSettings: true,
+      preserveSettings: false,
     });
     if (!restoreRes.ok) {
       return { ok: false, message: restoreRes.message };
