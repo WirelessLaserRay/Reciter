@@ -1821,7 +1821,7 @@ export default function Settings() {
                 <Database className="size-4 text-primary" />
                 跨端快照同步 (Cloudflare)
               </CardTitle>
-              <CardDescription>通过 Cloudflare Worker + KV 快照上传/下载，实现 Windows 桌面与 PWA 跨端同步</CardDescription>
+              <CardDescription>通过 Cloudflare Worker + KV 快照上传/下载，实现 Windows 桌面与 PWA 跨端同步（AI 接口与密钥各端独立）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
@@ -1847,7 +1847,7 @@ export default function Settings() {
                 <div className="space-y-0.5">
                   <Label htmlFor="auto-sync" className="text-sm font-medium">自动同步学习进度</Label>
                   <p className="text-xs text-muted-foreground">
-                    打开应用时自动拉取云端新进度，学完后自动上传（仅同步词库与学习记录，本地设置互不干扰）
+                    打开应用时自动拉取云端新进度，学完后自动上传（同步词库、学习进度与备考规划；AI 配置与接口设置各端独立）
                   </p>
                 </div>
                 <Switch

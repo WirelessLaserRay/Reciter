@@ -25,14 +25,43 @@ export const BACKUP_VERSION = 2;
 export const SAFETY_BACKUP_KEY = "reciter_safety_backup_data";
 export const SAFETY_META_KEY = "reciter_safety_backup_meta";
 
-/** 本地特定设备受保护的设置键（恢复/同步快照时严禁被远程冲刷抹除） */
+/** 本地特定设备受保护的设置键（恢复/同步快照时严禁被远程冲刷抹除，且云端同步时不上传） */
 export const DEVICE_PRESERVED_SETTINGS = [
+  // 1. 同步服务私有凭据与时间戳
   "sync_endpoint",
   "sync_token",
   "sync_last_remote_time",
   "sync_last_local_time",
+  "sync_auto_enabled",
   "safety_backup_time",
+
+  // 2. AI 接口与模型独立配置（各设备独立，不随云端漫游，保障隐私安全与不同端差异化配置）
+  "ai_base_url",
+  "ai_api_key",
+  "ai_model",
+  "ai_temperature",
+  "ai_setup_completed",
+
+  // 3. 翻译接口与代理独立配置（各设备独立，不随云端漫游）
+  "translation_provider",
+  "deepl_api_key",
+  "deepl_api_url",
+  "deepl_cors_proxy",
+  "article_translate_engine",
+
+  // 4. 语音合成配置（各端运行平台与环境支持不同）
+  "tts_source",
 ];
+
+/** 判断是否为设备独立保留的私有/接口配置（不同步、不被云端覆盖、不上传到云端快照） */
+export function isPreservedDeviceSetting(key: string): boolean {
+  if (DEVICE_PRESERVED_SETTINGS.includes(key)) return true;
+  // 匹配以 ai_ 开头的 AI 核心配置（排除 exam_ 开头的备考进度业务）
+  if (key.startsWith("ai_") && !key.startsWith("exam_")) return true;
+  // 匹配以 strategy_prompt_ 开头的自定义 AI 提示词（各端若使用不同模型，提示词也各异）
+  if (key.startsWith("strategy_prompt_")) return true;
+  return false;
+}
 
 export interface SafetyBackupMeta {
   savedAt: string;
@@ -295,13 +324,13 @@ export async function restoreBackupData(
     }
   }
 
-  // 2. 提取本地需要保留的设备私有配置（同步或恢复时仅保护设备本地连接凭据与同步时间戳，业务设置均从云端/备份恢复）
+  // 2. 提取本地需要保留的设备私有配置（同步或恢复时保护设备本地连接凭据、AI 配置与接口设置，业务设置均从云端/备份恢复）
   const preserveAllSettings = options?.preserveSettings ?? false;
   const preservedMap = new Map<string, string>();
   try {
     const localSettings = await db.getAllSettings();
     for (const s of localSettings) {
-      if (preserveAllSettings || DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
+      if (preserveAllSettings || isPreservedDeviceSetting(s.key)) {
         preservedMap.set(s.key, s.value);
       }
     }
@@ -316,17 +345,17 @@ export async function restoreBackupData(
       for (const c of data.cards) await db.restoreCard(c as never);
       for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
 
-      // 从备份/云端恢复业务配置（如 exam_* 备考规划、学习目标等，排除 DEVICE_PRESERVED_SETTINGS）
+      // 从备份/云端恢复业务配置（如 exam_* 备考规划、学习目标等，排除设备私有、AI 与接口配置）
       if (!preserveAllSettings) {
         for (const s of data.settings ?? []) {
-          if (!DEVICE_PRESERVED_SETTINGS.includes(s.key)) {
+          if (!isPreservedDeviceSetting(s.key)) {
             await db.restoreSetting(s.key, s.value);
           }
         }
       }
       for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
 
-      // 写回保留的本地设备配置（如 sync_endpoint、sync_token 等）
+      // 写回保留的本地设备配置（如 sync_endpoint、sync_token、ai_*、deepl_* 等）
       for (const [key, val] of preservedMap.entries()) {
         await db.restoreSetting(key, val);
       }

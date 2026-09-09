@@ -1,7 +1,12 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@/lib/env";
 import { db } from "@/lib/db";
-import { buildBackup, restoreBackupData, restoreSafetyBackup } from "@/lib/backup";
+import {
+  buildBackup,
+  isPreservedDeviceSetting,
+  restoreBackupData,
+  restoreSafetyBackup,
+} from "@/lib/backup";
 import { useSyncStore } from "@/stores/useSyncStore";
 
 export interface SyncConfig {
@@ -199,6 +204,8 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
 
   try {
     const data = await buildBackup();
+    // 过滤设备本地独立配置、AI 配置与各服务接口密钥，绝不上传到云端快照
+    data.settings = (data.settings ?? []).filter((s) => !isPreservedDeviceSetting(s.key));
     const body = JSON.stringify(data);
     const res = await httpFetch(`${syncBase(cfg.endpoint)}/api/sync/snapshot`, {
       method: "PUT",
