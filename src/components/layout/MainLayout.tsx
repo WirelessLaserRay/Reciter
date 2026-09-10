@@ -5,6 +5,7 @@ import Header from "./Header";
 import BottomNav from "./BottomNav";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
+import { useStudyStore } from "@/stores/useStudyStore";
 import { autoPullIfRemoteNewer } from "@/lib/sync";
 import { initSyncStore } from "@/stores/useSyncStore";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,12 @@ export default function MainLayout() {
     () => localStorage.getItem(SIDEBAR_KEY) === "1"
   );
 
+  const activeDeckId = useStudyStore((s) => s.deckId);
+  const isStudy = location.pathname === "/study";
+  // 仅在真实进行卡片学习会话时（activeDeckId !== null），移动端才隐藏顶部 Header 与底部 BottomNav 进入沉浸背词；
+  // 在选择词库时保留全局导航与顶部状态，避免突兀全屏
+  const isImmersiveStudy = isStudy && activeDeckId !== null;
+
   useEffect(() => {
     if (!dbReady) return;
     void initSyncStore();
@@ -30,8 +37,6 @@ export default function MainLayout() {
       })
       .catch(() => {});
   }, [dbReady]);
-
-  const isStudy = location.pathname === "/study";
 
   const toggleSidebar = () => {
     setCollapsed((v) => {
@@ -45,8 +50,8 @@ export default function MainLayout() {
     <div className="flex h-screen md:h-screen min-h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-background text-foreground">
       <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* 学习界面在移动端自动隐藏全局顶部 Header，将全部垂直高度留给卡片 */}
-        <div className={cn(isStudy && "hidden md:block")}>
+        {/* 学习会话进行中时在移动端隐藏全局 Header，选择词库时正常展示 */}
+        <div className={cn(isImmersiveStudy && "hidden md:block")}>
           <Header />
         </div>
         {dbError && (
@@ -58,15 +63,15 @@ export default function MainLayout() {
           key={location.pathname}
           className={cn(
             "flex-1 overflow-y-auto",
-            isStudy
+            isImmersiveStudy
               ? "p-2 sm:p-6 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] md:pt-6 md:pb-6"
-              : "p-3.5 sm:p-6 pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-6"
+              : "p-3.5 sm:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-6"
           )}
         >
           <Outlet />
         </main>
-        {/* 学习界面在移动端自动隐藏底部导航栏，进入沉浸式背词 */}
-        <div className={cn(isStudy && "hidden md:block")}>
+        {/* 学习会话进行中时在移动端隐藏底部导航栏，选择词库时正常展示 */}
+        <div className={cn(isImmersiveStudy && "hidden md:block")}>
           <BottomNav />
         </div>
       </div>

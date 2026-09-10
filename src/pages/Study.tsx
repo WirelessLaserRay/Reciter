@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   ClipboardList,
+  GraduationCap,
   Keyboard,
   Layers,
   Loader2,
@@ -14,6 +15,7 @@ import {
   PanelRightOpen,
   RefreshCw,
   Shuffle,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Tag,
@@ -29,6 +31,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { db, type StudyCardRow } from "@/lib/db";
 import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
 import { getEffectiveRetention, getLeechThreshold } from "@/lib/settings";
@@ -36,6 +46,7 @@ import { getAIConfig } from "@/lib/ai-client";
 import {
   getActiveRecallEnabled,
   getDeckShuffle,
+  getLastStudyContext,
   getLearningSteps,
   getQuickTestMs,
   getRatingMode,
@@ -60,9 +71,12 @@ import {
   generateCompletionEncouragement,
   getDaysUntilExam,
   getExamConfig,
+  getTodayOrchestratedPlan,
   markTodayPlanCompleted,
+  type TodayOrchestratedPlan,
 } from "@/lib/exam-planner";
 import { autoPushIfConfigured, autoPullIfRemoteNewer } from "@/lib/sync";
+import { cn } from "@/lib/utils";
 
 function formatDuration(totalSeconds: number): string {
   const sec = Math.max(0, Math.floor(totalSeconds));
@@ -1044,31 +1058,244 @@ function StudySession({
             void autoPushIfConfigured().catch(() => {});
           }
           useStudyStore.getState().reset();
-          navigate("/decks");
+          navigate("/study");
         }}
       />
     </div>
   );
 }
 
-/** 词库选择页（Phase 6C：单一「开始学习」入口） */
-function DeckPicker({ onStudy }: { onStudy: (id: number, name: string) => void }) {
+/** 学习范围设置弹窗（以 Dialog 替代原先突兀的页面级全屏跳转） */
+interface TagScopeDialogProps {
+  deck: { id: number; name: string } | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStart: (tag?: string, keyOnly?: boolean) => void;
+}
+
+function TagScopeDialog({ deck, open, onOpenChange, onStart }: TagScopeDialogProps) {
+  const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
+  const [total, setTotal] = useState(0);
+  const [keyCount, setKeyCount] = useState(0);
+  const [shuffle, setShuffle] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [selectedTag, setSelectedTag] = useState<string | undefined>(undefined);
+  const [selectedKeyOnly, setSelectedKeyOnly] = useState(false);
+
+  useEffect(() => {
+    if (!open || !deck) return;
+    setLoading(true);
+    setSelectedTag(undefined);
+    setSelectedKeyOnly(false);
+    Promise.all([
+      db.getDeckTagsWithCount(deck.id),
+      db.getDeckKeyCount(deck.id),
+      getDeckShuffle(deck.id),
+    ])
+      .then(([t, k, s]) => {
+        setTags(t);
+        setTotal(t.reduce((acc, x) => acc + x.count, 0));
+        setKeyCount(k);
+        setShuffle(s);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open, deck]);
+
+  const toggleShuffle = async (v: boolean) => {
+    if (!deck) return;
+    setShuffle(v);
+    await saveDeckShuffle(deck.id, v).catch(() => {});
+  };
+
+  const handleStart = () => {
+    onOpenChange(false);
+    onStart(selectedTag, selectedKeyOnly);
+  };
+
+  if (!deck) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md max-w-[calc(100%-2rem)] p-4 sm:p-6 gap-3">
+        <DialogHeader className="text-left space-y-1">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Layers className="size-4 text-primary" />
+            选择学习范围
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground truncate">
+            词库：{deck.name} · 共 {total} 张卡片
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
+            <Loader2 className="size-4 animate-spin mr-2" />
+            读取标签范围...
+          </div>
+        ) : (
+          <div className="space-y-3 py-1">
+            <div className="space-y-1.5 max-h-[45vh] overflow-y-auto pr-1">
+              {/* 全部卡片 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTag(undefined);
+                  setSelectedKeyOnly(false);
+                }}
+                className={cn(
+                  "w-full flex items-center justify-between rounded-lg border p-3 text-left transition-all text-sm cursor-pointer",
+                  !selectedTag && !selectedKeyOnly
+                    ? "border-primary bg-primary/10 text-primary font-medium shadow-xs"
+                    : "border-border hover:bg-muted/50 text-foreground"
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <Layers className="size-4" />
+                  全部卡片
+                </span>
+                <Badge variant={!selectedTag && !selectedKeyOnly ? "default" : "secondary"} className="text-xs">
+                  {total} 张
+                </Badge>
+              </button>
+
+              {/* 重点词 */}
+              {keyCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTag(undefined);
+                    setSelectedKeyOnly(true);
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between rounded-lg border p-3 text-left transition-all text-sm cursor-pointer",
+                    selectedKeyOnly
+                      ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium shadow-xs"
+                      : "border-amber-500/30 hover:bg-amber-500/5 text-foreground"
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <Star className="size-4 text-amber-500" />
+                    重点词 / 词组
+                  </span>
+                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400">
+                    {keyCount} 张
+                  </Badge>
+                </button>
+              )}
+
+              {/* 具体标签分类 */}
+              {tags.map((t) => {
+                const isSelected = selectedTag === t.tag;
+                return (
+                  <button
+                    key={t.tag}
+                    type="button"
+                    onClick={() => {
+                      setSelectedTag(t.tag);
+                      setSelectedKeyOnly(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center justify-between rounded-lg border p-3 text-left transition-all text-sm cursor-pointer",
+                      isSelected
+                        ? "border-primary bg-primary/10 text-primary font-medium shadow-xs"
+                        : "border-border hover:bg-muted/50 text-foreground"
+                    )}
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Tag className="size-4 shrink-0" />
+                      <span className="truncate">{t.tag}</span>
+                    </span>
+                    <Badge variant={isSelected ? "default" : "secondary"} className="text-xs shrink-0">
+                      {t.count} 张
+                    </Badge>
+                  </button>
+                );
+              })}
+
+              {tags.length === 0 && keyCount === 0 && (
+                <p className="py-2 text-center text-xs text-muted-foreground">
+                  该词库未设置细分标签，将学习全部卡片
+                </p>
+              )}
+            </div>
+
+            {/* 乱序学习设置 */}
+            <div className="flex items-center justify-between gap-3 rounded-lg border p-3 bg-muted/20">
+              <div className="space-y-0.5">
+                <p className="flex items-center gap-1.5 text-xs sm:text-sm font-medium">
+                  <Shuffle className="size-3.5 text-muted-foreground" />
+                  乱序学习
+                </p>
+                <p className="text-[11px] text-muted-foreground">打乱卡片顺序（按词库记忆）</p>
+              </div>
+              <Switch checked={shuffle} onCheckedChange={(v) => void toggleShuffle(v)} />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex-row sm:justify-end gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="flex-1 sm:flex-none">
+            取消
+          </Button>
+          <Button size="sm" onClick={handleStart} className="flex-1 sm:flex-none">
+            <RefreshCw className="size-3.5 mr-1.5" />
+            开始学习
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 学习中心与词库选择台（移动端与桌面端自适应紧凑布局） */
+function DeckPicker({
+  onStartStudy,
+  onOpenScope,
+  onStartOrchestrated,
+}: {
+  onStartStudy: (id: number, tag?: string, keyOnly?: boolean) => void;
+  onOpenScope: (deck: { id: number; name: string }) => void;
+  onStartOrchestrated?: () => void;
+}) {
   const { decks, cardCounts, refresh } = useDeckStore();
+  const [lastStudy, setLastStudy] = useState<{ deckId: number; tag?: string; keyOnly?: boolean } | null>(null);
+  const [orchestratedPlan, setOrchestratedPlan] = useState<TodayOrchestratedPlan | null>(null);
+  const [dueMap, setDueMap] = useState<Record<number, number>>({});
 
   useEffect(() => {
     refresh();
     void autoPullIfRemoteNewer()
       .then((pulled) => {
-        if (pulled) {
-          refresh();
-        }
+        if (pulled) refresh();
       })
       .catch(() => {});
   }, [refresh]);
 
+  useEffect(() => {
+    if (decks.length === 0) return;
+    const nowIso = new Date().toISOString();
+    Promise.all([
+      getLastStudyContext(),
+      getTodayOrchestratedPlan(decks).catch(() => null),
+      Promise.all(
+        decks.map(async (d) => {
+          const due = await db.getDueCountByDecks([d.id], nowIso).catch(() => 0);
+          return [d.id, due] as const;
+        })
+      ),
+    ])
+      .then(([last, plan, duePairs]) => {
+        setLastStudy(last);
+        setOrchestratedPlan(plan);
+        setDueMap(Object.fromEntries(duePairs));
+      })
+      .catch(() => {});
+  }, [decks]);
+
   if (decks.length === 0) {
     return (
-      <Card>
+      <Card className="mx-auto max-w-xl border-dashed">
         <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
           <BookOpen className="size-10 text-muted-foreground" />
           <CardTitle>还没有词库</CardTitle>
@@ -1081,139 +1308,188 @@ function DeckPicker({ onStudy }: { onStudy: (id: number, name: string) => void }
     );
   }
 
+  const lastDeck = lastStudy ? decks.find((d) => d.id === lastStudy.deckId) : null;
+  const hasOrchestratedPlan =
+    orchestratedPlan &&
+    orchestratedPlan.deckIds.length > 0 &&
+    (orchestratedPlan.targetNew > 0 || orchestratedPlan.targetReview > 0 || orchestratedPlan.isCompleted);
+
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold">选择词库</h2>
-        <p className="text-sm text-muted-foreground">
-          按记忆状态自动切换模式；自定义测试在词库详情页
-        </p>
+    <div className="mx-auto max-w-3xl space-y-4 sm:space-y-6 pb-6">
+      {/* 顶部标题区（移动端更紧凑精致） */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">学习中心</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            选择词库或从备考规划直接进入
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm" className="shrink-0 text-xs h-8">
+          <Link to="/decks">管理词库</Link>
+        </Button>
       </div>
-      <div className="space-y-3">
-        {decks.map((d) => (
-          <Card key={d.id} className="transition-colors hover:border-primary/50">
-            <CardContent className="flex items-center justify-between gap-4 p-4">
-              <div className="min-w-0">
-                <div className="truncate font-medium">{d.name}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {cardCounts[d.id] ?? 0} 张卡片 · 每日新卡 {d.new_cards_per_day}
+
+      {/* 1. AI 备考规划 Hero 卡片（若有配置备考目标） */}
+      {hasOrchestratedPlan && onStartOrchestrated && (
+        <Card className="border-primary/40 bg-gradient-to-br from-primary/5 via-background to-primary/10 shadow-xs">
+          <CardContent className="p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-primary/10 p-1.5 text-primary">
+                  <GraduationCap className="size-4 sm:size-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-sm sm:text-base">
+                      {orchestratedPlan.examTitle || "今日 AI 备战规划"}
+                    </span>
+                    {orchestratedPlan.isCompleted ? (
+                      <Badge variant="outline" className="border-green-500/40 bg-green-500/10 text-[10px] text-green-600 dark:text-green-400">
+                        今日已达成
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px]">
+                        规划中
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    覆盖 {orchestratedPlan.deckIds.length} 个词库
+                    {orchestratedPlan.daysUntilExam > 0 && ` · 距考试 ${orchestratedPlan.daysUntilExam} 天`}
+                  </div>
                 </div>
               </div>
-              <Button onClick={() => onStudy(d.id, d.name)} className="shrink-0">
-                <RefreshCw className="size-3.5" />
-                开始学习
+              <Button
+                size="sm"
+                onClick={onStartOrchestrated}
+                className="shrink-0 text-xs h-8 sm:h-9"
+              >
+                <RefreshCw className="size-3.5 mr-1" />
+                {orchestratedPlan.isCompleted ? "继续巩固" : "开始今日备考"}
               </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** 标签选择（学习前选择考察范围） */
-function TagPicker({
-  deckId,
-  deckName,
-  onPick,
-  onBack,
-}: {
-  deckId: number;
-  deckName: string;
-  onPick: (tag?: string, keyOnly?: boolean) => void;
-  onBack: () => void;
-}) {
-  const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
-  const [total, setTotal] = useState(0);
-  const [keyCount, setKeyCount] = useState(0);
-  const [shuffle, setShuffle] = useState(false);
-
-  useEffect(() => {
-    db.getDeckTagsWithCount(deckId)
-      .then((t) => {
-        setTags(t);
-        setTotal(t.reduce((a, x) => a + x.count, 0));
-      })
-      .catch(() => {});
-    db.getDeckKeyCount(deckId).then(setKeyCount).catch(() => {});
-    getDeckShuffle(deckId).then(setShuffle).catch(() => {});
-  }, [deckId]);
-
-  const toggleShuffle = async (v: boolean) => {
-    setShuffle(v);
-    await saveDeckShuffle(deckId, v).catch(() => {});
-  };
-
-  return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-          返回词库
-        </Button>
-        <span className="text-sm text-muted-foreground">词库：{deckName}</span>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Layers className="size-4" />
-            选择学习范围
-          </CardTitle>
-          <CardDescription>按标签分类学习（如「单词」「词组」分开考察）</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button className="w-full justify-between" onClick={() => onPick(undefined)}>
-            <span className="flex items-center gap-2">
-              <Layers className="size-4" />
-              全部卡片
-            </span>
-            <span className="text-xs text-muted-foreground">{total} 张</span>
-          </Button>
-          {keyCount > 0 && (
-            <Button
-              variant="outline"
-              className="w-full justify-between border-amber-500/40"
-              onClick={() => onPick(undefined, true)}
-            >
-              <span className="flex items-center gap-2">
-                <Star className="size-4 text-amber-500" />
-                重点词 / 词组
-              </span>
-              <span className="text-xs text-muted-foreground">{keyCount} 张</span>
-            </Button>
-          )}
-          {tags.map((t) => (
-            <Button key={t.tag} variant="outline" className="w-full justify-between" onClick={() => onPick(t.tag)}>
-              <span className="flex items-center gap-2">
-                <Tag className="size-4" />
-                {t.tag}
-              </span>
-              <span className="text-xs text-muted-foreground">{t.count} 张</span>
-            </Button>
-          ))}
-          {tags.length === 0 && (
-            <p className="py-4 text-center text-sm text-muted-foreground">该词库暂无标签，将学习全部卡片</p>
-          )}
-          <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-            <div className="space-y-0.5">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
-                <Shuffle className="size-3.5 text-muted-foreground" />
-                乱序学习
-              </p>
-              <p className="text-xs text-muted-foreground">打乱本词库的新卡与复习卡顺序（按词库记忆）</p>
             </div>
-            <Switch checked={shuffle} onCheckedChange={(v) => void toggleShuffle(v)} />
+
+            <div className="grid grid-cols-3 gap-2 text-center pt-1">
+              <div className="rounded-md bg-background/80 border p-2">
+                <div className="text-base sm:text-lg font-bold text-primary">{orchestratedPlan.targetNew}</div>
+                <div className="text-[11px] text-muted-foreground">今日待新学</div>
+              </div>
+              <div className="rounded-md bg-background/80 border p-2">
+                <div className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400">{orchestratedPlan.targetReview}</div>
+                <div className="text-[11px] text-muted-foreground">今日待复习</div>
+              </div>
+              <div className="rounded-md bg-background/80 border p-2">
+                <div className="text-base sm:text-lg font-bold text-foreground">{orchestratedPlan.totalTarget}</div>
+                <div className="text-[11px] text-muted-foreground">今日总指标</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 2. 快捷继续上次学习（如果有记录且不在备战卡中重复） */}
+      {lastDeck && lastStudy && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/30 px-3.5 py-2.5 text-xs sm:text-sm">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-muted-foreground shrink-0">继续上次：</span>
+            <span className="font-medium truncate">{lastDeck.name}</span>
+            {lastStudy.tag && (
+              <Badge variant="secondary" className="text-[10px] shrink-0">
+                {lastStudy.tag}
+              </Badge>
+            )}
+            {lastStudy.keyOnly && (
+              <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-600 text-[10px] shrink-0">
+                重点
+              </Badge>
+            )}
           </div>
-        </CardContent>
-      </Card>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onStartStudy(lastStudy.deckId, lastStudy.tag, lastStudy.keyOnly)}
+            className="h-7 px-2.5 text-xs text-primary font-medium hover:text-primary hover:bg-primary/10 shrink-0"
+          >
+            立即继续
+            <ArrowLeft className="size-3.5 ml-1 rotate-180" />
+          </Button>
+        </div>
+      )}
+
+      {/* 3. 词库列表 */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+          <span>全部词库 ({decks.length})</span>
+          <span>点击直接开始，点击「范围」可细分标签</span>
+        </div>
+
+        <div className="space-y-2.5">
+          {decks.map((d) => {
+            const cardCount = cardCounts[d.id] ?? 0;
+            const dueCount = dueMap[d.id] ?? 0;
+            return (
+              <Card
+                key={d.id}
+                className="transition-all hover:border-primary/50 hover:shadow-xs group"
+              >
+                <CardContent className="flex items-center justify-between gap-3 p-3.5 sm:p-4">
+                  {/* 左侧：点击打开范围设置弹窗 */}
+                  <div
+                    onClick={() => onOpenScope({ id: d.id, name: d.name })}
+                    className="min-w-0 flex-1 cursor-pointer select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm sm:text-base text-foreground group-hover:text-primary transition-colors truncate">
+                        {d.name}
+                      </span>
+                      {dueCount > 0 && (
+                        <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] shrink-0 px-1.5 py-0">
+                          {dueCount} 到期
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                      <span>{cardCount} 张卡片</span>
+                      <span>·</span>
+                      <span>每日新卡 {d.new_cards_per_day}</span>
+                    </div>
+                  </div>
+
+                  {/* 右侧操作按钮 */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onOpenScope({ id: d.id, name: d.name })}
+                      className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                      title="选择学习标签范围与偏好"
+                    >
+                      <SlidersHorizontal className="size-3.5 sm:mr-1" />
+                      <span className="hidden sm:inline">范围</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => onStartStudy(d.id)}
+                      className="h-8 px-3 text-xs"
+                    >
+                      <RefreshCw className="size-3 mr-1" />
+                      开始
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function Study() {
-  const { deckId, loading, error, loadQueue } = useStudyStore();
+  const { deckId, loading, error, loadQueue, loadOrchestratedQueue } = useStudyStore();
   const [quizDeck, setQuizDeck] = useState<{ id: number; name: string; tag?: string; ai?: boolean; smart?: boolean } | null>(null);
-  const [pendingDeck, setPendingDeck] = useState<{ id: number; name: string } | null>(null);
+  const [scopeDeck, setScopeDeck] = useState<{ id: number; name: string } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const quizParam = searchParams.get("quiz");
   const deckParam = searchParams.get("deck");
@@ -1238,7 +1514,7 @@ export default function Study() {
           useStudyStore.getState().reset();
           await loadQueue(d.id, tagParam);
         } else {
-          setPendingDeck({ id: d.id, name: d.name });
+          setScopeDeck({ id: d.id, name: d.name });
         }
       }
     })().catch(() => {});
@@ -1280,7 +1556,6 @@ export default function Study() {
           const taggedQuiz = !!quizDeck.tag;
           setQuizDeck(null);
           setSearchParams({}, { replace: true });
-          // 标签巩固测试结束后回到词库选择页（结束学习会话）
           if (taggedQuiz) useStudyStore.getState().reset();
         }}
       />
@@ -1304,23 +1579,47 @@ export default function Study() {
     );
   }
 
-  if (pendingDeck) {
-    return (
-      <TagPicker
-        deckId={pendingDeck.id}
-        deckName={pendingDeck.name}
-        onPick={(tag, keyOnly) => {
-          useStudyStore.getState().reset();
-          loadQueue(pendingDeck.id, tag, keyOnly);
-          setPendingDeck(null);
-        }}
-        onBack={() => setPendingDeck(null)}
-      />
-    );
-  }
-
   if (deckId === null) {
-    return <DeckPicker onStudy={(id, name) => setPendingDeck({ id, name })} />;
+    return (
+      <>
+        <DeckPicker
+          onStartStudy={(id, tag, keyOnly) => {
+            useStudyStore.getState().reset();
+            loadQueue(id, tag, keyOnly);
+          }}
+          onOpenScope={(d) => setScopeDeck(d)}
+          onStartOrchestrated={async () => {
+            const decks = useDeckStore.getState().decks;
+            const plan = await getTodayOrchestratedPlan(decks).catch(() => null);
+            if (!plan) return;
+            useStudyStore.getState().reset();
+            await loadOrchestratedQueue({
+              deckIds: plan.deckIds,
+              ignoredTags: plan.ignoredTags,
+              targetNew: plan.targetNew,
+              targetReview: plan.targetReview,
+              title: `${plan.examTitle} · 今日任务`,
+            });
+          }}
+        />
+
+        {/* 学习范围设置轻量弹窗（彻底取代原先突兀的页面级全屏跳转） */}
+        <TagScopeDialog
+          deck={scopeDeck}
+          open={scopeDeck !== null}
+          onOpenChange={(open) => {
+            if (!open) setScopeDeck(null);
+          }}
+          onStart={(tag, keyOnly) => {
+            if (!scopeDeck) return;
+            const targetId = scopeDeck.id;
+            setScopeDeck(null);
+            useStudyStore.getState().reset();
+            loadQueue(targetId, tag, keyOnly);
+          }}
+        />
+      </>
+    );
   }
 
   return (
