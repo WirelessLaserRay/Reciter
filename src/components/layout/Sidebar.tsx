@@ -10,6 +10,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Newspaper,
+  Search,
   Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSearchStore } from "@/stores/useSearchStore";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -47,6 +49,7 @@ export default function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const openSearch = useSearchStore((s) => s.openSearch);
   const brandIconSrc = import.meta.env.BASE_URL + "icon.png";
   return (
     <aside
@@ -73,6 +76,37 @@ export default function Sidebar({
 
       {/* 导航区：折叠后仅保留图标，文字平滑收起 */}
       <nav className={cn("flex-1 space-y-1 overflow-y-auto transition-[padding] duration-300", collapsed ? "p-2" : "p-3")}>
+        {/* 全词库卡片查找快捷入口 */}
+        {collapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openSearch()}
+                className="flex w-full items-center justify-center rounded-md py-2.5 text-sidebar-foreground hover:bg-accent hover:text-accent-foreground transition-all duration-300 mb-2 border border-dashed border-sidebar-border/80"
+                aria-label="查找卡片"
+              >
+                <Search className="size-5 shrink-0 text-primary" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">查找卡片 (Ctrl+K)</TooltipContent>
+          </Tooltip>
+        ) : (
+          <button
+            type="button"
+            onClick={() => openSearch()}
+            className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-accent hover:text-accent-foreground transition-all duration-300 mb-2 border border-sidebar-border/80 bg-sidebar-accent/30"
+          >
+            <div className="flex items-center gap-3">
+              <Search className="size-4 shrink-0 text-primary" />
+              <CollapseText>全库查找卡片…</CollapseText>
+            </div>
+            <kbd className="rounded border border-sidebar-border bg-sidebar px-1 text-[10px] font-mono text-muted-foreground">
+              Ctrl K
+            </kbd>
+          </button>
+        )}
+
         {NAV_ITEMS.map((item) => {
           const link = (
             <NavLink

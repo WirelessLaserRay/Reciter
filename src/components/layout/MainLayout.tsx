@@ -8,6 +8,8 @@ import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { autoPullIfRemoteNewer } from "@/lib/sync";
 import { initSyncStore } from "@/stores/useSyncStore";
+import { useSearchStore } from "@/stores/useSearchStore";
+import GlobalCardSearchDialog from "@/components/search/GlobalCardSearchDialog";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "reciter-sidebar-collapsed";
@@ -37,6 +39,20 @@ export default function MainLayout() {
       })
       .catch(() => {});
   }, [dbReady]);
+
+  const openSearch = useSearchStore((s) => s.openSearch);
+
+  // 全局快捷键：Ctrl+K 或 Cmd+K 唤起全词库搜索
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        openSearch();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openSearch]);
 
   const toggleSidebar = () => {
     setCollapsed((v) => {
@@ -75,6 +91,7 @@ export default function MainLayout() {
           <BottomNav />
         </div>
       </div>
+      <GlobalCardSearchDialog />
     </div>
   );
 }

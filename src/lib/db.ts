@@ -65,6 +65,44 @@ export interface DeckWeakWord {
   weak_source: string;
 }
 
+/** 全局卡片搜索结果项 */
+export interface GlobalSearchResult {
+  id: number;
+  deck_id: number;
+  deck_name: string;
+  front: string;
+  back: string;
+  phonetic: string;
+  markdown_content: string;
+  tags: string;
+  is_key: number;
+  weak_source: string;
+  weak_dismissed: number;
+  meaning_primary: string;
+  meaning_secondary: string;
+  ignored: number;
+  created_at: string;
+  updated_at: string;
+  state: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  due: string | null;
+  reps: number | null;
+  lapses: number | null;
+  last_review: string | null;
+}
+
+export interface SearchCardsOptions {
+  query: string;
+  limit?: number;
+  offset?: number;
+  deckId?: number;
+  scope?: "all" | "front" | "back" | "tag";
+  isKeyOnly?: boolean;
+  isWeakOnly?: boolean;
+  showIgnored?: boolean;
+}
+
 /**
  * SQLite 数据库封装（tauri-plugin-sql）
  * - 迁移由 Rust 侧插件自动执行（src-tauri/migrations/001_init.sql）
@@ -518,6 +556,117 @@ class ReciterDB {
   async deleteCard(id: number): Promise<void> {
     this.invalidateTagsCache();
     await this.requireDb().execute("DELETE FROM cards WHERE id = ?", [id]);
+  }
+
+  /**
+   * 全词库卡片全局综合检索
+   * 支持跨词库搜索单词、释义、标签，支持词库过滤、重点词过滤与弱词过滤
+   */
+  async searchCardsGlobal(opts: SearchCardsOptions): Promise<{ items: GlobalSearchResult[]; total: number }> {
+    const rawQ = opts.query.trim();
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+    const scope = opts.scope ?? "all";
+
+    const wheres: string[] = [];
+    const params: (string | number)[] = [];
+
+    // 默认不展示已忽略卡片，除非显式指定
+    if (!opts.showIgnored) {
+      wheres.push("c.ignored = 0");
+    }
+
+    // 指定词库过滤
+    if (opts.deckId && opts.deckId > 0) {
+      wheres.push("c.deck_id = ?");
+      params.push(opts.deckId);
+    }
+
+    // 重点词过滤
+    if (opts.isKeyOnly) {
+      wheres.push("c.is_key = 1");
+    }
+
+    // 弱词过滤（lapses >= 3 且未解除）
+    if (opts.isWeakOnly) {
+      wheres.push("(cs.lapses >= 3 AND c.weak_dismissed = 0)");
+    }
+
+    // 关键词过滤
+    if (rawQ) {
+      const escaped = rawQ.replace(/([%_\\])/g, "\\$1");
+      const likePattern = `%${escaped}%`;
+
+      if (scope === "front") {
+        wheres.push("c.front LIKE ? ESCAPE '\\'");
+        params.push(likePattern);
+      } else if (scope === "back") {
+        wheres.push("(c.back LIKE ? ESCAPE '\\' OR c.meaning_primary LIKE ? ESCAPE '\\' OR c.meaning_secondary LIKE ? ESCAPE '\\')");
+        params.push(likePattern, likePattern, likePattern);
+      } else if (scope === "tag") {
+        wheres.push("c.tags LIKE ? ESCAPE '\\'");
+        params.push(likePattern);
+      } else {
+        // all
+        wheres.push("(c.front LIKE ? ESCAPE '\\' OR c.back LIKE ? ESCAPE '\\' OR c.meaning_primary LIKE ? ESCAPE '\\' OR c.meaning_secondary LIKE ? ESCAPE '\\' OR c.tags LIKE ? ESCAPE '\\')");
+        params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
+      }
+    }
+
+    const whereClause = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
+
+    // 统计符合条件的总记录数
+    const countSql = `
+      SELECT COUNT(*) AS cnt
+      FROM cards c
+      JOIN decks d ON d.id = c.deck_id
+      LEFT JOIN card_states cs ON cs.card_id = c.id
+      ${whereClause}
+    `;
+    const countRows = await this.requireDb().select<{ cnt: number }[]>(countSql, params);
+    const total = countRows[0]?.cnt ?? 0;
+
+    if (total === 0) {
+      return { items: [], total: 0 };
+    }
+
+    // 排序逻辑：若有搜索词，优先匹配度（精确匹配 > 前缀匹配 > 包含匹配），其次重点词、遗忘次数优先
+    let orderClause = "ORDER BY c.is_key DESC, c.updated_at DESC, c.id DESC";
+    const selectParams: (string | number)[] = [...params];
+
+    if (rawQ) {
+      orderClause = `
+        ORDER BY
+          CASE
+            WHEN LOWER(c.front) = LOWER(?) THEN 1
+            WHEN LOWER(c.front) LIKE LOWER(?) || '%' THEN 2
+            WHEN LOWER(c.front) LIKE '%' || LOWER(?) || '%' THEN 3
+            ELSE 4
+          END ASC,
+          c.is_key DESC,
+          cs.lapses DESC,
+          c.id DESC
+      `;
+      selectParams.push(rawQ, rawQ, rawQ);
+    }
+
+    const itemsSql = `
+      SELECT
+        c.id, c.deck_id, d.name AS deck_name, c.front, c.back, c.phonetic,
+        c.markdown_content, c.tags, c.is_key, c.weak_source, c.weak_dismissed,
+        c.meaning_primary, c.meaning_secondary, c.ignored, c.created_at, c.updated_at,
+        cs.state, cs.stability, cs.difficulty, cs.due, cs.reps, cs.lapses, cs.last_review
+      FROM cards c
+      JOIN decks d ON d.id = c.deck_id
+      LEFT JOIN card_states cs ON cs.card_id = c.id
+      ${whereClause}
+      ${orderClause}
+      LIMIT ? OFFSET ?
+    `;
+    selectParams.push(limit, offset);
+
+    const items = await this.requireDb().select<GlobalSearchResult[]>(itemsSql, selectParams);
+    return { items, total };
   }
 
   // ==================== CardStates ====================

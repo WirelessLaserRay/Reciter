@@ -8,8 +8,10 @@ import {
   LayoutDashboard,
   MoreHorizontal,
   Newspaper,
+  Search,
   Settings,
 } from "lucide-react";
+import { useSearchStore } from "@/stores/useSearchStore";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +38,7 @@ const MORE_TABS = [
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const openSearch = useSearchStore((s) => s.openSearch);
   const currentPath = location.pathname;
 
   const isMoreActive = MORE_TABS.some((t) => t.to === currentPath);
@@ -87,6 +90,16 @@ export default function BottomNav() {
           sideOffset={10}
           className="w-44 mb-2 p-1.5 shadow-lg border border-border/70 backdrop-blur-md bg-background/95"
         >
+          {/* 全词库卡片查找 */}
+          <DropdownMenuItem
+            onClick={() => openSearch()}
+            className="flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-md font-medium text-primary"
+          >
+            <Search className="size-4 shrink-0 text-primary" />
+            <span>全库查找卡片</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="my-1" />
+
           {MORE_TABS.map((tab, idx) => {
             const isActive = currentPath === tab.to;
             return (

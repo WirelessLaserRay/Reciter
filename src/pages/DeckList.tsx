@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, BookOpen, Check, Download, Loader2, Pencil, PlayCircle, Plus, Square, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  BookOpen,
+  Check,
+  Download,
+  Loader2,
+  Pencil,
+  PlayCircle,
+  Plus,
+  Search,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useDbStore } from "@/stores/useDbStore";
 import { useStudyStore } from "@/stores/useStudyStore";
+import GlobalCardSearchView from "@/components/search/GlobalCardSearchView";
 
 /** 自然排序：名称中的数字按数值比较（如 "第2课" < "第10课"） */
 function naturalCompare(a: string, b: string): number {
@@ -65,6 +79,8 @@ export default function DeckList() {
   const [selectedDeckIds, setSelectedDeckIds] = useState<Set<number>>(new Set());
   const [exportBusy, setExportBusy] = useState(false);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"decks" | "search">("decks");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (dbReady) refresh();
@@ -164,28 +180,107 @@ export default function DeckList() {
     if (r.ok) setSelectedDeckIds(new Set());
   };
 
+  const totalCards = Object.values(cardCounts).reduce((a, b) => a + b, 0);
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <div className="flex items-center justify-between">
+      {/* 顶部标题与模式切换 */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">词库</h2>
           <p className="text-sm text-muted-foreground">
-            共 {decks.length} 个词库 · {Object.values(cardCounts).reduce((a, b) => a + b, 0)} 张卡片
+            共 {decks.length} 个词库 · {totalCards} 张卡片
           </p>
         </div>
+
         <div className="flex items-center gap-2">
-          {selectedDeckIds.size > 0 && (
-            <Button variant="outline" size="sm" onClick={handleExportDecks} disabled={exportBusy}>
-              {exportBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-              导出所选（{selectedDeckIds.size}）
-            </Button>
+          {/* 模式切换：词库列表 / 全库查找 */}
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border/50">
+            <button
+              type="button"
+              onClick={() => setActiveTab("decks")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                activeTab === "decks"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <BookOpen className="size-3.5" />
+              <span>词库列表</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("search")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                activeTab === "search"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Search className="size-3.5" />
+              <span>全库查找</span>
+            </button>
+          </div>
+
+          {activeTab === "decks" && (
+            <>
+              {selectedDeckIds.size > 0 && (
+                <Button variant="outline" size="sm" onClick={handleExportDecks} disabled={exportBusy}>
+                  {exportBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                  导出所选（{selectedDeckIds.size}）
+                </Button>
+              )}
+              <Button onClick={() => setShowCreate((v) => !v)} size="sm">
+                <Plus className="size-4" />
+                新建词库
+              </Button>
+            </>
           )}
-          <Button onClick={() => setShowCreate((v) => !v)}>
-            <Plus className="size-4" />
-            新建词库
-          </Button>
         </div>
       </div>
+
+      {/* 词库全局卡片查找搜索栏 */}
+      <div className="relative flex items-center">
+        <Search className="absolute left-3.5 size-4 text-muted-foreground pointer-events-none" />
+        <Input
+          value={searchQuery}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSearchQuery(val);
+            if (val && activeTab !== "search") {
+              setActiveTab("search");
+            }
+          }}
+          placeholder="全词库查找：输入英文单词、音标、中文释义或标签…"
+          className="h-10 pl-10 pr-10 text-sm bg-card border-border/80"
+        />
+        {searchQuery ? (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3.5 text-muted-foreground hover:text-foreground p-0.5 rounded-full"
+            title="清空输入"
+          >
+            <X className="size-4" />
+          </button>
+        ) : (
+          <kbd className="absolute right-3 hidden sm:inline-flex items-center rounded border border-border/80 bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+            Ctrl K
+          </kbd>
+        )}
+      </div>
+
+      {activeTab === "search" ? (
+        <GlobalCardSearchView
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          hideSearchBar
+          embedded
+        />
+      ) : (
+        <>
 
       {exportMsg && (
         <p className="text-xs text-muted-foreground">{exportMsg}</p>
@@ -364,6 +459,8 @@ export default function DeckList() {
               </div>
             ))}
         </div>
+      )}
+      </>
       )}
 
       {/* 删除词库警告对话框 */}
