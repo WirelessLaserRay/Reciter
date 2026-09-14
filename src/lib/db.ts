@@ -57,6 +57,18 @@ export interface MasteryDistribution {
   total: number;
 }
 
+/** 多词库或全词库掌握度与熟练度统计 */
+export interface MultiDeckMasteryStats {
+  mastered: number;     // 达到目标熟练度（stability >= targetStability 且 lapses < threshold）
+  learning: number;     // 学习中
+  weak: number;         // 弱词
+  unlearned: number;    // 未学
+  total: number;
+  learnedTotal: number; // 已学总数（state != 0）
+  avgStability: number; // 已学卡片平均记忆稳定性（天）
+  masteryRate: number;  // 掌握率百分比 (0-100)
+}
+
 /** 词库 TOP 弱词（掌握度全景用） */
 export interface DeckWeakWord {
   front: string;
@@ -438,6 +450,77 @@ class ReciterDB {
     );
     const r = rows[0];
     return r ?? { mastered: 0, learning: 0, weak: 0, unlearned: 0, total: 0 };
+  }
+
+  /**
+   * 多词库或全词库掌握度与熟练度统计（Phase 6C 扩展）：
+   * 支持指定词库范围、忽略标签、目标稳定性阈值（targetStability，默认 7 天）与弱词阈值（默认 3 次）。
+   */
+  async getMultiDeckMasteryStats(
+    deckIds: number[] = [],
+    ignoreTags: string[] = [],
+    targetStability = 7,
+    threshold = 3
+  ): Promise<MultiDeckMasteryStats> {
+    const resolvedTags = await this.resolveMatchingTags(ignoreTags, deckIds);
+    const hasDecks = deckIds.length > 0;
+    const placeholders = hasDecks ? deckIds.map(() => "?").join(",") : "";
+    const deckWhere = hasDecks ? ` AND c.deck_id IN (${placeholders})` : "";
+    const minTarget = targetStability > 0 ? targetStability : 7;
+    const params: (string | number)[] = [
+      threshold,
+      threshold,
+      threshold,
+      minTarget,
+      threshold,
+      minTarget,
+      ...(hasDecks ? deckIds : []),
+      ...ignoredTagsParams(resolvedTags),
+    ];
+    const rows = await this.requireDb().select<{
+      weak: number;
+      unlearned: number;
+      mastered: number;
+      learning: number;
+      total: number;
+      learned_total: number;
+      avg_stability: number | null;
+    }[]>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN cs.lapses >= ? THEN 1 ELSE 0 END), 0) AS weak,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state = 0 THEN 1 ELSE 0 END), 0) AS unlearned,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability >= ? THEN 1 ELSE 0 END), 0) AS mastered,
+         COALESCE(SUM(CASE WHEN cs.lapses < ? AND cs.state != 0 AND cs.stability < ? THEN 1 ELSE 0 END), 0) AS learning,
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN cs.state != 0 THEN 1 ELSE 0 END), 0) AS learned_total,
+         AVG(CASE WHEN cs.state != 0 THEN cs.stability ELSE NULL END) AS avg_stability
+       FROM cards c JOIN card_states cs ON cs.card_id = c.id
+       WHERE c.ignored = 0${deckWhere}${ignoredTagsWhere(resolvedTags)}`,
+      params
+    );
+    const r = rows[0] ?? {
+      weak: 0,
+      unlearned: 0,
+      mastered: 0,
+      learning: 0,
+      total: 0,
+      learned_total: 0,
+      avg_stability: 0,
+    };
+    const total = r.total;
+    const mastered = r.mastered;
+    const masteryRate = total > 0 ? Math.round((mastered / total) * 100) : 0;
+    const rawAvg = r.avg_stability ?? 0;
+    return {
+      weak: r.weak,
+      unlearned: r.unlearned,
+      mastered,
+      learning: r.learning,
+      total,
+      learnedTotal: r.learned_total,
+      avgStability: Math.round(rawAvg * 10) / 10,
+      masteryRate,
+    };
   }
 
   /** 词库 TOP N 弱词（按遗忘次数降序、稳定性升序；threshold 默认 3） */

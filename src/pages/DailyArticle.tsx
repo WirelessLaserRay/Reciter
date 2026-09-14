@@ -466,27 +466,33 @@ export default function DailyArticle() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <Select value={source} onValueChange={handleSourceChange}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
+              <SelectTrigger className="w-52">
+                <SelectValue placeholder="选择新闻源">
+                  {allSources.find((s) => s.value === source)?.label ?? "选择新闻源"}
+                </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="w-56 max-h-72">
                 {allSources.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
+                  <SelectItem key={s.value} value={s.value} className="py-2">
+                    <span className="font-medium text-sm">{s.label}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {currentTopics.length > 1 && (
               <Select value={topic} onValueChange={setTopic}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="全部主题" />
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="全部主题">
+                    {currentTopics.find((t) => t.id === topic)?.label || "全部主题"}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">全部主题</SelectItem>
+                <SelectContent className="w-48 max-h-64">
+                  <SelectItem value="" className="py-2">
+                    <span className="font-medium text-sm">全部主题</span>
+                  </SelectItem>
                   {currentTopics.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.label}
+                    <SelectItem key={t.id} value={t.id} className="py-2">
+                      <span className="text-sm">{t.label}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -536,12 +542,18 @@ export default function DailyArticle() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">共 {sortedItems.length} 条</span>
                   <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "desc" | "asc")}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
+                    <SelectTrigger className="h-8 w-32 text-xs">
+                      <SelectValue placeholder="排序方式">
+                        {sortOrder === "desc" ? "最新优先" : "最早优先"}
+                      </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="desc">最新优先</SelectItem>
-                      <SelectItem value="asc">最早优先</SelectItem>
+                    <SelectContent className="w-32">
+                      <SelectItem value="desc" className="py-1.5 text-xs">
+                        最新优先
+                      </SelectItem>
+                      <SelectItem value="asc" className="py-1.5 text-xs">
+                        最早优先
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -670,13 +682,25 @@ export default function DailyArticle() {
                           onValueChange={(v) => void handleEngineChange(v as ArticleTranslateEngine)}
                           disabled={translating}
                         >
-                          <SelectTrigger className="h-8 w-32 text-xs">
-                            <SelectValue />
+                          <SelectTrigger className="h-8 w-36 text-xs">
+                            <SelectValue placeholder="翻译引擎">
+                              {translateEngine === "ai"
+                                ? "AI 大模型"
+                                : translateEngine === "deepl"
+                                  ? "DeepL 翻译"
+                                  : "公共接口兜底"}
+                            </SelectValue>
                           </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="ai">AI 大模型</SelectItem>
-                            <SelectItem value="deepl">DeepL 翻译</SelectItem>
-                            <SelectItem value="fallback">公共接口兜底</SelectItem>
+                          <SelectContent className="w-40">
+                            <SelectItem value="ai" className="py-1.5 text-xs">
+                              AI 大模型
+                            </SelectItem>
+                            <SelectItem value="deepl" className="py-1.5 text-xs">
+                              DeepL 翻译
+                            </SelectItem>
+                            <SelectItem value="fallback" className="py-1.5 text-xs">
+                              公共接口兜底
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

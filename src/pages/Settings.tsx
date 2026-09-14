@@ -58,6 +58,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getEasyDaysConfig, saveEasyDaysConfig } from "@/lib/easy-days";
 import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
 import { isTauri } from "@/lib/env";
+import { cn } from "@/lib/utils";
 import {
   clearDictionaryMemoryCache,
   getDeepLCorsProxy,
@@ -141,6 +142,121 @@ import {
 import ExamPlanDialog from "@/components/study/ExamPlanDialog";
 import MarkdownView from "@/components/common/MarkdownView";
 
+const TTS_SOURCE_OPTIONS: {
+  value: TTSSource;
+  label: string;
+  tag: string;
+  desc: string;
+  badgeClass: string;
+}[] = [
+  {
+    value: "auto",
+    label: "自动推荐",
+    tag: "智能回退",
+    desc: "例句及离线优先系统引擎；短词优先高速在线，失败自动回退",
+    badgeClass: "bg-primary/10 text-primary border-primary/25",
+  },
+  {
+    value: "system",
+    label: "系统 TTS",
+    tag: "离线可用",
+    desc: "使用系统原生语音合成，完全离线运行且例句长度无限制（推荐）",
+    badgeClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25",
+  },
+  {
+    value: "youdao",
+    label: "有道 TTS",
+    tag: "国内高速",
+    desc: "国内网络极速稳定发音（例句长文本智能由系统引擎朗读）",
+    badgeClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25",
+  },
+  {
+    value: "google",
+    label: "Google TTS",
+    tag: "需国际网络",
+    desc: "标准 Google 语音（国内网络可能受阻，长句自动由系统引擎朗读）",
+    badgeClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25",
+  },
+];
+
+const VOCAB_STANDARD_OPTIONS: {
+  value: VocabStandard;
+  label: string;
+  tag: string;
+  desc: string;
+}[] = [
+  {
+    value: "CET4",
+    label: "四级 (CET-4)",
+    tag: "大学英语",
+    desc: "大学英语四级考纲核心词汇基准",
+  },
+  {
+    value: "CET6",
+    label: "六级 (CET-6)",
+    tag: "高频进阶",
+    desc: "大学英语六级高频重点词汇基准",
+  },
+  {
+    value: "考研",
+    label: "考研英语",
+    tag: "考研大纲",
+    desc: "全国硕士研究生招生考试大纲词汇基准",
+  },
+  {
+    value: "专业英语",
+    label: "专业英语",
+    tag: "学术专精",
+    desc: "英语专业四八级与高难度学术词汇基准",
+  },
+];
+
+const TRANSLATION_PROVIDER_OPTIONS: {
+  value: TranslationProvider;
+  label: string;
+  tag: string;
+  desc: string;
+}[] = [
+  {
+    value: "deepl",
+    label: "DeepL 翻译",
+    tag: "专业精准",
+    desc: "高质量自然语境对照（推荐，需配置 Auth Key）",
+  },
+  {
+    value: "fallback",
+    label: "公共兜底方案",
+    tag: "免密开箱",
+    desc: "内置公共翻译接口分段解析（无需填 Key，直接可用）",
+  },
+];
+
+const ARTICLE_TRANSLATE_ENGINE_OPTIONS: {
+  value: ArticleTranslateEngine;
+  label: string;
+  tag: string;
+  desc: string;
+}[] = [
+  {
+    value: "ai",
+    label: "AI 语义大模型",
+    tag: "段落通顺",
+    desc: "结合上下文整篇翻译，保留原文段落结构与修辞语气",
+  },
+  {
+    value: "deepl",
+    label: "DeepL 专业引擎",
+    tag: "精准对照",
+    desc: "专业机器翻译服务（需在下方配置有效 DeepL Key）",
+  },
+  {
+    value: "fallback",
+    label: "公共免费接口",
+    tag: "分段兜底",
+    desc: "MyMemory / 公共网络翻译分句兜底，开箱即用",
+  },
+];
+
 export default function Settings() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -184,6 +300,7 @@ export default function Settings() {
   const [examDate, setExamDate] = useState("");
   const [examDeckIds, setExamDeckIds] = useState<number[]>([]);
   const [examIgnoredTags, setExamIgnoredTags] = useState<string[]>([]);
+  const [examTargetStability, setExamTargetStability] = useState<number>(7);
   const [examAiPlan, setExamAiPlan] = useState("");
   const [examPlanning, setExamPlanning] = useState(false);
   const [examPlanMsg, setExamPlanMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -560,6 +677,7 @@ export default function Settings() {
     setExamDate(examCfg.date ?? "");
     setExamDeckIds(examCfg.deckIds);
     setExamIgnoredTags(examCfg.ignoredTags || []);
+    setExamTargetStability(examCfg.targetStability ?? 7);
     setExamAiPlan(examPlan);
   };
 
@@ -574,6 +692,7 @@ export default function Settings() {
       date: examDate,
       deckIds: examDeckIds,
       ignoredTags: examIgnoredTags,
+      targetStability: examTargetStability,
     });
     setExamPlanMsg({ ok: true, text: "考试规划已保存，主页倒计时与任务编排已更新" });
     flashSaved();
@@ -593,6 +712,7 @@ export default function Settings() {
         date: examDate,
         deckIds: examDeckIds,
         ignoredTags: examIgnoredTags,
+        targetStability: examTargetStability,
       }, decks);
       setExamAiPlan(plan);
       await saveAIStudyPlan(plan);
@@ -950,14 +1070,37 @@ export default function Settings() {
                 value={vocabStandard}
                 onValueChange={(v) => handleVocabStandardChange(v as VocabStandard)}
               >
-                <SelectTrigger className="w-full sm:w-64">
-                  <SelectValue />
+                <SelectTrigger className="w-full sm:w-80">
+                  <SelectValue>
+                    {(() => {
+                      const cur = VOCAB_STANDARD_OPTIONS.find((o) => o.value === vocabStandard) ?? VOCAB_STANDARD_OPTIONS[0];
+                      return (
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium text-foreground">{cur.label}</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                            {cur.tag}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CET4">四级（CET-4）</SelectItem>
-                  <SelectItem value="CET6">六级（CET-6）</SelectItem>
-                  <SelectItem value="考研">考研英语</SelectItem>
-                  <SelectItem value="专业英语">专业英语</SelectItem>
+                <SelectContent className="w-full sm:w-80">
+                  {VOCAB_STANDARD_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="py-2 px-2.5">
+                      <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground text-sm">{opt.label}</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                            {opt.tag}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground leading-snug whitespace-normal break-words">
+                          {opt.desc}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -978,18 +1121,41 @@ export default function Settings() {
               <div className="space-y-2">
                 <Label htmlFor="tts-source">发音来源</Label>
                 <Select value={ttsSource} onValueChange={(v) => void saveTTSSetting(v as TTSSource)}>
-                  <SelectTrigger className="w-full sm:w-80">
-                    <SelectValue />
+                  <SelectTrigger id="tts-source" className="w-full sm:w-[420px]">
+                    <SelectValue>
+                      {(() => {
+                        const cur = TTS_SOURCE_OPTIONS.find((o) => o.value === ttsSource) ?? TTS_SOURCE_OPTIONS[0];
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">{cur.label}</span>
+                            <span className={cn("text-[11px] px-1.5 py-0.5 rounded border font-normal", cur.badgeClass)}>
+                              {cur.tag}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">自动（优先系统，失败回退在线）</SelectItem>
-                    <SelectItem value="system">系统 TTS（离线可用）</SelectItem>
-                    <SelectItem value="youdao">有道 TTS（国内高速稳定）</SelectItem>
-                    <SelectItem value="google">Google TTS（需科学网络）</SelectItem>
+                  <SelectContent className="w-full sm:w-[420px]">
+                    {TTS_SOURCE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="py-2.5 px-3">
+                        <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground text-sm">{opt.label}</span>
+                            <span className={cn("text-[10px] px-1.5 py-0.2 rounded border font-normal", opt.badgeClass)}>
+                              {opt.tag}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground leading-snug whitespace-normal break-words">
+                            {opt.desc}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  系统 TTS 离线可用且支持无限长例句（推荐）；有道 TTS 适合国内单词极速发音（例句智能由系统引擎朗读）；Google TTS 适合单词发音（例句长句超过限制时自动由系统引擎朗读）。
+                  系统 TTS 离线可用且支持无限长例句（推荐）；有道 TTS 适合国内单词极速发音；Google TTS 适合单词发音。
                 </p>
               </div>
 
@@ -1330,7 +1496,7 @@ export default function Settings() {
                     AI 辅助学习任务编排与标签过滤
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    可视化多选学习词库、智能排除忽略标签（如已掌握集合），实时推算每日新学与复习配额。
+                    可视化多选学习词库、智能排除忽略标签、设定目标熟练度（当前设定：{examTargetStability > 0 ? `稳定性 >= ${examTargetStability} 天` : "学完即可"}），科学预留考前复习冲刺期。
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setExamPlanDialogOpen(true)} className="gap-1.5">
@@ -1569,12 +1735,37 @@ export default function Settings() {
                   value={translationProvider}
                   onValueChange={(v) => void saveTranslationProvider(v as TranslationProvider)}
                 >
-                  <SelectTrigger className="w-full sm:w-80">
-                    <SelectValue />
+                  <SelectTrigger id="translation-provider" className="w-full sm:w-80">
+                    <SelectValue>
+                      {(() => {
+                        const cur = TRANSLATION_PROVIDER_OPTIONS.find((o) => o.value === translationProvider) ?? TRANSLATION_PROVIDER_OPTIONS[0];
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">{cur.label}</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                              {cur.tag}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="deepl">DeepL（推荐，需 API Key）</SelectItem>
-                    <SelectItem value="fallback">公共兜底方案（MyMemory + AI 兜底）</SelectItem>
+                  <SelectContent className="w-full sm:w-80">
+                    {TRANSLATION_PROVIDER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="py-2 px-2.5">
+                        <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground text-sm">{opt.label}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                              {opt.tag}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground leading-snug whitespace-normal break-words">
+                            {opt.desc}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -1741,12 +1932,36 @@ export default function Settings() {
                   onValueChange={(v) => void handleArticleEngineChange(v as ArticleTranslateEngine)}
                 >
                   <SelectTrigger id="article-translate-engine" className="w-full sm:w-80">
-                    <SelectValue />
+                    <SelectValue>
+                      {(() => {
+                        const cur = ARTICLE_TRANSLATE_ENGINE_OPTIONS.find((o) => o.value === articleTranslateEngine) ?? ARTICLE_TRANSLATE_ENGINE_OPTIONS[0];
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">{cur.label}</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                              {cur.tag}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ai">AI 大模型（保留段落结构，语境通顺）</SelectItem>
-                    <SelectItem value="deepl">DeepL（专业精准对照，需 API Key）</SelectItem>
-                    <SelectItem value="fallback">公共接口（MyMemory 分段兜底）</SelectItem>
+                  <SelectContent className="w-full sm:w-80">
+                    {ARTICLE_TRANSLATE_ENGINE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="py-2 px-2.5">
+                        <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground text-sm">{opt.label}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                              {opt.tag}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground leading-snug whitespace-normal break-words">
+                            {opt.desc}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

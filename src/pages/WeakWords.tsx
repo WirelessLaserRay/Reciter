@@ -247,13 +247,19 @@ export default function WeakWords() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <Select value={deckFilter} onValueChange={setDeckFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="全部词库" />
+              <SelectTrigger className="w-52">
+                <SelectValue placeholder="全部词库">
+                  {deckFilter === "all"
+                    ? "全部词库"
+                    : decks.find((d) => String(d.id) === deckFilter)?.name ?? "全部词库"}
+                </SelectValue>
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部词库</SelectItem>
+              <SelectContent className="w-56">
+                <SelectItem value="all" className="py-2">
+                  全部词库
+                </SelectItem>
                 {decks.map((d) => (
-                  <SelectItem key={d.id} value={String(d.id)}>
+                  <SelectItem key={d.id} value={String(d.id)} className="py-2">
                     {d.name}
                   </SelectItem>
                 ))}
@@ -287,7 +293,7 @@ export default function WeakWords() {
             <p className="text-sm text-red-600">{error}</p>
           ) : weakCards.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              暂无弱词，继续保持 🎉
+              暂无弱词，继续保持
             </p>
           ) : (
             <div className="space-y-2">
@@ -312,12 +318,16 @@ export default function WeakWords() {
               <Label>目标词库</Label>
               <Select value={importDeckId} onValueChange={setImportDeckId}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选择词库" />
+                  <SelectValue placeholder="请选择目标词库">
+                    {decks.find((d) => String(d.id) === importDeckId)?.name ?? "请选择目标词库"}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-full max-h-60">
                   {decks.map((d) => (
-                    <SelectItem key={d.id} value={String(d.id)}>
-                      {d.name}
+                    <SelectItem key={d.id} value={String(d.id)} className="py-2">
+                      <div className="flex items-center justify-between w-full pr-2">
+                        <span className="font-medium text-sm truncate">{d.name}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>

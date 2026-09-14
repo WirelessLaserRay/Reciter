@@ -27,6 +27,7 @@ import {
   matchWordSpelling,
   type WordSpellingResult,
   getWordMaskHint,
+  getCleanWordForDisplay,
 } from "@/lib/recall-match";
 import { getCardMeaning, isPhrase, removePosPrefix } from "@/lib/meaning";
 import { speak, stopAudio } from "@/lib/tts";
@@ -651,15 +652,15 @@ function MobileActiveRecallView(props: ModeViewProps) {
       </p>
     ) : null;
 
-  const wordLengthText = row.front.trim().includes("/")
-    ? row.front
-        .trim()
+  const cleanWord = getCleanWordForDisplay(row.front);
+  const wordLengthText = cleanWord.includes("/")
+    ? cleanWord
         .split("/")
         .map((s) => `${s.trim().length} 字母`)
         .join(" / ")
-    : row.front.trim().includes(" ")
-      ? `短语 (${row.front.trim().split(/\s+/).length} 词)`
-      : `${row.front.trim().length} 个字母`;
+    : cleanWord.includes(" ")
+      ? `短语 (${cleanWord.trim().split(/\s+/).length} 词)`
+      : `${cleanWord.length} 个字母`;
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -788,21 +789,17 @@ function MobileActiveRecallView(props: ModeViewProps) {
               <div
                 className={cn(
                   "w-full max-w-md rounded-lg border p-2.5 text-center space-y-1",
-                  recallResult.exact
+                  recallResult.match
                     ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400"
-                    : recallResult.match
-                      ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                      : "border-destructive/40 bg-destructive/10 text-destructive"
+                    : "border-destructive/40 bg-destructive/10 text-destructive"
                 )}
               >
                 <p className="text-sm font-semibold">
-                  {recallResult.exact
+                  {recallResult.match
                     ? "拼写完全正确！"
-                    : recallResult.match
-                      ? `拼写基本正确（相似度 ${Math.round(recallResult.similarity * 100)}%）`
-                      : "拼写有误，请对照加深记忆（若认为正确可点击「已掌握」改判）"}
+                    : `拼写有误${recallResult.similarity >= 0.6 ? `（相似度 ${Math.round(recallResult.similarity * 100)}%）` : ""}，请对照加深记忆（若认为正确可点击「已掌握」改判）`}
                 </p>
-                {!recallResult.exact && (
+                {!recallResult.match && (
                   <p className="text-xs">
                     你的拼写：<span className="font-mono font-medium underline">{recallResult.userWord}</span>
                     {" · "}
@@ -1072,15 +1069,15 @@ function QuickTestView(props: ModeViewProps) {
     };
   }, [checked, choice.useFront, row.front]);
 
-  const wordLengthText = row.front.trim().includes("/")
-    ? row.front
-        .trim()
+  const cleanWord = getCleanWordForDisplay(row.front);
+  const wordLengthText = cleanWord.includes("/")
+    ? cleanWord
         .split("/")
         .map((s) => `${s.trim().length} 字母`)
         .join(" / ")
-    : row.front.trim().includes(" ")
-      ? `短语 (${row.front.trim().split(/\s+/).length} 词)`
-      : `${row.front.trim().length} 个字母`;
+    : cleanWord.includes(" ")
+      ? `短语 (${cleanWord.trim().split(/\s+/).length} 词)`
+      : `${cleanWord.length} 个字母`;
 
   const modeDescription = isDesktop
     ? `快速测试 · ${Math.round(quickMs / 1000)} 秒内拼对建议「已掌握」 · 看释义拼写单词（中译英）`

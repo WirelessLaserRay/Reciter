@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { getPureTags } from "@/lib/card-examples";
 import { getCardMeaning } from "@/lib/meaning";
 import { optionIndexFromNumberKey } from "@/lib/shortcuts";
+import { matchWordSpelling } from "@/lib/recall-match";
 import type { Card as CardType } from "@/types";
 
 export type QuizType = "fill-cn2en" | "choice-cn2en" | "choice-en2cn" | "mixed";
@@ -413,13 +414,63 @@ export default function QuizSession({
               <Label>题型</Label>
               <Select value={configType} onValueChange={(v) => setConfigType(v as QuizType)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(() => {
+                      const labels: Record<QuizType, { name: string; tag: string }> = {
+                        mixed: { name: "混合题型", tag: "智能交替" },
+                        "fill-cn2en": { name: "填空 · 中译英", tag: "拼写输入" },
+                        "choice-cn2en": { name: "选择 · 中译英", tag: "释义选词" },
+                        "choice-en2cn": { name: "选择 · 英译中", tag: "单词选义" },
+                      };
+                      const cur = labels[configType] ?? labels.mixed;
+                      return (
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium text-foreground">{cur.name}</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary font-normal">
+                            {cur.tag}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mixed">混合题型</SelectItem>
-                  <SelectItem value="fill-cn2en">填空 · 中译英（输入拼写）</SelectItem>
-                  <SelectItem value="choice-cn2en">选择 · 中译英（看释义选单词）</SelectItem>
-                  <SelectItem value="choice-en2cn">选择 · 英译中（看单词选释义）</SelectItem>
+                <SelectContent className="w-full sm:w-96">
+                  <SelectItem value="mixed" className="py-2 px-2.5">
+                    <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground text-sm">混合题型</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">智能交替</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground leading-snug">根据词汇熟练度交替考察填空与双向选择题</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="fill-cn2en" className="py-2 px-2.5">
+                    <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground text-sm">填空 · 中译英</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">拼写输入</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground leading-snug">看中文释义拼写完整英文单词，强化主动拼写记忆</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="choice-cn2en" className="py-2 px-2.5">
+                    <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground text-sm">选择 · 中译英</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">释义选词</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground leading-snug">看中文释义从 4 个英文选项中辨析选择对应单词</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="choice-en2cn" className="py-2 px-2.5">
+                    <div className="flex flex-col gap-0.5 text-left w-full pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground text-sm">选择 · 英译中</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded border border-primary/20 bg-primary/10 text-primary font-normal">单词选义</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground leading-snug">看英文单词与音标从 4 个中文选项中选出正确释义</span>
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -428,17 +479,76 @@ export default function QuizSession({
               <Label>考察范围</Label>
               <Select value={tagFilter} onValueChange={setTagFilter}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(() => {
+                      if (tagFilter === "all") {
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">全部卡片</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border text-muted-foreground">{cards.length} 张</span>
+                          </div>
+                        );
+                      }
+                      if (tagFilter === "__learned__") {
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">已学词</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{learnedCount} 张</span>
+                          </div>
+                        );
+                      }
+                      if (tagFilter === "__key__") {
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">重点词 / 词组</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">{keyCount} 张</span>
+                          </div>
+                        );
+                      }
+                      const count = cards.filter((c) => tagsOf(c.tags).includes(tagFilter)).length;
+                      return (
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium text-foreground">#{tagFilter}</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded border text-muted-foreground">{count} 张</span>
+                        </div>
+                      );
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部卡片（{cards.length} 张）</SelectItem>
-                  {learnedCount > 0 && <SelectItem value="__learned__">已学词（{learnedCount} 张）</SelectItem>}
-                  {keyCount > 0 && <SelectItem value="__key__">重点词 / 词组（{keyCount} 张）</SelectItem>}
-                  {allTags.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}（{cards.filter((c) => tagsOf(c.tags).includes(t)).length} 张）
+                <SelectContent className="w-full sm:w-80">
+                  <SelectItem value="all" className="py-2 px-2.5">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <span className="font-medium text-foreground text-sm">全部卡片</span>
+                      <span className="text-xs text-muted-foreground">{cards.length} 张</span>
+                    </div>
+                  </SelectItem>
+                  {learnedCount > 0 && (
+                    <SelectItem value="__learned__" className="py-2 px-2.5">
+                      <div className="flex items-center justify-between w-full pr-2">
+                        <span className="font-medium text-foreground text-sm">已学词</span>
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{learnedCount} 张</span>
+                      </div>
                     </SelectItem>
-                  ))}
+                  )}
+                  {keyCount > 0 && (
+                    <SelectItem value="__key__" className="py-2 px-2.5">
+                      <div className="flex items-center justify-between w-full pr-2">
+                        <span className="font-medium text-foreground text-sm">重点词 / 词组</span>
+                        <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{keyCount} 张</span>
+                      </div>
+                    </SelectItem>
+                  )}
+                  {allTags.map((t) => {
+                    const count = cards.filter((c) => tagsOf(c.tags).includes(t)).length;
+                    return (
+                      <SelectItem key={t} value={t} className="py-2 px-2.5">
+                        <div className="flex items-center justify-between w-full pr-2">
+                          <span className="font-medium text-foreground text-sm">#{t}</span>
+                          <span className="text-xs text-muted-foreground">{count} 张</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -450,12 +560,46 @@ export default function QuizSession({
               <Label>题目数量</Label>
               <Select value={configCount} onValueChange={setConfigCount}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(() => {
+                      if (configCount === "all") {
+                        return (
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-medium text-foreground">全部卡片</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border text-muted-foreground">{pool.length} 题</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium text-foreground">{configCount} 题</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded border text-muted-foreground">
+                            {configCount === "10" ? "快速刷题" : "标准突击"}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10 题</SelectItem>
-                  <SelectItem value="20">20 题</SelectItem>
-                  <SelectItem value="all">全部（{pool.length} 张）</SelectItem>
+                <SelectContent className="w-full sm:w-80">
+                  <SelectItem value="10" className="py-2 px-2.5">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <span className="font-medium text-foreground text-sm">10 题</span>
+                      <span className="text-xs text-muted-foreground">快速刷题测试</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="20" className="py-2 px-2.5">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <span className="font-medium text-foreground text-sm">20 题</span>
+                      <span className="text-xs text-muted-foreground">标准突击测试</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="all" className="py-2 px-2.5">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <span className="font-medium text-foreground text-sm">全部题目</span>
+                      <span className="text-xs text-primary font-medium">共 {pool.length} 张</span>
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -526,7 +670,8 @@ export default function QuizSession({
   const answered = revealed && item.userAnswer !== null;
   const isCorrect =
     answered &&
-    item.userAnswer!.trim().toLowerCase() === item.correctAnswer.trim().toLowerCase();
+    (item.userAnswer!.trim().toLowerCase() === item.correctAnswer.trim().toLowerCase() ||
+      matchWordSpelling(item.userAnswer!, item.correctAnswer).match);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

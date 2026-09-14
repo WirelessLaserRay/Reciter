@@ -14,6 +14,7 @@ import {
   Settings2,
   Sparkles,
   Tag,
+  Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -308,6 +309,14 @@ export default function Dashboard() {
                 <Badge variant="outline" className="text-xs border-blue-500/30 text-blue-600 dark:text-blue-400">
                   目标日期 {orchestratedPlan.examDate}
                 </Badge>
+                <Badge variant="outline" className="text-xs border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                  平均稳定 {orchestratedPlan.avgStability} 天 · 掌握率 {orchestratedPlan.masteryRate}%
+                </Badge>
+                {orchestratedPlan.inSprintPhase && (
+                  <Badge variant="secondary" className="text-xs bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30">
+                    冲刺期 (新词暂停)
+                  </Badge>
+                )}
               </div>
               {/* 优雅紧凑列写：目标词库与排除标签 */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-0.5 text-xs">
@@ -403,12 +412,101 @@ export default function Dashboard() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {/* 熟练度全景进度与阶段提示 */}
+            <div className="rounded-lg bg-background/80 border p-3 shadow-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                <div className="flex items-center gap-1.5 font-medium text-foreground">
+                  <Target className="size-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>词汇熟练度全景</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+                    {orchestratedPlan.targetStability > 0
+                      ? `目标: 稳定 >= ${orchestratedPlan.targetStability} 天`
+                      : "目标: 学完即可"}
+                  </Badge>
+                </div>
+                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                  <span>
+                    平均稳定性: <strong className="text-foreground">{orchestratedPlan.avgStability}</strong> 天
+                  </span>
+                  <span>
+                    掌握率: <strong className="text-emerald-600 dark:text-emerald-400">{orchestratedPlan.masteryRate}%</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* 多段掌握度进度条 */}
+              {orchestratedPlan.totalCards > 0 && (
+                <div className="space-y-1">
+                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                    <div
+                      className="bg-emerald-500 h-full transition-all"
+                      style={{ width: `${(orchestratedPlan.masteredCount / orchestratedPlan.totalCards) * 100}%` }}
+                      title={`已掌握: ${orchestratedPlan.masteredCount} 词`}
+                    />
+                    <div
+                      className="bg-blue-500 h-full transition-all"
+                      style={{ width: `${(orchestratedPlan.learningCount / orchestratedPlan.totalCards) * 100}%` }}
+                      title={`学习中: ${orchestratedPlan.learningCount} 词`}
+                    />
+                    <div
+                      className="bg-amber-500 h-full transition-all"
+                      style={{ width: `${(orchestratedPlan.weakCount / orchestratedPlan.totalCards) * 100}%` }}
+                      title={`弱词: ${orchestratedPlan.weakCount} 词`}
+                    />
+                    <div
+                      className="bg-slate-300 dark:bg-slate-700 h-full transition-all"
+                      style={{ width: `${(orchestratedPlan.remainingNew / orchestratedPlan.totalCards) * 100}%` }}
+                      title={`未学: ${orchestratedPlan.remainingNew} 词`}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
+                      已掌握 {orchestratedPlan.masteredCount}
+                    </span>
+                    <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                      <span className="size-1.5 rounded-full bg-blue-500 inline-block" />
+                      学习中 {orchestratedPlan.learningCount}
+                    </span>
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <span className="size-1.5 rounded-full bg-amber-500 inline-block" />
+                      弱词 {orchestratedPlan.weakCount}
+                    </span>
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <span className="size-1.5 rounded-full bg-slate-400 inline-block" />
+                      未学 {orchestratedPlan.remainingNew}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 冲刺阶段状态条 */}
+              {orchestratedPlan.inSprintPhase ? (
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 px-2.5 py-1 text-xs font-medium flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span>考前冲刺固化期：每日新词已自动暂停，全力冲刺已学词汇熟练度达标！</span>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] border-amber-500/30">
+                    冲刺缓冲余 {orchestratedPlan.daysUntilExam} 天
+                  </Badge>
+                </div>
+              ) : orchestratedPlan.targetStability > 0 && orchestratedPlan.daysUntilExam > 0 ? (
+                <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+                  <span>新词稳步攻坚中：按当前节奏将在考前预留的 {orchestratedPlan.sprintBufferDays} 天冲刺期前学完全部新词。</span>
+                  <span>距冲刺期余 {Math.max(0, orchestratedPlan.daysUntilExam - orchestratedPlan.sprintBufferDays)} 天</span>
+                </div>
+              ) : null}
+            </div>
+
             {/* 今日编排目标 4 格看板 */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
               <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
                 <div className="text-2xl font-bold text-primary">{orchestratedPlan.targetNew}</div>
                 <div className="text-xs text-muted-foreground">
-                  {orchestratedPlan.learnedNewToday > 0
+                  {orchestratedPlan.inSprintPhase
+                    ? "新学 (冲刺暂停)"
+                    : orchestratedPlan.learnedNewToday > 0
                     ? `待新学 (已学 ${orchestratedPlan.learnedNewToday})`
                     : "今日新学目标"}
                 </div>

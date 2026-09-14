@@ -9,6 +9,7 @@ export interface ExamConfig {
   ignoredTags: string[]; // 要忽略的标签，例如 ["简单", "已掌握"]
   title?: string; // 考试名称，例如 "大学英语六级"、"考研英语"
   dailyNewOverride?: number | null; // 手动覆盖每日新词量
+  targetStability?: number | null; // 目标熟练度（Stability 阈值，单位：天；0=学完即可无缓冲，7=达到掌握(7天)，14=牢固(14天)）
 }
 
 export interface TodayOrchestratedPlan {
@@ -32,6 +33,15 @@ export interface TodayOrchestratedPlan {
   aiGenerated: boolean; // advice 是否来自 AI
   isCompleted: boolean; // 今日编排任务是否已达成
   encouragement: string | null; // 完成后的鼓励语
+  targetStability: number; // 目标熟练度（天数阈值）
+  avgStability: number; // 范围内当前平均记忆稳定性（天）
+  masteryRate: number; // 范围内当前已掌握率（%）
+  masteredCount: number; // 范围内已掌握词数
+  learningCount: number; // 范围内学习中词数
+  weakCount: number; // 范围内弱词数
+  totalCards: number; // 范围内总词数
+  inSprintPhase: boolean; // 是否已进入考前熟练度冲刺阶段（新词自动暂停，聚焦复习与熟练度跨越）
+  sprintBufferDays: number; // 预留的冲刺缓冲期（天）
 }
 
 export const LOCAL_ENCOURAGEMENTS = [
@@ -70,12 +80,13 @@ export function formatCompactList(items: string[], maxItems = 2): {
 }
 
 export async function getExamConfig(): Promise<ExamConfig> {
-  const [dateRaw, deckIdsRaw, ignoredTagsRaw, titleRaw, dailyNewRaw] = await Promise.all([
+  const [dateRaw, deckIdsRaw, ignoredTagsRaw, titleRaw, dailyNewRaw, targetStabilityRaw] = await Promise.all([
     db.getSetting("exam_date"),
     db.getSetting("exam_deck_ids"),
     db.getSetting("exam_ignored_tags"),
     db.getSetting("exam_title"),
     db.getSetting("exam_daily_new_override"),
+    db.getSetting("exam_target_stability"),
   ]);
   let deckIds: number[] = [];
   try {
@@ -92,12 +103,19 @@ export async function getExamConfig(): Promise<ExamConfig> {
     ignoredTags = [];
   }
   const dailyNewOverride = dailyNewRaw ? parseInt(dailyNewRaw, 10) : null;
+  const parsedStability =
+    targetStabilityRaw !== null && targetStabilityRaw !== undefined && targetStabilityRaw !== ""
+      ? parseInt(targetStabilityRaw, 10)
+      : 7;
+  const targetStability = Number.isFinite(parsedStability) ? parsedStability : 7;
+
   return {
     date: dateRaw || null,
     deckIds,
     ignoredTags,
     title: titleRaw || "",
     dailyNewOverride: Number.isFinite(dailyNewOverride) ? dailyNewOverride : null,
+    targetStability,
   };
 }
 
@@ -109,6 +127,12 @@ export async function saveExamConfig(config: ExamConfig): Promise<void> {
   await db.setSetting(
     "exam_daily_new_override",
     config.dailyNewOverride ? String(config.dailyNewOverride) : ""
+  );
+  await db.setSetting(
+    "exam_target_stability",
+    config.targetStability !== undefined && config.targetStability !== null
+      ? String(config.targetStability)
+      : "7"
   );
 }
 
@@ -127,7 +151,18 @@ export async function getDailyNewTarget(): Promise<number | null> {
   const days = getDaysUntilExam(cfg.date);
   if (days <= 0) return null;
   const unlearned = await db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags);
-  return Math.ceil(unlearned / days);
+  if (unlearned <= 0) return 0;
+
+  const targetStability = cfg.targetStability ?? 7;
+  const sprintBufferDays = targetStability > 0 ? Math.min(targetStability, 21) : 0;
+  const effectiveBuffer = Math.min(sprintBufferDays, Math.max(0, Math.floor(days * 0.4)));
+  const effectiveDays = Math.max(1, days - effectiveBuffer);
+
+  if (targetStability > 0 && days <= effectiveBuffer) {
+    // 已经进入考前冲刺固化期，新词暂停
+    return 0;
+  }
+  return Math.ceil(unlearned / effectiveDays);
 }
 
 /** 获取并计算今日 AI 编排学习任务 */
@@ -141,6 +176,8 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const now = new Date();
   const dayStart = getDayStartDate(hour, now);
   const dateKey = todayKey(hour, now);
+
+  const targetStability = cfg.targetStability ?? 7;
 
   const selectedDecks = decks.filter((d) => cfg.deckIds.length === 0 || cfg.deckIds.includes(d.id));
   const deckNames =
@@ -157,6 +194,7 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     completedDate,
     savedEncouragement,
     savedAdvice,
+    masteryStats,
   ] = await Promise.all([
     db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags),
     db.getDueCountByDecks(cfg.deckIds, now.toISOString(), cfg.ignoredTags),
@@ -166,7 +204,14 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     db.getSetting("exam_last_completed_date"),
     db.getSetting("exam_last_encouragement"),
     db.getSetting(`exam_today_advice_${dateKey}`),
+    db.getMultiDeckMasteryStats(cfg.deckIds, cfg.ignoredTags, targetStability),
   ]);
+
+  // 熟练度沉淀缓冲期（若目标稳定性 > 0，考前预留冲刺期以多轮复习提纯稳定性达标）
+  const sprintBufferDays = targetStability > 0 ? Math.min(targetStability, 21) : 0;
+  const effectiveBuffer = Math.min(sprintBufferDays, Math.max(0, Math.floor(days * 0.4)));
+  const effectiveDays = Math.max(1, days - effectiveBuffer);
+  const inSprintPhase = targetStability > 0 && days > 0 && days <= effectiveBuffer;
 
   // 今日未学新词总量基准（包含今日已学新卡，保持每日学习基准平稳）
   const totalUnlearned = remainingNew + learnedNewToday;
@@ -174,8 +219,11 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   if (totalUnlearned > 0) {
     if (cfg.dailyNewOverride && cfg.dailyNewOverride > 0) {
       plannedNew = Math.min(totalUnlearned, cfg.dailyNewOverride);
+    } else if (inSprintPhase) {
+      // 考前冲刺固化期：自动停止安排新词，集中精力巩固复习，使词汇达到目标熟练度
+      plannedNew = 0;
     } else if (days > 0) {
-      plannedNew = Math.min(totalUnlearned, Math.max(5, Math.ceil(totalUnlearned / days)));
+      plannedNew = Math.min(totalUnlearned, Math.max(5, Math.ceil(totalUnlearned / effectiveDays)));
     } else {
       plannedNew = Math.min(totalUnlearned, 30);
     }
@@ -189,10 +237,10 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
 
   // 判定今日任务是否已达成：
   // 1) 显式记录的完成日期等于今日学习日；
-  // 2) 或当前到期复习数为 0，且今日新词指标已达成（或无剩余新词），并且今日已有实际学习产出
+  // 2) 或当前到期复习数为 0，且今日新词指标已达成（或无剩余新词/冲刺期零新词），并且今日已有实际学习产出
   const isGoalAchieved =
     dueToday === 0 &&
-    (remainingNew === 0 || learnedNewToday >= plannedNew) &&
+    (remainingNew === 0 || plannedNew === 0 || learnedNewToday >= plannedNew) &&
     (learnedNewToday > 0 || reviewedToday > 0);
 
   const isCompleted = completedDate === dateKey || isGoalAchieved;
@@ -227,6 +275,15 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     reviewedToday,
     targetReview,
     totalTarget: targetNew + targetReview,
+    targetStability,
+    avgStability: masteryStats.avgStability,
+    masteryRate: masteryStats.masteryRate,
+    masteredCount: masteryStats.mastered,
+    learningCount: masteryStats.learning,
+    weakCount: masteryStats.weak,
+    totalCards: masteryStats.total,
+    inSprintPhase,
+    sprintBufferDays: effectiveBuffer,
   };
 
   // 若今日尚未生成建议，则自动触发学情评估并生成今日规划（支持每日自动更新）
@@ -318,18 +375,35 @@ export function generateHeuristicStudyAdvice(
   plan: Omit<TodayOrchestratedPlan, "advice" | "aiGenerated" | "isCompleted" | "encouragement">,
   situation: RecentStudySituation
 ): string {
-  const { daysUntilExam, examTitle, remainingNew, targetNew, targetReview } = plan;
+  const {
+    daysUntilExam,
+    examTitle,
+    remainingNew,
+    targetNew,
+    targetReview,
+    targetStability,
+    avgStability,
+    masteryRate,
+    masteredCount,
+    learningCount,
+    weakCount: planWeakCount,
+    inSprintPhase,
+    sprintBufferDays,
+  } = plan;
   const { daysActive7, avgNewPerDay, retentionRate7, weakCount, totalReview7 } = situation;
 
-  // 1. 备考紧迫度阶段诊断
+  // 1. 备考紧迫度与熟练度冲刺阶段诊断
   let stageTitle = "稳步筑基期";
   let stageAdvice = "当前备考时间充裕，保持每日平摊新词吸收，配合 FSRS 间隔复习稳扎稳打。";
-  if (daysUntilExam <= 7) {
+  if (inSprintPhase) {
+    stageTitle = "考前冲刺固化期";
+    stageAdvice = `考前冲刺期已至（预留 ${sprintBufferDays} 天冲刺缓冲）。已自动暂停新词，全量精力用于巩固复习，促使词汇记忆稳定性跨过 ${targetStability} 天目标门槛。`;
+  } else if (daysUntilExam <= 7) {
     stageTitle = "考前决胜冲刺期";
     stageAdvice = "考期在即，进入最后收官阶段。重点在于将已学词汇 100% 保持在熟练状态，不宜大量死磕未学新词。";
   } else if (daysUntilExam <= 30) {
     stageTitle = "强化突击与提速期";
-    stageAdvice = "进入关键突破阶段，必须保持较高专注度，确保每日新词与复习任务双清零。";
+    stageAdvice = `进入关键突破阶段，距离考前冲刺期尚余 ${Math.max(0, daysUntilExam - sprintBufferDays)} 天，确保每日新词与复习任务双清零。`;
   }
 
   // 2. 学情与节奏诊断
@@ -342,7 +416,7 @@ export function generateHeuristicStudyAdvice(
     paceEvaluation = `近期打卡频次较低，建议今日尽快启动学习，唤醒大脑记忆激活回路。`;
   }
 
-  // 3. 记忆健康度诊断
+  // 3. 记忆健康度与熟练度诊断
   let memoryEvaluation = "";
   if (totalReview7 === 0) {
     memoryEvaluation = `新的一天，今日共有 **${targetReview}** 张复习卡等待巩固。`;
@@ -352,25 +426,35 @@ export function generateHeuristicStudyAdvice(
     memoryEvaluation = `近期复习保持率约为 **${retentionRate7}%**，记忆出现轻度遗忘，建议放慢单轮节奏，加深释义语境理解。`;
   }
 
+  const effectiveWeak = planWeakCount || weakCount;
   let weakComment = "";
   let weakAction = "对连续遗忘的卡片及时点击“弱词”标记，善用主动回忆与释义对照加深印记。";
-  if (weakCount > 15) {
-    weakComment = `当前系统已识别并归集 **${weakCount}** 个弱词；`;
-    weakAction = `弱词本目前已积累 **${weakCount}** 词，建议今日安排 15 分钟弱词本专项击破。`;
-  } else if (weakCount > 0) {
-    weakComment = `弱词本目前收录 **${weakCount}** 个词，属于健康可控范围；`;
+  if (effectiveWeak > 15) {
+    weakComment = `当前系统已识别并归集 **${effectiveWeak}** 个弱词；`;
+    weakAction = `弱词本目前已积累 **${effectiveWeak}** 词，建议今日安排 15 分钟弱词本专项击破。`;
+  } else if (effectiveWeak > 0) {
+    weakComment = `弱词本目前收录 **${effectiveWeak}** 个词，属于健康可控范围；`;
   } else {
     weakComment = `当前无突出弱词堆积，掌握状态良好；`;
   }
 
+  const masteryDetail = targetStability > 0
+    ? `- **熟练度全景**：目标熟练度设定为稳定性 >= ${targetStability} 天。当前已学词汇平均稳定性为 **${avgStability}** 天，目标达成率 **${masteryRate}%**（已掌握 ${masteredCount} / 学习中 ${learningCount} / 弱词 ${planWeakCount} / 待学 ${remainingNew}）。`
+    : `- **熟练度全景**：当前已学词汇平均稳定性为 **${avgStability}** 天，掌握率 **${masteryRate}%**（已掌握 ${masteredCount} / 学习中 ${learningCount} / 弱词 ${planWeakCount} / 待学 ${remainingNew}）。`;
+
+  const newStepAdvice = inSprintPhase
+    ? `2. **新词暂停蓄力**：冲刺固化期已暂停新词安排，避免临考记忆负荷，全力提纯巩固既有词汇。`
+    : `2. **新词平摊消化**：按节奏完成今日 **${targetNew}** 张新词配额，多结合上下文例句与发音联想，提高单词辨识敏感度。`;
+
   return [
-    `### 📊 学情速评：${stageTitle}`,
+    `### 学情速评：${stageTitle}`,
     `- **进度诊断**：距离【${examTitle}】还剩 **${daysUntilExam}** 天，目标词库范围内待学新词剩余 **${remainingNew}** 词。${paceEvaluation}`,
+    masteryDetail,
     `- **记忆稳固度**：${memoryEvaluation} ${weakComment}`,
     "",
-    "### 🎯 今日备考规划与突破建议",
+    "### 今日备考规划与突破建议",
     `1. **复习优先原则**：首要完成今日 **${targetReview}** 张到期复习，确保既有记忆稳固，坚决不积压到次日。`,
-    `2. **新词平摊消化**：按节奏完成今日 **${targetNew}** 张新词配额，多结合上下文例句与发音联想，提高单词辨识敏感度。`,
+    newStepAdvice,
     `3. **应试突破锦囊**：${stageAdvice} ${weakAction}`,
   ].join("\n");
 }
@@ -393,6 +477,10 @@ export async function generateAIOrchestrationAdvice(
     "## 备考档案与今日目标",
     `- 目标考试：${plan.examTitle}`,
     `- 考试日期：${plan.examDate}（倒计时剩余 ${plan.daysUntilExam} 天）`,
+    `- 目标熟练度要求：${plan.targetStability > 0 ? `Stability >= ${plan.targetStability} 天（预留 ${plan.sprintBufferDays} 天冲刺期）` : "学完一遍即可"}`,
+    `- 当前词库掌握度全景：达成率 ${plan.masteryRate}%（已掌握 ${plan.masteredCount} 词 / 学习中 ${plan.learningCount} 词 / 弱词 ${plan.weakCount} 词 / 待学生词 ${plan.remainingNew} 词）`,
+    `- 词库已学词汇平均稳定性：${plan.avgStability} 天`,
+    `- 当前备考阶段：${plan.inSprintPhase ? "考前冲刺固化期（新词已暂停，专攻熟练度达标）" : `新词稳步攻坚期（距冲刺缓冲期尚余 ${Math.max(0, plan.daysUntilExam - plan.sprintBufferDays)} 天）`}`,
     `- 涉及词库：${plan.deckNames}`,
     `- 排除标签/规则：${plan.ignoredTags.length > 0 ? plan.ignoredTags.join("、") : "无"}`,
     `- 词库待学新词总量：${plan.remainingNew} 词`,
@@ -408,9 +496,9 @@ export async function generateAIOrchestrationAdvice(
     "",
     "## 输出要求",
     "1. **必须严格使用结构清晰的 Markdown 格式输出**，包含以下三个小节：",
-    "   - `### 📊 学情客观诊断`：客观评价当前学习节奏（如稳步推进/节奏滞后/冲刺高效）、近期复习保持率与弱词风险，指出当前优势与潜在隐患；",
-    "   - `### 🎯 今日备考规划`：针对今日任务（复习与新学先后顺序、建议用时分配、重点应对策略）给出明确指令；",
-    "   - `### 💡 提分突破锦囊`：针对该考试类型与当前记忆阶段，给出 1~2 条提分记忆实用技巧（如语境串联、词根助记、错词自查）。",
+    "   - `### 学情客观诊断`：客观评价当前学习节奏（如稳步推进/节奏滞后/冲刺高效）、熟练度达成情况、近期复习保持率与弱词风险，指出当前优势与潜在隐患；",
+    "   - `### 今日备考规划`：针对今日任务（复习与新学先后顺序、建议用时分配、重点应对策略）给出明确指令；",
+    "   - `### 提分突破锦囊`：针对该考试类型与当前记忆阶段，给出 1~2 条提分记忆实用技巧（如语境串联、词根助记、错词自查）。",
     "2. 语言干练、亲切专业、充满行动力，拒绝泛泛而谈的废话套话，字数在 200~350 字之间。",
     "3. 直接输出 Markdown 内容，不要带有额外的外部代码块包装（如不要用 ```markdown ... ``` 外框）。",
   ].join("\n");
@@ -539,6 +627,7 @@ export async function generateAIStudyPlan(config: ExamConfig, decks: Deck[]): Pr
     `考试日期：${config.date}`,
     `剩余天数：${days} 天`,
     `目标词库：${deckNames}`,
+    `目标熟练度要求：${config.targetStability && config.targetStability > 0 ? `Stability >= ${config.targetStability} 天（考前预留 ${Math.min(config.targetStability, 21)} 天冲刺固化缓冲期）` : "过完一遍即可"}`,
     `已排除忽略标签：${config.ignoredTags.length > 0 ? config.ignoredTags.join("、") : "无"}`,
     `词库卡片总数：${totalCards}`,
     `未学新卡数：${newCount}`,

@@ -1353,9 +1353,16 @@ function DeckPicker({
                       </Badge>
                     )}
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    覆盖 {orchestratedPlan.deckIds.length} 个词库
-                    {orchestratedPlan.daysUntilExam > 0 && ` · 距考试 ${orchestratedPlan.daysUntilExam} 天`}
+                  <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                    <span>覆盖 {orchestratedPlan.deckIds.length === 0 ? "全部" : orchestratedPlan.deckIds.length} 个词库</span>
+                    {orchestratedPlan.daysUntilExam > 0 && <span>· 距考试 {orchestratedPlan.daysUntilExam} 天</span>}
+                    <span>· 平均稳定 {orchestratedPlan.avgStability} 天</span>
+                    <span>· 掌握率 {orchestratedPlan.masteryRate}%</span>
+                    {orchestratedPlan.inSprintPhase && (
+                      <Badge variant="secondary" className="text-[10px] h-4 bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                        冲刺期
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1371,8 +1378,12 @@ function DeckPicker({
 
             <div className="grid grid-cols-3 gap-2 text-center pt-1">
               <div className="rounded-md bg-background/80 border p-2">
-                <div className="text-base sm:text-lg font-bold text-primary">{orchestratedPlan.targetNew}</div>
-                <div className="text-[11px] text-muted-foreground">今日待新学</div>
+                <div className="text-base sm:text-lg font-bold text-primary">
+                  {orchestratedPlan.inSprintPhase ? 0 : orchestratedPlan.targetNew}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {orchestratedPlan.inSprintPhase ? "新学 (冲刺暂停)" : "今日待新学"}
+                </div>
               </div>
               <div className="rounded-md bg-background/80 border p-2">
                 <div className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400">{orchestratedPlan.targetReview}</div>

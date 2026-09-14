@@ -421,15 +421,36 @@ export default function Import() {
                   value={manualFormat}
                   onValueChange={(v) => setManualFormat(v as ImportFormat | "auto")}
                 >
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="选择解析格式">
+                      {manualFormat === "auto"
+                        ? "自动识别 (推荐)"
+                        : manualFormat === "markdown"
+                          ? "Markdown 格式"
+                          : manualFormat === "csv"
+                            ? "CSV 表格"
+                            : manualFormat === "json"
+                              ? "JSON 数据"
+                              : "TXT 纯文本"}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">自动识别</SelectItem>
-                    <SelectItem value="markdown">Markdown</SelectItem>
-                    <SelectItem value="csv">CSV</SelectItem>
-                    <SelectItem value="json">JSON</SelectItem>
-                    <SelectItem value="txt">TXT</SelectItem>
+                  <SelectContent className="w-48">
+                    <SelectItem value="auto" className="py-2">
+                      <span className="font-medium text-sm">自动识别</span>
+                      <span className="text-xs text-muted-foreground ml-1.5">(推荐)</span>
+                    </SelectItem>
+                    <SelectItem value="markdown" className="py-2">
+                      <span className="font-medium text-sm">Markdown (.md)</span>
+                    </SelectItem>
+                    <SelectItem value="csv" className="py-2">
+                      <span className="font-medium text-sm">CSV 表格 (.csv)</span>
+                    </SelectItem>
+                    <SelectItem value="json" className="py-2">
+                      <span className="font-medium text-sm">JSON 数据 (.json)</span>
+                    </SelectItem>
+                    <SelectItem value="txt" className="py-2">
+                      <span className="font-medium text-sm">TXT 纯文本 (.txt)</span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <Button onClick={handleManualText} disabled={!manualText.trim()}>
@@ -522,16 +543,23 @@ export default function Import() {
                         value={t.deckId !== null ? `id:${t.deckId}` : `new:${t.name}`}
                         onValueChange={(v) => selectDeckTarget(deckName, v)}
                       >
-                        <SelectTrigger className="w-64">
-                          <SelectValue />
+                        <SelectTrigger className="w-64 sm:w-72">
+                          <SelectValue>
+                            {t.options.find(
+                              (opt) =>
+                                (opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`) ===
+                                (t.deckId !== null ? `id:${t.deckId}` : `new:${t.name}`)
+                            )?.label ?? "选择导入目标"}
+                          </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="w-64 sm:w-72 max-h-60">
                           {t.options.map((opt) => (
                             <SelectItem
                               key={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
                               value={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
+                              className="py-2"
                             >
-                              {opt.label}
+                              <span className="text-sm font-medium">{opt.label}</span>
                             </SelectItem>
                           ))}
                         </SelectContent>
