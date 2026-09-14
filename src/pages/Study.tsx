@@ -140,7 +140,10 @@ function SessionMiniSummary({
   return (
     <Card className="mx-auto max-w-2xl border-primary/30 bg-primary/5">
       <CardHeader>
-        <CardTitle>📊 本轮小结</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <BookOpen className="size-5 text-primary" />
+          本轮小结
+        </CardTitle>
         <CardDescription>
           已学习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张
         </CardDescription>
@@ -674,7 +677,7 @@ function StudySession({
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-xl font-bold">
                   <Sparkles className="size-5 text-amber-500" />
-                  今日备考任务圆满达成 🎉
+                  今日备考任务圆满达成
                 </CardTitle>
                 <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30">
                   {orchestratedTitle || "AI 编排"}
@@ -700,7 +703,7 @@ function StudySession({
                       </div>
                     ) : (
                       <p className="text-sm font-medium italic leading-relaxed text-foreground/95">
-                        “{encouragement || "乾坤未定，你我皆是黑马！今天的任务稳稳拿下，考场见证你的蜕变！🏆"}”
+                        “{encouragement || "乾坤未定，你我皆是黑马！今天的任务稳稳拿下，考场见证你的蜕变！"}”
                       </p>
                     )}
                   </div>

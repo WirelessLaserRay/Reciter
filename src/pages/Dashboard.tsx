@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   BookOpen,
   CalendarClock,
   CheckCircle2,
@@ -50,6 +51,7 @@ import { useSyncStore } from "@/stores/useSyncStore";
 import type { Deck } from "@/types";
 import ExamPlanDialog from "@/components/study/ExamPlanDialog";
 import MarkdownView from "@/components/common/MarkdownView";
+import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
   const dbReady = useDbStore((s) => s.ready);
@@ -229,72 +231,81 @@ export default function Dashboard() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">你好 👋</h2>
-        <p className="text-muted-foreground">{today}</p>
+      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 pb-1">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">今日概览</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{today}</p>
+        </div>
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         {STATS.map((s) => (
-          <Card key={s.label}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <s.icon className="size-4" />
+          <Card key={s.label} className="transition-all hover:border-border hover:shadow-xs">
+            <CardContent className="flex items-center gap-3 p-3.5 sm:p-4">
+              <div className="flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <s.icon className="size-4 sm:size-4.5" />
               </div>
-              <div className="min-w-0">
-                <div className="text-2xl font-bold">{s.value}</div>
-                <div className="truncate text-xs text-muted-foreground">{s.label}</div>
-                <div className="truncate text-[10px] text-muted-foreground/70">{s.hint}</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-2xl font-bold tracking-tight">{s.value}</div>
+                <div className="truncate text-xs font-medium text-muted-foreground">{s.label}</div>
+                <div className="truncate text-[10px] text-muted-foreground/75 mt-0.5">{s.hint}</div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* 每日一句 */}
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <CardTitle className="flex items-center gap-2">
-            <Quote className="size-4 text-primary" />
-            每日一句
-            <span className="text-[10px] font-normal text-muted-foreground">
-              {quote.source === "zenquotes" ? "ZenQuotes" : quote.source === "quotable" ? "Quotable" : "本地"}
-            </span>
-          </CardTitle>
-          <Button size="sm" variant="ghost" onClick={handleRefreshQuote} disabled={quoteRefreshing}>
-            <RotateCcw className={quoteRefreshing ? "size-4 animate-spin" : "size-4"} />
-            换一句
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <p className="text-base font-medium italic leading-relaxed">“{quote.text}”</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {quote.translation || "（未配置 AI，暂无中文翻译）"}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">— {quote.author}</p>
-        </CardContent>
-      </Card>
+      {/* 每日一句与每日一文并排响应式展示 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* 每日一句 */}
+        <Card className="flex flex-col justify-between">
+          <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Quote className="size-4 text-primary" />
+              每日一句
+              <span className="text-[10px] font-normal text-muted-foreground">
+                {quote.source === "zenquotes" ? "ZenQuotes" : quote.source === "quotable" ? "Quotable" : "本地"}
+              </span>
+            </CardTitle>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleRefreshQuote} disabled={quoteRefreshing}>
+              <RotateCcw className={cn("size-3.5 mr-1", quoteRefreshing && "animate-spin")} />
+              换一句
+            </Button>
+          </CardHeader>
+          <CardContent className="flex-1 flex flex-col justify-center py-2">
+            <p className="text-sm font-medium italic leading-relaxed text-foreground">“{quote.text}”</p>
+            {quote.translation && (
+              <p className="mt-1.5 text-xs text-muted-foreground leading-normal">
+                {quote.translation}
+              </p>
+            )}
+            <p className="mt-2 text-[11px] text-muted-foreground text-right">— {quote.author}</p>
+          </CardContent>
+        </Card>
 
-      {/* 每日一文 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Newspaper className="size-4 text-primary" />
-            每日一文
-          </CardTitle>
-          <CardDescription>CGTN / CNN / Guardian / NPR / BBC + 自定义 RSS，AI 出题 + 生词识别</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">每天读一篇，AI 帮你出题和讲解生词</p>
-          <Button asChild>
-            <Link to="/daily-article">
-              <Newspaper className="size-4" />
-              去阅读
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+        {/* 每日一文 */}
+        <Card className="flex flex-col justify-between">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Newspaper className="size-4 text-primary" />
+              每日一文
+            </CardTitle>
+            <CardDescription className="text-xs">精选外媒新闻源，支持 AI 出题与生词拆解</CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-3 pt-2">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              沉浸式精读，双语对照与生词一键加入词库
+            </p>
+            <Button size="sm" asChild className="shrink-0 text-xs h-8">
+              <Link to="/daily-article">
+                <Newspaper className="size-3.5 mr-1" />
+                去阅读
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* AI 辅助备考学习编排 */}
       {orchestratedPlan ? (
@@ -744,28 +755,33 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-2">
             {otherDecks.length > 0 ? (
-              otherDecks.map((d) => {
-                const due = dueByDeck[d.id] ?? 0;
-                const fresh = newByDeck[d.id] ?? 0;
-                return (
-                  <div key={d.id} className="flex items-center justify-between gap-3">
-                    <span className="text-sm">
-                      {d.name}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {due > 0 ? `${due} 张到期` : ""}
-                        {due > 0 && fresh > 0 ? " · " : ""}
-                        {fresh > 0 ? `${fresh} 张新词` : ""}
-                        {due === 0 && fresh === 0 ? "暂无待学卡片" : ""}
-                      </span>
-                    </span>
-                    <Button size="sm" variant="outline" onClick={() => startStudy(d.id)}>
-                      开始
-                    </Button>
-                  </div>
-                );
-              })
+              <div className="divide-y divide-border/50">
+                {otherDecks.map((d) => {
+                  const due = dueByDeck[d.id] ?? 0;
+                  const fresh = newByDeck[d.id] ?? 0;
+                  return (
+                    <div
+                      key={d.id}
+                      className="flex items-center justify-between gap-3 py-2.5 px-2 rounded-lg hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-medium text-foreground">{d.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {due > 0 ? `${due} 张到期` : ""}
+                          {due > 0 && fresh > 0 ? " · " : ""}
+                          {fresh > 0 ? `${fresh} 张新词` : ""}
+                          {due === 0 && fresh === 0 ? "暂无待学卡片" : ""}
+                        </span>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={() => startStudy(d.id)}>
+                        开始
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground">暂无其他词库</p>
+              <p className="text-sm text-muted-foreground py-2 text-center">暂无其他词库</p>
             )}
             <div className="flex flex-wrap gap-2 pt-2">
               <Button asChild variant="ghost" size="sm">
@@ -786,8 +802,9 @@ export default function Dashboard() {
       {weakCount > 0 && (
         <Card className="border-amber-500/30">
           <CardContent className="flex items-center justify-between gap-3 py-4">
-            <p className="text-sm">
-              ⚠️ 你有 <span className="font-semibold text-amber-500">{weakCount}</span> 个词反复遗忘
+            <p className="flex items-center gap-2 text-sm">
+              <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+              <span>你有 <span className="font-semibold text-amber-500">{weakCount}</span> 个词反复遗忘</span>
             </p>
             <Button asChild variant="outline" size="sm">
               <Link to="/weak-words">去弱词本</Link>

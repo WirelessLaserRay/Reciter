@@ -5,6 +5,7 @@ import {
   BookOpen,
   Check,
   Download,
+  Folder,
   Loader2,
   Pencil,
   PlayCircle,
@@ -370,16 +371,18 @@ export default function DeckList() {
           {[...new Set(decks.map((d) => d.folder || ""))]
             .sort()
             .map((folder) => (
-              <div key={folder}>
-                <h3 className="mb-2 text-sm font-semibold text-muted-foreground">
-                  {folder ? folder : "根目录"}
-                </h3>
+              <div key={folder} className="space-y-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <Folder className="size-3.5 text-primary/70" />
+                  <span>{folder ? folder : "根目录词库"}</span>
+                  <div className="h-px flex-1 bg-border/60" />
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {decks
                     .filter((d) => (d.folder || "") === folder)
                     .sort((a, b) => naturalCompare(a.name, b.name))
                     .map((d) => (
-                      <Card key={d.id} className="group relative">
+                      <Card key={d.id} className="group relative transition-all hover:border-primary/40 hover:shadow-xs">
                         <CardHeader className="pb-2">
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="truncate">{d.name}</CardTitle>

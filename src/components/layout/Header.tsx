@@ -1,10 +1,11 @@
-import { Moon, Sun, Loader2, X, Cloud, CloudUpload, CloudAlert, CloudOff } from "lucide-react";
+import { Moon, Sun, Loader2, X, Cloud, CloudUpload, CloudAlert, CloudOff, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { useTaskStore } from "@/stores/useTaskStore";
 import { useSyncStore } from "@/stores/useSyncStore";
+import { useSearchStore } from "@/stores/useSearchStore";
 import { cn } from "@/lib/utils";
 
 const TITLES: Record<string, string> = {
@@ -39,6 +40,7 @@ export default function Header() {
   const syncMessage = useSyncStore((s) => s.message);
   const isConfigured = useSyncStore((s) => s.isConfigured);
   const lastSyncTime = useSyncStore((s) => s.lastSyncTime);
+  const openSearch = useSearchStore((s) => s.openSearch);
   const navigate = useNavigate();
 
   const runningTasks = Object.values(tasks).filter((t) => t.status === "running");
@@ -47,9 +49,23 @@ export default function Header() {
     TITLES[window.location.hash.replace("#", "")] ?? "Reciter";
 
   return (
-    <header className="flex h-13 sm:h-14 shrink-0 items-center justify-between border-b bg-background px-4 sm:px-6 pt-[env(safe-area-inset-top)]">
-      <h1 className="text-lg font-semibold">{title}</h1>
+    <header className="sticky top-0 z-30 flex h-13 sm:h-14 shrink-0 items-center justify-between border-b border-border/70 bg-background/85 backdrop-blur-md px-4 sm:px-6 pt-[env(safe-area-inset-top)] transition-colors">
+      <div className="flex items-center gap-3">
+        <h1 className="text-base sm:text-lg font-semibold tracking-tight">{title}</h1>
+      </div>
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => openSearch()}
+          className="hidden sm:flex items-center gap-2 rounded-full border border-border/70 bg-muted/50 px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          title="全词库搜索 (Ctrl+K)"
+        >
+          <Search className="size-3.5" />
+          <span>搜索单词…</span>
+          <kbd className="rounded bg-background/80 px-1 py-0.2 text-[10px] font-mono border border-border/60">
+            Ctrl K
+          </kbd>
+        </button>
         {isConfigured && (
           <Tooltip>
             <TooltipTrigger asChild>

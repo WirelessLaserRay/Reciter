@@ -286,17 +286,23 @@ export default function DeckDetail() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/decks">
-            <ArrowLeft className="size-4" />
-            返回词库列表
-          </Link>
-        </Button>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Badge variant="secondary">{cards.length} 张卡片</Badge>
-          <span>已学习 {progress.learned}</span>
-          <span>待复习 {progress.due}</span>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm" className="-ml-2">
+            <Link to="/decks">
+              <ArrowLeft className="size-4 mr-1.5" />
+              返回词库列表
+            </Link>
+          </Button>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="secondary" className="font-normal">{cards.length} 张卡片</Badge>
+            <span>已学 {progress.learned}</span>
+            <span>·</span>
+            <span>待复习 {progress.due}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <Button
             size="sm"
             variant="outline"
@@ -511,7 +517,7 @@ export default function DeckDetail() {
                     const pureTags = getPureTags(c.tags);
                     const cardExamples = getCardExamples(c.tags);
                     return (
-                      <tr key={c.id} className="border-t">
+                      <tr key={c.id} className="border-t hover:bg-muted/40 transition-colors">
                         <td className="max-w-44 px-3 py-2 font-medium" title={c.front}>
                           <div className="flex items-start gap-1">
                             {c.is_key === 1 && <Star className="mt-0.5 inline size-3 shrink-0 text-amber-500" />}

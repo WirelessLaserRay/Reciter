@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   CircleHelp,
+  Lightbulb,
   Loader2,
   Sparkles,
   XCircle,
@@ -638,7 +639,7 @@ export default function QuizSession({
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <CheckCircle2 className="size-10 text-green-500" />
-            <CardTitle>测试完成 🎉</CardTitle>
+            <CardTitle>测试完成</CardTitle>
             <CardDescription className="max-w-md">
               共 {result.total} 题 · 掌握 {result.mastered} · 模糊 {result.fuzzy} · 忘记 {result.forgot}
               {result.aiQuestions > 0 && " · AI 出题 " + result.aiQuestions}
@@ -810,7 +811,10 @@ export default function QuizSession({
                 正确答案：<span className="font-semibold">{item.correctAnswer}</span>
               </p>
               {item.explanation && (
-                <p className="text-xs text-muted-foreground">💡 {item.explanation}</p>
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lightbulb className="size-3.5 shrink-0" />
+                  <span>{item.explanation}</span>
+                </p>
               )}
 
               {/* 掌握度评价（红=忘记 / 黄=模糊 / 绿=掌握，掌握恒在最右） */}

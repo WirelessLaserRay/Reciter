@@ -2,12 +2,12 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /** 统一主题：黑白 + 5 套彩色主题（每个主题同时决定背景/卡片/主色，不再拆分明暗与强调色） */
-export type AppTheme = "dark" | "light" | "blue" | "green" | "purple" | "orange" | "rose";
+export type AppTheme = "dark" | "light" | "nordic" | "blue" | "green" | "purple" | "matcha" | "orange" | "rose";
 
-export const THEME_IDS: AppTheme[] = ["dark", "light", "blue", "green", "purple", "orange", "rose"];
+export const THEME_IDS: AppTheme[] = ["dark", "light", "nordic", "blue", "green", "purple", "matcha", "orange", "rose"];
 
 /** 暗色调主题（用于 color-scheme 与明暗快捷切换） */
-export const DARK_THEMES: AppTheme[] = ["dark", "blue", "green", "purple"];
+export const DARK_THEMES: AppTheme[] = ["dark", "nordic", "blue", "green", "purple"];
 
 export interface ThemePreset {
   id: AppTheme;
@@ -19,13 +19,15 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: "dark", label: "石墨黑", description: "暗色 · 中性", background: "#171717", primary: "#e5e5e5" },
-  { id: "light", label: "珍珠白", description: "亮色 · 中性", background: "#ffffff", primary: "#262626" },
-  { id: "blue", label: "深海蓝", description: "暗色 · 蓝", background: "#102033", primary: "#3b82f6" },
-  { id: "green", label: "森林绿", description: "暗色 · 绿", background: "#12241d", primary: "#22c55e" },
-  { id: "purple", label: "星夜紫", description: "暗色 · 紫", background: "#1d1530", primary: "#a855f7" },
-  { id: "orange", label: "暖阳橙", description: "亮色 · 橙", background: "#fdf6ee", primary: "#f97316" },
-  { id: "rose", label: "玫瑰红", description: "亮色 · 玫红", background: "#fdf1f3", primary: "#e11d48" },
+  { id: "dark", label: "石墨黑", description: "暗色 · 灰阶", background: "#141416", primary: "#f4f4f5" },
+  { id: "light", label: "珍珠白", description: "亮色 · 极简", background: "#fbfcfd", primary: "#18181b" },
+  { id: "nordic", label: "灰蓝", description: "暗色 · 灰蓝", background: "#0f172a", primary: "#38bdf8" },
+  { id: "blue", label: "深海蓝", description: "暗色 · 蓝色", background: "#0a1628", primary: "#60a5fa" },
+  { id: "green", label: "森林绿", description: "暗色 · 绿色", background: "#0c1e18", primary: "#34d399" },
+  { id: "purple", label: "星夜紫", description: "暗色 · 紫色", background: "#171228", primary: "#c084fc" },
+  { id: "matcha", label: "清新绿", description: "亮色 · 浅绿", background: "#f6f8f5", primary: "#15803d" },
+  { id: "orange", label: "暖阳橙", description: "亮色 · 橙色", background: "#fcf8f3", primary: "#ea580c" },
+  { id: "rose", label: "玫瑰红", description: "亮色 · 红色", background: "#fdf4f6", primary: "#e11d48" },
 ];
 
 interface ThemeState {

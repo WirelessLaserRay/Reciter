@@ -115,14 +115,15 @@ export default function Sidebar({
               end={item.to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center rounded-md text-sm font-medium transition-all duration-300",
+                  "flex items-center rounded-lg text-sm font-medium transition-all duration-200",
                   collapsed ? "justify-center gap-0 px-0 py-2.5" : "gap-3 px-3 py-2",
-                  "hover:bg-accent hover:text-accent-foreground",
-                  isActive && "bg-accent text-accent-foreground"
+                  isActive
+                    ? "bg-primary/12 text-primary font-semibold shadow-2xs"
+                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
                 )
               }
             >
-              <item.icon className={cn("shrink-0 transition-[width,height] duration-300", collapsed ? "size-5" : "size-4")} />
+              <item.icon className={cn("shrink-0 transition-transform duration-200", collapsed ? "size-5" : "size-4")} />
               <CollapseText>{item.label}</CollapseText>
             </NavLink>
           );

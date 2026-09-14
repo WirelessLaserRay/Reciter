@@ -49,7 +49,7 @@ export function isSentenceText(text: string): boolean {
   return trimmed.length > 30 || trimmed.split(/\s+/).length > 3;
 }
 
-// ⚠️ 全局单例 Audio，避免每次 new Audio 丢失用户手势授权
+// 全局单例 Audio，避免每次 new Audio 丢失用户手势授权
 const globalAudio = typeof window !== "undefined" ? new Audio() : null;
 
 // 全局递增请求序号，用于排查并发与废弃过期请求回调
@@ -219,7 +219,7 @@ export function speak(text: string, lang = "en-US"): Promise<void> {
       }
     };
 
-    // ⚠️ 必须在同步调用栈内 play
+    // 必须在同步调用栈内 play
     globalAudio
       .play()
       .then(() => resolve())

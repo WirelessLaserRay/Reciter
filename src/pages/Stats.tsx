@@ -21,11 +21,33 @@ import {
 import { HeatmapGrid } from "@/components/stats/HeatmapGrid";
 import { getFutureDue, getHeatmapData, getLastNDays, type DailyPoint } from "@/lib/stats";
 import { useDbStore } from "@/stores/useDbStore";
+import { useThemeStore } from "@/stores/useThemeStore";
 
 const DAYS = 30;
 
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: "var(--card)",
+    borderColor: "var(--border)",
+    borderRadius: "8px",
+    color: "var(--card-foreground)",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+    fontSize: "12px",
+    padding: "8px 12px",
+  },
+  itemStyle: {
+    color: "var(--card-foreground)",
+  },
+  labelStyle: {
+    color: "var(--muted-foreground)",
+    fontWeight: 600,
+    marginBottom: "4px",
+  },
+};
+
 export default function Stats() {
   const dbReady = useDbStore((s) => s.ready);
+  const theme = useThemeStore((s) => s.theme);
   const [loading, setLoading] = useState(true);
   const [daily, setDaily] = useState<DailyPoint[]>([]);
   const [future, setFuture] = useState<{ date: string; count: number }[]>([]);
@@ -67,8 +89,8 @@ export default function Stats() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">学习统计</h2>
-        <p className="text-sm text-muted-foreground">复习趋势 · 记忆保留率 · 预期复习量 · 热力图</p>
+        <h2 className="text-2xl font-bold tracking-tight">学习统计</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">复习趋势 · 记忆保留率 · 预期复习量 · 热力图</p>
       </div>
 
       {loading && (
@@ -88,34 +110,40 @@ export default function Stats() {
 
       {!loading && !error && (
         <>
-          {/* 概览 */}
-          <div className="grid grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <BarChart3 className="size-3.5" />
-                  近 {DAYS} 天复习
+          {/* 概览统计卡片 */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <Card className="transition-all hover:border-border hover:shadow-xs">
+              <CardContent className="flex items-center gap-3.5 p-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <BarChart3 className="size-5" />
                 </div>
-                <div className="mt-1 text-2xl font-bold">{totalReviewed}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-2xl font-bold tracking-tight">{totalReviewed}</div>
+                  <div className="truncate text-xs font-medium text-muted-foreground">近 {DAYS} 天复习</div>
+                </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <TrendingUp className="size-3.5" />
-                  近 {DAYS} 天新学
+            <Card className="transition-all hover:border-border hover:shadow-xs">
+              <CardContent className="flex items-center gap-3.5 p-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <TrendingUp className="size-5" />
                 </div>
-                <div className="mt-1 text-2xl font-bold">{totalNew}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-2xl font-bold tracking-tight">{totalNew}</div>
+                  <div className="truncate text-xs font-medium text-muted-foreground">近 {DAYS} 天新学</div>
+                </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <CalendarClock className="size-3.5" />
-                  平均保留率
+            <Card className="transition-all hover:border-border hover:shadow-xs">
+              <CardContent className="flex items-center gap-3.5 p-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <CalendarClock className="size-5" />
                 </div>
-                <div className="mt-1 text-2xl font-bold">
-                  {avgRetention === null ? "—" : (avgRetention * 100).toFixed(0) + "%"}
+                <div className="min-w-0 flex-1">
+                  <div className="text-2xl font-bold tracking-tight">
+                    {avgRetention === null ? "—" : (avgRetention * 100).toFixed(0) + "%"}
+                  </div>
+                  <div className="truncate text-xs font-medium text-muted-foreground">平均保留率</div>
                 </div>
               </CardContent>
             </Card>
@@ -128,12 +156,24 @@ export default function Stats() {
               <CardDescription>新学与复习的每日数量</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer key={`bar-${theme}`} width="100%" height={240}>
                 <BarChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                  <XAxis
+                    dataKey="date"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <YAxis
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <Tooltip {...TOOLTIP_STYLE} />
                   <Bar dataKey="新学" stackId="a" fill="var(--chart-1)" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="复习" stackId="a" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -148,17 +188,29 @@ export default function Stats() {
               <CardDescription>每日正确率 = 1 − 忘记次数 / 复习次数</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer key={`line-${theme}`} width="100%" height={200}>
                 <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                  <XAxis
+                    dataKey="date"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <Tooltip {...TOOLTIP_STYLE} />
                   <Line
                     type="monotone"
                     dataKey="保留率"
                     stroke="var(--chart-3)"
-                    strokeWidth={2}
+                    strokeWidth={2.5}
                     dot={false}
                     connectNulls
                   />
@@ -174,12 +226,24 @@ export default function Stats() {
               <CardDescription>按 FSRS due 日期统计</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer key={`future-${theme}`} width="100%" height={200}>
                 <BarChart data={futureData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                  <XAxis
+                    dataKey="date"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <YAxis
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                    tick={{ fill: "var(--muted-foreground)" }}
+                  />
+                  <Tooltip {...TOOLTIP_STYLE} />
                   <Bar dataKey="预期" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
