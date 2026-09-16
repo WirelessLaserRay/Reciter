@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
+import { parseDayStartHour, getDayEndDate } from "@/lib/day";
 import {
   getExamConfig,
   saveExamConfig,
@@ -154,9 +155,11 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
     const timer = setTimeout(async () => {
       try {
         const now = new Date();
+        const hour = parseDayStartHour(await db.getSetting("day_start"));
+        const dayEnd = getDayEndDate(hour, now);
         const [fresh, due, mastery] = await Promise.all([
           db.getNewCountByDecks(selectedDeckIds, ignoredTags),
-          db.getDueCountByDecks(selectedDeckIds, now.toISOString(), ignoredTags),
+          db.getDueCountByDecks(selectedDeckIds, dayEnd.toISOString(), ignoredTags),
           db.getMultiDeckMasteryStats(selectedDeckIds, ignoredTags, targetStability),
         ]);
         if (!active) return;

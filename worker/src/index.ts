@@ -374,6 +374,9 @@ interface ArticleExtractResult {
   paragraphs: string[];
   wordCount: number;
   isFullArticle: boolean;
+  channel?: string;
+  channelLabel?: string;
+  isPaywallDetected?: boolean;
   debug?: ArticleDebug;
 }
 
@@ -383,6 +386,8 @@ interface ArticleDebug {
   timesExtractorUsed: boolean;
   paywallDetected: boolean;
   usedJinaFallback: boolean;
+  usedArchiveTodayFallback?: boolean;
+  usedWaybackFallback?: boolean;
   reason?: string;
 }
 
@@ -476,19 +481,31 @@ function extractJsonLdArticle(html: string): string | null {
   return null;
 }
 
+const PAYWALL_FINGERPRINTS = [
+  "subscribe to continue reading",
+  "subscribe to continue",
+  "subscription required",
+  "exclusive to subscribers",
+  "subscribers only",
+  "to read the full article",
+  "sign in or create an account",
+  "reached your limit of free articles",
+  "register for free to continue",
+  "this story is available exclusively for",
+  "unlock full access",
+  "already a subscriber? sign in",
+  "read the rest of this story with a free account",
+  "support quality journalism",
+  "become a member to continue reading",
+  "enjoy more articles with a free account",
+  "log in or subscribe",
+  "already a subscriber",
+];
+
 /** 检测 paywall / 截断标志 */
 function detectPaywall(html: string, text: string): boolean {
   const lower = (html + " " + text).toLowerCase();
-  return [
-    "subscribe",
-    "subscription",
-    "log in",
-    "you have reached your limit",
-    "unlimited article",
-    "continue reading",
-    "sign up",
-    "paid subscriber",
-  ].some((s) => lower.includes(s));
+  return PAYWALL_FINGERPRINTS.some((s) => lower.includes(s));
 }
 
 async function fetchArticleDirect(
@@ -564,6 +581,7 @@ async function fetchArticleDirect(
         paragraphs,
         wordCount: fallbackText.split(/\s+/).filter(Boolean).length,
         isFullArticle: isFullEnough(paragraphs),
+        isPaywallDetected: false,
         debug,
       };
     }
@@ -601,6 +619,7 @@ async function fetchArticleDirect(
         paragraphs: fallback,
         wordCount,
         isFullArticle: false,
+        isPaywallDetected: debug.paywallDetected,
         debug,
       };
     }
@@ -613,14 +632,167 @@ async function fetchArticleDirect(
     paragraphs: limited,
     wordCount,
     isFullArticle: limited.length === paragraphs.length,
+    isPaywallDetected: false,
+    debug,
+  };
+}
+
+/** Jina AI 结构化 Markdown 提取 */
+async function fetchArticleFromJina(
+  url: string,
+  maxLength = MAX_ARTICLE_LENGTH,
+  debug: ArticleDebug
+): Promise<ArticleExtractResult> {
+  const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      Accept: "text/plain",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error("Jina fallback failed: " + res.status);
+  const text = await res.text();
+  const rawParagraphs = text
+    .split(/\n{2,}/)
+    .map((s) => decodeXmlEntities(stripTags(s)).trim())
+    .filter((s) => s.length >= 2 && !s.startsWith("![") && !s.startsWith("Title:"));
+  const paragraphs = cleanParagraphs(rawParagraphs, isGuardianUrl(url));
+  if (paragraphs.length < 2) throw new Error("Jina failed to extract paragraphs");
+
+  const textContent = paragraphs.join(" ");
+  const paywall = detectPaywall(text, textContent);
+  const limited = truncateParagraphs(paragraphs, maxLength);
+  debug.usedJinaFallback = true;
+
+  return {
+    title: "",
+    paragraphs: limited,
+    wordCount: text.split(/\s+/).filter(Boolean).length,
+    isFullArticle: !paywall && limited.length >= 3 && textContent.length >= 450,
+    channel: "jina",
+    channelLabel: "Jina Reader 提取",
+    isPaywallDetected: paywall,
+    debug,
+  };
+}
+
+/** Archive.today (archive.is / archive.ph) 快照检索 */
+async function fetchArticleFromArchiveToday(
+  url: string,
+  maxLength = MAX_ARTICLE_LENGTH,
+  debug: ArticleDebug
+): Promise<ArticleExtractResult> {
+  const hosts = ["https://archive.is", "https://archive.ph", "https://archive.today"];
+  let lastError: Error | null = null;
+
+  for (const host of hosts) {
+    try {
+      const target = `${host}/newest/${encodeURI(url)}`;
+      const res = await fetch(target, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error("Archive.today HTTP " + res.status);
+      const html = await res.text();
+      if (html.includes("cf-turnstile") || html.includes("challenge-platform") || html.includes("Just a moment...")) {
+        throw new Error("Archive.today 遇到人机验证拦截");
+      }
+
+      const { document } = parseHTML(html);
+      document.querySelectorAll("#HEADER, #banner, #CONTENT-HEADER, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el) => el.remove());
+
+      const article = new Readability(document as unknown as Document).parse();
+      if (!article) throw new Error("Archive.today Readability failed");
+
+      const textContent = article.textContent?.trim() ?? "";
+      const paragraphs = cleanParagraphs(extractParagraphsFromHtml(article.content ?? ""), isGuardianUrl(url));
+      const paywall = detectPaywall(html, textContent);
+      const limited = truncateParagraphs(paragraphs, maxLength);
+      debug.usedArchiveTodayFallback = true;
+
+      return {
+        title: article.title ?? "",
+        paragraphs: limited,
+        wordCount: textContent.split(/\s+/).filter(Boolean).length,
+        isFullArticle: !paywall && limited.length >= 3 && textContent.length >= 450,
+        channel: "archive_today",
+        channelLabel: "Archive.today 快照",
+        isPaywallDetected: paywall,
+        debug,
+      };
+    } catch (e) {
+      lastError = e as Error;
+    }
+  }
+
+  throw lastError ?? new Error("Archive.today failed");
+}
+
+/** Wayback Machine (archive.org) 历史快照检索 */
+async function fetchArticleFromWayback(
+  url: string,
+  maxLength = MAX_ARTICLE_LENGTH,
+  debug: ArticleDebug
+): Promise<ArticleExtractResult> {
+  const api = `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`;
+  const apiRes = await fetch(api, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!apiRes.ok) throw new Error("Wayback availability HTTP " + apiRes.status);
+  const meta = (await apiRes.json()) as {
+    archived_snapshots?: { closest?: { available: boolean; url: string } };
+  };
+  const snapshotUrl = meta?.archived_snapshots?.closest?.url;
+  if (!meta?.archived_snapshots?.closest?.available || !snapshotUrl) {
+    throw new Error("Wayback Machine 暂无此文章快照");
+  }
+
+  const pageRes = await fetch(snapshotUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!pageRes.ok) throw new Error("Wayback fetch HTTP " + pageRes.status);
+  const html = await pageRes.text();
+  const { document } = parseHTML(html);
+  document.querySelectorAll("#wm-ipp-base, #wm-ipp, #wm-ipp-inside, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el) => el.remove());
+
+  const article = new Readability(document as unknown as Document).parse();
+  if (!article) throw new Error("Wayback Readability failed");
+
+  const textContent = article.textContent?.trim() ?? "";
+  const paragraphs = cleanParagraphs(extractParagraphsFromHtml(article.content ?? ""), isGuardianUrl(url));
+  const paywall = detectPaywall(html, textContent);
+  const limited = truncateParagraphs(paragraphs, maxLength);
+  debug.usedWaybackFallback = true;
+
+  return {
+    title: article.title ?? "",
+    paragraphs: limited,
+    wordCount: textContent.split(/\s+/).filter(Boolean).length,
+    isFullArticle: !paywall && limited.length >= 3 && textContent.length >= 450,
+    channel: "wayback",
+    channelLabel: "Wayback 历史存档",
+    isPaywallDetected: paywall,
     debug,
   };
 }
 
 /**
- * 正文入口：优先直接抓取 + Readability；失败时用 Jina Reader 兜底（解决 NYT 等反爬/付费墙 502）
+ * 正文入口：支持指定通道与自动优化多网关级联降级
  */
-async function fetchArticle(url: string, maxLength = MAX_ARTICLE_LENGTH): Promise<ArticleExtractResult> {
+async function fetchArticle(
+  url: string,
+  maxLength = MAX_ARTICLE_LENGTH,
+  channel = "auto"
+): Promise<ArticleExtractResult> {
   const debug: ArticleDebug = {
     fetchStatus: 0,
     readabilityOk: false,
@@ -628,48 +800,80 @@ async function fetchArticle(url: string, maxLength = MAX_ARTICLE_LENGTH): Promis
     paywallDetected: false,
     usedJinaFallback: false,
   };
-  
-  const strategies: ("googlebot" | "twitter" | "jina")[] = ["googlebot", "twitter", "jina"];
-  let lastError: Error | null = null;
-  
-  for (const strategy of strategies) {
-    try {
-      if (strategy === "jina") {
-        // 策略 3: Jina AI 兜底
-        const res = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            Accept: "text/plain",
-          },
-          redirect: "follow",
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) throw new Error("Jina fallback failed: " + res.status);
-        const text = await res.text();
-        const paragraphs = cleanParagraphs(
-          text.split(/\n{2,}/).map((s) => decodeXmlEntities(stripTags(s)).trim()).filter((s) => s.length >= 2),
-          isGuardianUrl(url)
-        );
-        if (paragraphs.length < 2) throw lastError ?? new Error("Jina failed to extract paragraphs");
 
-        const limited = truncateParagraphs(paragraphs, maxLength);
-        debug.usedJinaFallback = true;
-        console.log("[Jina] fallback OK", url);
-        return {
-          title: "",
-          paragraphs: limited,
-          wordCount: text.split(/\s+/).filter(Boolean).length,
-          isFullArticle: limited.length === paragraphs.length && isFullEnough(paragraphs),
-          debug,
-        };
-      } else {
-        // 策略 1 & 2: 直接请求
-        return await fetchArticleDirect(url, debug, strategy, maxLength);
+  if (channel === "direct") {
+    const res = await fetchArticleDirect(url, debug, "googlebot", maxLength);
+    return { ...res, channel: "direct", channelLabel: "直连抓取" };
+  }
+  if (channel === "jina") {
+    return await fetchArticleFromJina(url, maxLength, debug);
+  }
+  if (channel === "archive_today") {
+    return await fetchArticleFromArchiveToday(url, maxLength, debug);
+  }
+  if (channel === "wayback") {
+    return await fetchArticleFromWayback(url, maxLength, debug);
+  }
+
+  // 自动优化通道级联：直连(googlebot/twitter) -> Jina -> Archive.today -> Wayback
+  let candidate: ArticleExtractResult | null = null;
+  let lastError: Error | null = null;
+
+  // 1. 直连 (Googlebot / Twitter)
+  for (const strategy of ["googlebot", "twitter"] as const) {
+    try {
+      const res = await fetchArticleDirect(url, debug, strategy, maxLength);
+      if (res.isFullArticle && !res.isPaywallDetected) {
+        return { ...res, channel: "direct", channelLabel: "直连抓取" };
       }
-    } catch (err) {
-      lastError = err as Error;
+      candidate = { ...res, channel: "direct", channelLabel: "直连抓取" };
+    } catch (e) {
+      lastError = e as Error;
       debug.reason = (debug.reason ? debug.reason + ` -> ` : "") + `${strategy} failed`;
     }
+  }
+
+  // 2. Jina Reader 兜底
+  try {
+    const res = await fetchArticleFromJina(url, maxLength, debug);
+    if (res.isFullArticle && !res.isPaywallDetected) {
+      return res;
+    }
+    if (!candidate || res.paragraphs.length > candidate.paragraphs.length) {
+      candidate = res;
+    }
+  } catch (e) {
+    lastError = e as Error;
+  }
+
+  // 3. Archive.today 快照兜底
+  try {
+    const res = await fetchArticleFromArchiveToday(url, maxLength, debug);
+    if (res.isFullArticle && !res.isPaywallDetected) {
+      return res;
+    }
+    if (!candidate || res.paragraphs.length > candidate.paragraphs.length) {
+      candidate = res;
+    }
+  } catch (e) {
+    lastError = e as Error;
+  }
+
+  // 4. Wayback Machine 兜底
+  try {
+    const res = await fetchArticleFromWayback(url, maxLength, debug);
+    if (res.isFullArticle && !res.isPaywallDetected) {
+      return res;
+    }
+    if (!candidate || res.paragraphs.length > candidate.paragraphs.length) {
+      candidate = res;
+    }
+  } catch (e) {
+    lastError = e as Error;
+  }
+
+  if (candidate) {
+    return candidate;
   }
 
   if (lastError) {
@@ -729,7 +933,8 @@ async function handleNews(request: Request, cors: Record<string, string>): Promi
       const maxLength = maxLengthRaw
         ? Math.min(100000, Math.max(1000, parseInt(maxLengthRaw, 10) || MAX_ARTICLE_LENGTH))
         : MAX_ARTICLE_LENGTH;
-      const result = await fetchArticle(target, maxLength);
+      const channel = url.searchParams.get("channel") || "auto";
+      const result = await fetchArticle(target, maxLength, channel);
       return json(result, 200, cors);
     } catch (e) {
       const err = e as Error & { debug?: ArticleDebug };

@@ -16,6 +16,9 @@ export interface NewWord {
   word: string;
   pos: string;
   meaning: string;
+  phonetic?: string;
+  example?: string;
+  exampleCn?: string;
 }
 
 export interface WordExplanation {
@@ -366,13 +369,38 @@ export async function explainWord(word: string): Promise<WordExplanation> {
   };
 }
 
-/** 查询单词释义（优先 AI 词汇讲解，词典 + 翻译降级兜底，用于手动添加生词自动写入释义） */
+export interface WordDefinitionResult {
+  pos: string;
+  meaning: string;
+  example?: string;
+  exampleCn?: string;
+}
+
+/** 查询单词释义（本地卡片直查 -> AI 词汇讲解 -> 有道词典 API -> Free Dictionary -> 翻译降级） */
 export async function fetchWordDefinition(
   word: string
-): Promise<{ pos: string; meaning: string }> {
+): Promise<WordDefinitionResult> {
   const clean = word.trim();
   if (!clean) return { pos: "", meaning: "" };
   const isPhraseWord = isPhrase(clean);
+
+  // 0. 本地词库优先直查（速度最快，0ms）
+  try {
+    const existing = await db.findCardByFront(clean);
+    if (existing && existing.back) {
+      const posMatch = existing.back.match(
+        /^\s*(?:vt\.?&vi|vt\.\/vi|vi\.\/vt|vt|vi|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|v)\./i
+      );
+      const pos = isPhraseWord ? "" : (posMatch ? posMatch[0] : "");
+      const meaning = pos ? existing.back.slice(pos.length).trim() : existing.back.trim();
+      return {
+        pos,
+        meaning: isPhraseWord ? removePosPrefix(meaning) : meaning,
+      };
+    }
+  } catch {
+    // ignore
+  }
 
   // 1. 优先尝试 AI 讲解接口
   try {
@@ -381,13 +409,46 @@ export async function fetchWordDefinition(
       return {
         pos: isPhraseWord ? "" : (exp.pos || ""),
         meaning: isPhraseWord ? removePosPrefix(exp.meaning || "") : (exp.meaning || ""),
+        example: exp.example || "",
+        exampleCn: exp.exampleCn || "",
       };
     }
   } catch {
-    // AI 未配置或异常，降级到词典与公共翻译
+    // AI 未配置或异常，降级到公共词典与翻译
   }
 
-  // 2. 词典 API + 翻译兜底（短语跳过单词词典）
+  // 2. 有道词典 Suggest API（免 key、高可用、支持单词及词组，直接返回中文释义与词性）
+  try {
+    const res = await httpFetch(
+      `https://dict.youdao.com/suggest?num=1&doctype=json&q=${encodeURIComponent(clean)}`
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        data?: { entries?: Array<{ entry?: string; explain?: string }> };
+      };
+      const entry = data?.data?.entries?.[0];
+      if (entry?.explain) {
+        const explain = entry.explain.trim();
+        const posMatch = explain.match(/^([a-zA-Z]+(?:\.[a-zA-Z]+)*\.)\s*(.*)$/);
+        let pos = "";
+        let meaning = explain;
+        if (posMatch && !isPhraseWord) {
+          pos = posMatch[1];
+          meaning = posMatch[2] || explain;
+        }
+        if (meaning) {
+          return {
+            pos: isPhraseWord ? "" : pos,
+            meaning: isPhraseWord ? removePosPrefix(meaning) : meaning,
+          };
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. 词典 API + 翻译兜底（短语跳过单词词典）
   if (!isPhraseWord) {
     try {
       const key = normalizeWordForPhonetic(clean) || clean.toLowerCase();
@@ -409,7 +470,7 @@ export async function fetchWordDefinition(
     }
   }
 
-  // 3. 直接翻译文本兜底（兼容短语、成语或无词典条目词）
+  // 4. 直接翻译文本兜底（兼容短语、成语或无词典条目词）
   try {
     const zh = await translateText(clean).catch(() => "");
     if (zh && zh.toLowerCase() !== clean.toLowerCase()) {

@@ -471,19 +471,19 @@ export default function DeckDetail() {
       {/* 卡片列表 */}
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>卡片列表</CardTitle>
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 variant={keyFilter ? "default" : "outline"}
-                className="text-xs"
+                className="text-xs shrink-0"
                 onClick={() => setKeyFilter((v) => !v)}
               >
                 <Star className={keyFilter ? "size-3.5" : "size-3.5 text-amber-500"} />
                 重点
               </Button>
-              <div className="relative w-56">
+              <div className="relative flex-1 sm:w-56">
                 <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-8"

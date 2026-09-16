@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { db, type StudyCardRow } from "@/lib/db";
 import { applyReview } from "@/lib/review";
 import { fsrsCardToDBState, Rating, State, type Grade } from "@/lib/fsrs";
-import { getDayStartDate, parseDayStartHour } from "@/lib/day";
+import { getDayStartDate, getDayEndDate, parseDayStartHour } from "@/lib/day";
 import {
   getDeckShuffle,
   getIgnoredTags,
@@ -162,6 +162,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const now = new Date();
       const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
       const dayStart = getDayStartDate(dayStartHour, now);
+      const dayEnd = getDayEndDate(dayStartHour, now);
       const ignoredTags = await getIgnoredTags();
 
       // 休息锁：上一轮达到上限后，休息期间禁止开始新学习
@@ -173,7 +174,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       }
       const maxSessionCards = await getMaxSessionCards();
 
-      // 1. 到期卡片（Learning/Review/Relearning，可按标签/重点过滤，受每日复习上限约束）
+      // 1. 到期卡片（Learning/Review/Relearning，可按标签/重点过滤，受每日复习上限约束，囊括今日所有到期卡片）
       const reviewLimitRaw = await db.getSetting("daily_review_limit");
       const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
       const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
@@ -181,7 +182,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const easyFactor = getEasyDaysFactor(now, easyConfig);
       const adjustedLimit = Math.round(reviewLimit * easyFactor);
       const dueLimit = Math.max(0, adjustedLimit - todayReviewed);
-      const due = dueLimit > 0 ? await db.getDueCards(deckId, now.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
+      const due = dueLimit > 0 ? await db.getDueCards(deckId, dayEnd.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围；extraNewCards 支持加学突破）
       // 新导入词库若配额为 0，按默认 20 张安排，避免“持续不安排学习”
@@ -243,11 +244,13 @@ export const useStudyStore = create<StudyState>((set, get) => ({
         return;
       }
       const maxSessionCards = await getMaxSessionCards();
+      const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
+      const dayEnd = getDayEndDate(dayStartHour, now);
 
-      // 1. 到期卡片（多词库/排除指定标签）
+      // 1. 到期卡片（多词库/排除指定标签）：囊括今日截止日界（dayEnd）前所有到期卡片，而不仅是当前此刻（now）
       const due =
         targetReview > 0
-          ? await db.getMultiDeckDueCards(deckIds, now.toISOString(), targetReview, ignoredTags)
+          ? await db.getMultiDeckDueCards(deckIds, dayEnd.toISOString(), targetReview, ignoredTags)
           : [];
 
       // 2. 新卡配额（多词库/排除指定标签）

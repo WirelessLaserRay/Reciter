@@ -6,12 +6,15 @@ import {
   FileUp,
   GraduationCap,
   LayoutDashboard,
+  Moon,
   MoreHorizontal,
   Newspaper,
   Search,
   Settings,
+  Sun,
 } from "lucide-react";
 import { useSearchStore } from "@/stores/useSearchStore";
+import { useThemeStore } from "@/stores/useThemeStore";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,13 +42,15 @@ export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const openSearch = useSearchStore((s) => s.openSearch);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleDarkLight = useThemeStore((s) => s.toggleDarkLight);
   const currentPath = location.pathname;
 
   const isMoreActive = MORE_TABS.some((t) => t.to === currentPath);
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-border/80 bg-background/95 backdrop-blur-md px-2 py-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] md:hidden select-none"
+      className="fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t border-border/70 bg-background/90 backdrop-blur-lg px-2 pb-[env(safe-area-inset-bottom)] md:hidden select-none shadow-sm transition-colors"
       aria-label="移动端底部导航"
     >
       {PRIMARY_TABS.map((tab) => {
@@ -55,14 +60,21 @@ export default function BottomNav() {
             key={tab.to}
             to={tab.to}
             className={cn(
-              "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-lg",
+              "group flex flex-1 flex-col items-center justify-center py-1 text-center transition-all duration-150 active:scale-95",
               isActive
                 ? "text-primary font-semibold"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <tab.icon className={cn("size-5 transition-transform", isActive && "scale-110")} />
-            <span className="mt-0.5 text-[11px] leading-none tracking-tight">{tab.label}</span>
+            <div
+              className={cn(
+                "flex h-7 w-12 items-center justify-center rounded-full transition-all duration-200",
+                isActive ? "bg-primary/15 text-primary shadow-2xs" : "text-muted-foreground group-hover:bg-muted/50"
+              )}
+            >
+              <tab.icon className={cn("size-4.5 transition-transform duration-150", isActive && "scale-105")} />
+            </div>
+            <span className="mt-0.5 text-[10px] leading-tight tracking-tight font-medium">{tab.label}</span>
           </NavLink>
         );
       })}
@@ -73,27 +85,34 @@ export default function BottomNav() {
           <button
             type="button"
             className={cn(
-              "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-lg outline-none",
+              "group flex flex-1 flex-col items-center justify-center py-1 text-center transition-all duration-150 active:scale-95 outline-none",
               isMoreActive
                 ? "text-primary font-semibold"
                 : "text-muted-foreground hover:text-foreground"
             )}
             aria-label="更多功能"
           >
-            <MoreHorizontal className={cn("size-5 transition-transform", isMoreActive && "scale-110")} />
-            <span className="mt-0.5 text-[11px] leading-none tracking-tight">更多</span>
+            <div
+              className={cn(
+                "flex h-7 w-12 items-center justify-center rounded-full transition-all duration-200",
+                isMoreActive ? "bg-primary/15 text-primary shadow-2xs" : "text-muted-foreground group-hover:bg-muted/50"
+              )}
+            >
+              <MoreHorizontal className={cn("size-4.5 transition-transform duration-150", isMoreActive && "scale-105")} />
+            </div>
+            <span className="mt-0.5 text-[10px] leading-tight tracking-tight font-medium">更多</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           side="top"
           align="end"
           sideOffset={10}
-          className="w-44 mb-2 p-1.5 shadow-lg border border-border/70 backdrop-blur-md bg-background/95"
+          className="w-48 mb-2 p-1.5 shadow-xl border border-border/80 backdrop-blur-lg bg-background/95 rounded-xl"
         >
           {/* 全词库卡片查找 */}
           <DropdownMenuItem
             onClick={() => openSearch()}
-            className="flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-md font-medium text-primary"
+            className="flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-lg font-medium text-primary hover:bg-primary/10"
           >
             <Search className="size-4 shrink-0 text-primary" />
             <span>全库查找卡片</span>
@@ -108,16 +127,27 @@ export default function BottomNav() {
                 <DropdownMenuItem
                   onClick={() => navigate(tab.to)}
                   className={cn(
-                    "flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-md",
-                    isActive && "bg-primary/10 text-primary font-semibold"
+                    "flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-lg transition-colors",
+                    isActive
+                      ? "bg-primary/12 text-primary font-semibold"
+                      : "text-foreground hover:bg-muted"
                   )}
                 >
-                  <tab.icon className="size-4 shrink-0 text-muted-foreground" />
+                  <tab.icon className={cn("size-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                   <span>{tab.label}</span>
                 </DropdownMenuItem>
               </div>
             );
           })}
+
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuItem
+            onClick={toggleDarkLight}
+            className="flex items-center gap-2.5 py-2 px-3 text-xs cursor-pointer rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+          >
+            {theme === "light" ? <Moon className="size-4 shrink-0" /> : <Sun className="size-4 shrink-0" />}
+            <span>{theme === "light" ? "切换暗色" : "切换亮色"}</span>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </nav>

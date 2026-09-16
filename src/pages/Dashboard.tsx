@@ -30,7 +30,7 @@ import { db } from "@/lib/db";
 import { useDbStore } from "@/stores/useDbStore";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { useStudyStore } from "@/stores/useStudyStore";
-import { getDayStartDate, parseDayStartHour, toDateKey } from "@/lib/day";
+import { getDayStartDate, getDayEndDate, parseDayStartHour, toDateKey } from "@/lib/day";
 import { getLeechThreshold } from "@/lib/settings";
 import {
   AI_TEST_INTERVAL_MS,
@@ -112,6 +112,7 @@ export default function Dashboard() {
     const hour = parseDayStartHour(await db.getSetting("day_start"));
     const now = new Date();
     const dayStart = getDayStartDate(hour, now);
+    const dayEnd = getDayEndDate(hour, now);
     const currentDecks = useDeckStore.getState().decks;
     const ignoredTags = await getIgnoredTags();
     const reviewLimitRaw = await db.getSetting("daily_review_limit");
@@ -120,11 +121,11 @@ export default function Dashboard() {
     const remainingLimit = Math.max(0, reviewLimit - todayReviewed);
     const leech = await getLeechThreshold();
     const [due, fresh, last, weak, deckDue, deckNew, plan] = await Promise.all([
-      db.getGlobalDueCount(now.toISOString(), ignoredTags),
+      db.getGlobalDueCount(dayEnd.toISOString(), ignoredTags),
       db.getGlobalNewCount(ignoredTags),
       getLastStudyContext(),
       db.getGlobalWeakCount(leech),
-      db.getDeckDueCounts(now.toISOString(), ignoredTags),
+      db.getDeckDueCounts(dayEnd.toISOString(), ignoredTags),
       db.getDeckNewCounts(ignoredTags),
       getTodayOrchestratedPlan(currentDecks),
     ]);
@@ -223,7 +224,7 @@ export default function Dashboard() {
   const cardTotal = Object.values(cardCounts).reduce((a, b) => a + b, 0);
 
   const STATS = [
-    { label: "今日待复习", value: String(dueCount), icon: CalendarClock, hint: "此刻已到期 · 配额内" },
+    { label: "今日待复习", value: String(dueCount), icon: CalendarClock, hint: "今日到期 · 配额内" },
     { label: "新卡待学", value: String(newCount), icon: GraduationCap, hint: "FSRS state = New" },
     { label: "词库总数", value: String(deckCount), icon: BookOpen, hint: "本地 SQLite" },
     { label: "卡片总数", value: String(cardTotal), icon: GraduationCap, hint: "本地 SQLite" },

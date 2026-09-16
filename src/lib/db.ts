@@ -545,6 +545,21 @@ class ReciterDB {
   }
 
   /**
+   * 按 front 检索第一张匹配的卡片（不区分大小写），用于生词释义本地快速匹配
+   */
+  async findCardByFront(front: string): Promise<Card | null> {
+    try {
+      const rows = await this.requireDb().select<Card[]>(
+        "SELECT * FROM cards WHERE LOWER(TRIM(front)) = LOWER(TRIM(?)) ORDER BY updated_at DESC LIMIT 1",
+        [front]
+      );
+      return rows[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 卡片 upsert：按 (deck_id, front) UNIQUE 匹配，存在则更新、不存在则新建（保留复习进度）
    * @param knownExisting 预览阶段缓存的 front 集合，避免逐行查询（可选）
    */

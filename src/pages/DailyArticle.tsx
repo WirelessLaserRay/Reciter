@@ -6,8 +6,11 @@ import {
   ExternalLink,
   Loader2,
   Newspaper,
+  RefreshCw,
+  ShieldAlert,
   Sparkles,
   Volume2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +41,7 @@ import {
   type CustomRssSource,
   type NewsItem,
   type NewsTopic,
+  type ArticleChannel,
 } from "@/lib/news";
 import {
   generateArticleQuestions,
@@ -147,6 +151,10 @@ export default function DailyArticle() {
   const [articleTruncated, setArticleTruncated] = useState(false);
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleError, setArticleError] = useState("");
+  const [articleChannel, setArticleChannel] = useState<ArticleChannel>("auto");
+  const [activeChannelLabel, setActiveChannelLabel] = useState<string>("");
+  const [isPaywallDetected, setIsPaywallDetected] = useState(false);
+  const [archiveUrls, setArchiveUrls] = useState<{ archiveToday: string; wayback: string } | null>(null);
 
   const [questions, setQuestions] = useState<ArticleQuestion[] | null>(null);
 
@@ -218,26 +226,75 @@ export default function DailyArticle() {
       const eng = await getArticleTranslateEngine().catch(() => "ai" as const);
       setTranslateEngine(eng);
     })().catch(() => {});
+
+    return () => {
+      // 离开每日一文页面时自动清空生词添加队列
+      setManualWords([]);
+      setNewWords(null);
+      setExplanation(null);
+    };
   }, []);
 
-  const openArticle = async (item: NewsItem) => {
-    setSelected(item);
+  const closeArticle = () => {
+    setSelected(null);
     setContent("");
     setArticleTruncated(false);
     setArticleError("");
+    setIsPaywallDetected(false);
     setQuestions(null);
     setNewWords(null);
+    setManualWords([]);
+    setManualWordInput("");
     setExplanation(null);
+    setWordError("");
+    setImportMsg("");
+    setTranslation("");
+  };
+
+  const openArticle = async (item: NewsItem, channel: ArticleChannel = "auto") => {
+    setSelected(item);
+    setArticleChannel(channel);
+    setContent("");
+    setArticleTruncated(false);
+    setArticleError("");
+    setIsPaywallDetected(false);
+    setQuestions(null);
+    setNewWords(null);
+    setManualWords([]);
+    setManualWordInput("");
+    setExplanation(null);
+    setWordError("");
+    setImportMsg("");
     setSidebarTab("words");
     setSelectedOptions([]);
     setTranslation("");
     setArticleLoading(true);
     try {
-      const res = await fetchArticleContent(item.link);
+      const res = await fetchArticleContent(item.link, channel);
       setContent(res.paragraphs.join("\n\n"));
-      setArticleTruncated(res.isFullArticle === false);
+      setArticleTruncated(res.isFullArticle === false && !res.isPaywallDetected);
+      setIsPaywallDetected(!!res.isPaywallDetected);
+      setActiveChannelLabel(
+        res.channelLabel ||
+          (res.channel === "direct"
+            ? "直连抓取"
+            : res.channel === "jina"
+            ? "Jina Reader"
+            : res.channel === "archive_today"
+            ? "Archive.today"
+            : res.channel === "wayback"
+            ? "Wayback 历史存档"
+            : "自动优化")
+      );
+      if (res.archiveUrls) {
+        setArchiveUrls(res.archiveUrls);
+      }
     } catch (e) {
       setArticleError(String(e));
+      setArchiveUrls({
+        archiveToday: `https://archive.ph/newest/${encodeURIComponent(item.link)}`,
+        wayback: `https://web.archive.org/web/${item.link}`,
+      });
     } finally {
       setArticleLoading(false);
     }
@@ -288,16 +345,53 @@ export default function DailyArticle() {
     }
     setAddingManualWord(true);
     setWordError("");
+    setImportMsg("");
     try {
       const def = await fetchWordDefinition(word);
-      setManualWords((prev) => [...prev, { word, pos: def.pos, meaning: def.meaning }]);
+      const newWordItem: NewWord = {
+        word,
+        pos: def.pos,
+        meaning: def.meaning,
+        example: def.example,
+        exampleCn: def.exampleCn,
+      };
+      setManualWords((prev) => [...prev, newWordItem]);
       setManualWordInput("");
+
+      // 顺带呈现下方讲解面板供预览
+      if (def.meaning || def.example) {
+        setExplanation({
+          word,
+          pos: def.pos,
+          meaning: def.meaning,
+          example: def.example || "",
+          exampleCn: def.exampleCn || "",
+        });
+      }
     } catch {
       setManualWords((prev) => [...prev, { word, pos: "", meaning: "" }]);
       setManualWordInput("");
     } finally {
       setAddingManualWord(false);
     }
+  };
+
+  const handleRemoveWord = (wordToRemove: string) => {
+    const target = wordToRemove.trim().toLowerCase();
+    setNewWords((prev) => (prev ? prev.filter((w) => w.word.toLowerCase() !== target) : null));
+    setManualWords((prev) => prev.filter((w) => w.word.toLowerCase() !== target));
+    if (explanation && explanation.word.toLowerCase() === target) {
+      setExplanation(null);
+    }
+    setWordError("");
+  };
+
+  const handleClearAllWords = () => {
+    setNewWords([]);
+    setManualWords([]);
+    setExplanation(null);
+    setWordError("");
+    setImportMsg("已清空生词列表");
   };
 
   const handleExplainWord = async (word: string) => {
@@ -336,10 +430,12 @@ export default function DailyArticle() {
     let deckId = await db.getDeckIdByName(deckName);
     if (!deckId) deckId = await db.createDeck(deckName, "每日一文阅读生词");
     for (const w of words) {
+      const back = `${w.pos ? w.pos + " " : ""}${w.meaning}`.trim();
       await db.upsertCard({
         deckId,
         front: w.word,
-        back: `${w.pos} ${w.meaning}`,
+        back: back || w.word,
+        meaningPrimary: w.meaning || back,
         sourceType: "manual",
         tags: ["每日一文"],
       });
@@ -419,6 +515,12 @@ export default function DailyArticle() {
   const handleSourceChange = (v: string) => {
     setSource(v);
     setTopic("");
+    closeArticle();
+  };
+
+  const handleTopicChange = (v: string) => {
+    setTopic(v);
+    closeArticle();
   };
 
   return (
@@ -480,7 +582,7 @@ export default function DailyArticle() {
               </SelectContent>
             </Select>
             {currentTopics.length > 1 && (
-              <Select value={topic} onValueChange={setTopic}>
+              <Select value={topic} onValueChange={handleTopicChange}>
                 <SelectTrigger className="w-44">
                   <SelectValue placeholder="全部主题">
                     {currentTopics.find((t) => t.id === topic)?.label || "全部主题"}
@@ -606,36 +708,191 @@ export default function DailyArticle() {
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <CardTitle className="text-xl leading-snug">{selected.title}</CardTitle>
-                <Button
-                  variant={isFavorite ? "secondary" : "outline"}
-                  size="sm"
-                  className="shrink-0"
-                  onClick={toggleFavorite}
-                >
-                  {isFavorite ? "已收藏" : "收藏"}
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant={isFavorite ? "secondary" : "outline"}
+                    size="sm"
+                    onClick={toggleFavorite}
+                  >
+                    {isFavorite ? "已收藏" : "收藏"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={closeArticle}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="关闭当前文章并清空生词队列"
+                  >
+                    关闭文章
+                  </Button>
+                </div>
               </div>
-              <CardDescription>
-                {selected.source} · {selected.pubDate}
+              <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
+                <span>{selected.source} · {selected.pubDate}</span>
                 <a
-                  className="ml-2 inline-flex items-center gap-1 text-xs underline"
+                  className="inline-flex items-center gap-1 text-xs underline text-primary hover:opacity-80"
                   href={selected.link}
                   target="_blank"
                   rel="noreferrer"
                 >
                   原文 <ExternalLink className="size-3" />
                 </a>
+                {archiveUrls && (
+                  <>
+                    <a
+                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground"
+                      href={archiveUrls.archiveToday}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="在 Archive.today 公共快照库中查看"
+                    >
+                      Archive 快照 <ExternalLink className="size-3" />
+                    </a>
+                    <a
+                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground"
+                      href={archiveUrls.wayback}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="在 Wayback Machine 历史档案馆中查看"
+                    >
+                      Wayback 快照 <ExternalLink className="size-3" />
+                    </a>
+                  </>
+                )}
               </CardDescription>
+
+              {/* 通道切换与重试控制栏 */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t mt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">解析通道:</span>
+                  <Select
+                    value={articleChannel}
+                    onValueChange={(v) => {
+                      const next = v as ArticleChannel;
+                      setArticleChannel(next);
+                      void openArticle(selected, next);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 w-36 text-xs">
+                      <SelectValue placeholder="选择解析通道" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto" className="text-xs">自动级联优化</SelectItem>
+                      <SelectItem value="direct" className="text-xs">原站直连</SelectItem>
+                      <SelectItem value="jina" className="text-xs">Jina Reader</SelectItem>
+                      <SelectItem value="archive_today" className="text-xs">Archive.today 快照</SelectItem>
+                      <SelectItem value="wayback" className="text-xs">Wayback 历史存档</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {activeChannelLabel && (
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      当前: {activeChannelLabel}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => void openArticle(selected, articleChannel)}
+                  disabled={articleLoading}
+                >
+                  <RefreshCw className={cn("size-3 mr-1", articleLoading && "animate-spin")} />
+                  重新解析
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {articleLoading && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
-                  正在抓取文章…
+                  正在通过 {articleChannel === "auto" ? "多网关自动级联" : activeChannelLabel || articleChannel} 抓取文章…
                 </div>
               )}
-              {articleError && <p className="text-sm text-red-600">{articleError}</p>}
-              {articleTruncated && (
+              {articleError && (
+                <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-3 text-sm space-y-2">
+                  <p className="text-red-700 dark:text-red-400 font-medium">文章解析遇到问题：{articleError}</p>
+                  <p className="text-xs text-muted-foreground">
+                    该文章可能由于源站反爬严格或付费墙限制导致当前通道解析失败。您可以尝试切换解析通道或通过公共快照直达：
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => void openArticle(selected, "jina")}
+                    >
+                      尝试 Jina Reader
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => void openArticle(selected, "archive_today")}
+                    >
+                      尝试 Archive.today 快照
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => void openArticle(selected, "wayback")}
+                    >
+                      尝试 Wayback Machine
+                    </Button>
+                    {archiveUrls && (
+                      <a
+                        href={archiveUrls.archiveToday}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-border bg-background hover:bg-accent text-foreground"
+                      >
+                        外部 Archive 打开 <ExternalLink className="size-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+              {isPaywallDetected && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/30 p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-medium text-sm">
+                    <ShieldAlert className="size-4 shrink-0" />
+                    <span>检测到该文章可能存在付费墙或全文截断</span>
+                  </div>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    当前内容可能仅包含导语或受限预览。建议尝试切换至 Archive.today 或 Wayback 快照通道重新获取未受限全文：
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 text-xs bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 text-amber-900 dark:text-amber-200"
+                      onClick={() => void openArticle(selected, "archive_today")}
+                    >
+                      切换到 Archive.today 获取全文
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => void openArticle(selected, "wayback")}
+                    >
+                      切换到 Wayback 快照
+                    </Button>
+                    {archiveUrls && (
+                      <a
+                        href={archiveUrls.archiveToday}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-amber-300 dark:border-amber-800 bg-background hover:bg-accent text-foreground"
+                      >
+                        外部快照浏览器查看 <ExternalLink className="size-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+              {articleTruncated && !isPaywallDetected && (
                 <p className="text-xs text-amber-600">文章过长，已截断显示前 30000 字符。</p>
               )}
               {content && (
@@ -792,20 +1049,53 @@ export default function DailyArticle() {
                     </div>
                     {allNewWords.length > 0 && (
                       <div className="space-y-2">
-                        {allNewWords.map((w, i) => (
-                          <button
-                            key={w.word + i}
+                        <div className="flex items-center justify-between px-0.5 text-xs text-muted-foreground">
+                          <span>生词列表 ({allNewWords.length})</span>
+                          <Button
                             type="button"
-                            className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                            onClick={() => handleExplainWord(w.word)}
-                            title={`${w.word} - ${w.pos} ${w.meaning}`}
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
+                            onClick={handleClearAllWords}
                           >
-                            <span className="shrink-0 font-medium">{w.word}</span>
-                            <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
-                              {w.pos} {w.meaning}
-                            </span>
-                          </button>
-                        ))}
+                            清空
+                          </Button>
+                        </div>
+                        <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                          {allNewWords.map((w, i) => (
+                            <div
+                              key={w.word + i}
+                              className="group flex w-full min-w-0 items-center justify-between gap-1.5 rounded-md border px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent/70"
+                            >
+                              <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left focus:outline-none"
+                                onClick={() => handleExplainWord(w.word)}
+                                title={`点击查看讲解: ${w.word} - ${w.pos} ${w.meaning}`}
+                              >
+                                <div className="flex items-baseline gap-1.5 min-w-0 truncate">
+                                  <span className="shrink-0 font-medium text-foreground">{w.word}</span>
+                                </div>
+                                <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
+                                  {w.pos} {w.meaning}
+                                </span>
+                              </button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 shrink-0 opacity-40 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveWord(w.word);
+                                }}
+                                title="删去此生词"
+                              >
+                                <X className="size-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {allNewWords.length > 0 && (

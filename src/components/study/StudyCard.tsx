@@ -172,7 +172,7 @@ function RatingButtons({
               <Button
                 variant={r.grade === 1 ? "destructive" : "outline"}
                 className={cn(
-                  "h-auto min-h-24 w-full min-w-0 flex-col gap-1.5 px-2 py-4 disabled:opacity-60",
+                  "h-auto min-h-[72px] sm:min-h-24 w-full min-w-0 flex-col gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-2.5 sm:py-4 disabled:opacity-60",
                   r.grade === 2 && "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20",
                   r.grade === 3 && "border-green-500/50 bg-green-500/10 text-green-600 hover:bg-green-500/20",
                   r.grade === 4 && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
@@ -237,7 +237,7 @@ function WordBlock({ word, phonetic }: { word: string; phonetic?: string }) {
     <div className="flex flex-col items-center gap-1">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center justify-items-center gap-1">
         <span />
-        <span className="text-4xl font-bold break-words">{word}</span>
+        <span className="text-3xl sm:text-4xl font-bold break-words text-center">{word}</span>
         <Button
           variant="ghost"
           size="icon"

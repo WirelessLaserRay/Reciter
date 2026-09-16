@@ -75,6 +75,7 @@ import {
   markTodayPlanCompleted,
   type TodayOrchestratedPlan,
 } from "@/lib/exam-planner";
+import { parseDayStartHour, getDayEndDate } from "@/lib/day";
 import { autoPushIfConfigured, autoPullIfRemoteNewer } from "@/lib/sync";
 import { cn } from "@/lib/utils";
 
@@ -266,7 +267,11 @@ function StudySession({
           });
           if (active) {
             setEncouragement(text);
-            await markTodayPlanCompleted(text);
+            const decks = useDeckStore.getState().decks;
+            const plan = await getTodayOrchestratedPlan(decks).catch(() => null);
+            if (plan?.isCompleted) {
+              await markTodayPlanCompleted(text);
+            }
           }
         } catch {
           // fallback
@@ -1277,23 +1282,23 @@ function DeckPicker({
 
   useEffect(() => {
     if (decks.length === 0) return;
-    const nowIso = new Date().toISOString();
-    Promise.all([
-      getLastStudyContext(),
-      getTodayOrchestratedPlan(decks).catch(() => null),
-      Promise.all(
-        decks.map(async (d) => {
-          const due = await db.getDueCountByDecks([d.id], nowIso).catch(() => 0);
-          return [d.id, due] as const;
-        })
-      ),
-    ])
-      .then(([last, plan, duePairs]) => {
-        setLastStudy(last);
-        setOrchestratedPlan(plan);
-        setDueMap(Object.fromEntries(duePairs));
-      })
-      .catch(() => {});
+    (async () => {
+      const hour = parseDayStartHour(await db.getSetting("day_start"));
+      const dayEndIso = getDayEndDate(hour).toISOString();
+      const [last, plan, duePairs] = await Promise.all([
+        getLastStudyContext(),
+        getTodayOrchestratedPlan(decks).catch(() => null),
+        Promise.all(
+          decks.map(async (d) => {
+            const due = await db.getDueCountByDecks([d.id], dayEndIso).catch(() => 0);
+            return [d.id, due] as const;
+          })
+        ),
+      ]);
+      setLastStudy(last);
+      setOrchestratedPlan(plan);
+      setDueMap(Object.fromEntries(duePairs));
+    })().catch(() => {});
   }, [decks]);
 
   if (decks.length === 0) {

@@ -91,14 +91,14 @@ function WeakRow({
           {retrievability !== null && ` · 可检索度 ${(retrievability * 100).toFixed(0)}%`}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button size="sm" variant="outline" onClick={() => onDelete(weak)}>
+      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+        <Button size="sm" variant="outline" className="h-8 px-2 text-xs text-muted-foreground hover:text-destructive" onClick={() => onDelete(weak)} title="移出弱词本">
           <Trash2 className="size-3.5" />
-          移出
+          <span className="hidden sm:inline ml-1">移出</span>
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onAttack(weak)}>
-          <Sparkles className="size-3.5" />
-          AI 攻克
+        <Button size="sm" variant="outline" className="h-8 px-2.5 text-xs text-primary hover:bg-primary/10" onClick={() => onAttack(weak)}>
+          <Sparkles className="size-3.5 mr-1" />
+          AI攻克
         </Button>
       </div>
     </div>

@@ -137,6 +137,16 @@ export default function Header() {
         <Button
           variant="ghost"
           size="icon"
+          onClick={() => openSearch()}
+          aria-label="全词库搜索"
+          className="sm:hidden size-8 text-muted-foreground hover:text-foreground"
+          title="全词库搜索"
+        >
+          <Search className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={toggleDarkLight}
           aria-label="明暗快捷切换"
           title={theme === "light" ? "切换到暗色主题" : "切换到亮色主题"}

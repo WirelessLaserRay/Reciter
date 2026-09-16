@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { AIClient, getAIConfig } from "@/lib/ai-client";
-import { getDayStartDate, parseDayStartHour, todayKey } from "@/lib/day";
+import { getDayStartDate, getDayEndDate, parseDayStartHour, todayKey } from "@/lib/day";
 import type { Deck } from "@/types";
 
 export interface ExamConfig {
@@ -175,6 +175,7 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const hour = parseDayStartHour(hourRaw);
   const now = new Date();
   const dayStart = getDayStartDate(hour, now);
+  const dayEnd = getDayEndDate(hour, now);
   const dateKey = todayKey(hour, now);
 
   const targetStability = cfg.targetStability ?? 7;
@@ -197,7 +198,7 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     masteryStats,
   ] = await Promise.all([
     db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags),
-    db.getDueCountByDecks(cfg.deckIds, now.toISOString(), cfg.ignoredTags),
+    db.getDueCountByDecks(cfg.deckIds, dayEnd.toISOString(), cfg.ignoredTags),
     db.countMultiDeckNewLearnedToday(cfg.deckIds, dayStart.toISOString(), cfg.ignoredTags),
     db.countMultiDeckReviewsToday(cfg.deckIds, dayStart.toISOString(), cfg.ignoredTags),
     db.getSetting("daily_review_limit"),
@@ -233,17 +234,21 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const targetNew = Math.max(0, Math.min(remainingNew, plannedNew - learnedNewToday));
 
   const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
-  const targetReview = Math.min(dueToday, reviewLimit);
+  const remainingReviewLimit = Math.max(0, reviewLimit - reviewedToday);
+  const targetReview = Math.min(dueToday, remainingReviewLimit);
 
   // 判定今日任务是否已达成：
-  // 1) 显式记录的完成日期等于今日学习日；
-  // 2) 或当前到期复习数为 0，且今日新词指标已达成（或无剩余新词/冲刺期零新词），并且今日已有实际学习产出
+  // 1) 今日到期复习数已清零（今日截止日界前所有到期卡片均已复习完毕），或今日复习量已达到配置的每日上限；
+  // 2) 且今日新词指标已达成（或无剩余新词/冲刺期零新词）；
+  // 3) 且今日确实已有实际学习产出。
+  const isReviewQuotaMet = dueToday === 0 || (reviewLimit > 0 && reviewedToday >= reviewLimit);
+  const isNewQuotaMet = remainingNew === 0 || plannedNew === 0 || learnedNewToday >= plannedNew;
   const isGoalAchieved =
-    dueToday === 0 &&
-    (remainingNew === 0 || plannedNew === 0 || learnedNewToday >= plannedNew) &&
+    isReviewQuotaMet &&
+    isNewQuotaMet &&
     (learnedNewToday > 0 || reviewedToday > 0);
 
-  const isCompleted = completedDate === dateKey || isGoalAchieved;
+  const isCompleted = (completedDate === dateKey && isReviewQuotaMet) || isGoalAchieved;
 
   let encouragement: string | null = null;
   if (isCompleted) {
@@ -601,8 +606,11 @@ export async function generateAIStudyPlan(config: ExamConfig, decks: Deck[]): Pr
       ? "全部词库"
       : selected.map((d) => (d.folder ? `${d.folder}/${d.name}` : d.name)).join("、") || "全部词库";
 
+  const hourRaw = await db.getSetting("day_start");
+  const hour = parseDayStartHour(hourRaw);
+  const dayEnd = getDayEndDate(hour);
   const newCount = await db.getNewCountByDecks(config.deckIds, config.ignoredTags);
-  const dueCount = await db.getDueCountByDecks(config.deckIds, new Date().toISOString(), config.ignoredTags);
+  const dueCount = await db.getDueCountByDecks(config.deckIds, dayEnd.toISOString(), config.ignoredTags);
 
   const cardCounts = await db.getDeckCardCounts();
   const totalCards =
@@ -631,7 +639,7 @@ export async function generateAIStudyPlan(config: ExamConfig, decks: Deck[]): Pr
     `已排除忽略标签：${config.ignoredTags.length > 0 ? config.ignoredTags.join("、") : "无"}`,
     `词库卡片总数：${totalCards}`,
     `未学新卡数：${newCount}`,
-    `当前到期复习卡数：${dueCount}`,
+    `今日到期复习卡数：${dueCount}`,
     `全局每日复习上限：${reviewLimit} 张`,
     `默认每日新卡上限：${defaultNewPerDay} 张`,
     `单轮最大学习量：${maxSessionCards} 张`,
