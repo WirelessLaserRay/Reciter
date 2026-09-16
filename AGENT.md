@@ -15,7 +15,7 @@
 | 技术栈 | Tauri 2 · React 18 · TypeScript · Vite 7 · Tailwind v4 + shadcn/ui · Zustand · React Router 7 · SQLite · ts-fsrs v5 (FSRS-5) · Recharts |
 | 授权 | MIT（© 2026 WirelessLaserRay） |
 
-**当前进度**：Phase 1-5 + 6A/6B/6C + Phase 7（0.16.3）全部完成（含 Easy Days 负载均衡、卡片发音与音标、AI 智能生成、考试日期规划、每日一文、Cloudflare Worker 跨端全量快照同步、释义主次拆分、学习跳过/忽略、后台音标补齐、设置页重构分类等）。后续方向：移动端（Android）适配、更多题型（AI 口语/拼写纠错）、备份加密、FSRS-6 升级预留。
+**当前进度**：Phase 1-5 + 6A/6B/6C + Phase 7（0.16.6）全部完成（含 Easy Days 负载均衡、卡片发音与音标、AI 智能生成、考试日期规划、每日一文多网关穿透与生词队列、Cloudflare Worker 跨端全量快照同步、释义主次拆分、学习跳过/忽略、后台音标补齐、设置页重构分类等）。后续方向：移动端（Android）适配、更多题型（AI 口语/拼写纠错）、备份加密、FSRS-6 升级预留。
 
 ---
 

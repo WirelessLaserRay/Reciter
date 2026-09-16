@@ -19,7 +19,7 @@ export interface BackupData {
   dailyStats: DailyStats[];
 }
 
-export const APP_VERSION = "0.16.4";
+export const APP_VERSION = "0.16.6";
 export const BACKUP_VERSION = 2;
 
 export const SAFETY_BACKUP_KEY = "reciter_safety_backup_data";
