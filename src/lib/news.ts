@@ -200,27 +200,269 @@ export function getArchiveUrls(url: string) {
   };
 }
 
-/** 本地直接请求策略（模拟正常浏览器 / Twitter Referer / Googlebot） */
-async function fetchTauriDirect(url: string): Promise<ArticleResult> {
-  const strategies = [
-    {
-      name: "twitter",
+/** 深度查找对象中的文章长文本或段落块数组 */
+function findContentInObject(obj: any, depth = 0): string | null {
+  if (!obj || depth > 5) return null;
+  if (typeof obj === "string" && obj.length >= 400 && !obj.startsWith("http") && !obj.startsWith("data:")) {
+    try {
+      const tempDoc = new DOMParser().parseFromString(obj, "text/html");
+      const extracted = tempDoc.body?.textContent?.trim();
+      if (extracted && extracted.length >= 350) return extracted;
+    } catch {
+      return obj;
+    }
+  }
+  if (Array.isArray(obj)) {
+    const joined = obj
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item?.text) return item.text;
+        if (item?.value) return item.value;
+        if (item?.children && Array.isArray(item.children)) {
+          return item.children.map((c: any) => c.text || "").join("");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+    if (joined.length >= 400) return joined;
+
+    for (const item of obj) {
+      const found = findContentInObject(item, depth + 1);
+      if (found) return found;
+    }
+  } else if (typeof obj === "object") {
+    const priorityKeys = ["articleBody", "content", "contentHtml", "body", "story", "html", "articleText"];
+    for (const key of priorityKeys) {
+      if (key in obj) {
+        const found = findContentInObject(obj[key], depth + 1);
+        if (found) return found;
+      }
+    }
+    for (const key of Object.keys(obj)) {
+      if (priorityKeys.includes(key)) continue;
+      const found = findContentInObject(obj[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * 借鉴 BPC (Bypass Paywalls Clean) 核心技术：从页面结构化数据（JSON-LD / Next.js __NEXT_DATA__）提取未被付费墙截断的全文
+ */
+function extractStructuredContent(doc: Document, url: string): { title?: string; paragraphs: string[] } | null {
+  // 1. JSON-LD (application/ld+json)
+  const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of jsonLdScripts) {
+    try {
+      const rawText = script.textContent?.trim();
+      if (!rawText) continue;
+      const data = JSON.parse(rawText);
+      const items = Array.isArray(data)
+        ? data
+        : data?.["@graph"]
+        ? (Array.isArray(data["@graph"]) ? data["@graph"] : [data["@graph"]])
+        : [data];
+
+      for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const body =
+          typeof item.articleBody === "string"
+            ? item.articleBody
+            : typeof item.text === "string" && item["@type"] && /article|post|news/i.test(String(item["@type"]))
+            ? item.text
+            : null;
+
+        if (body && body.trim().length >= 350) {
+          let cleanText = body;
+          if (cleanText.includes("<") && cleanText.includes(">")) {
+            try {
+              const tempDoc = new DOMParser().parseFromString(cleanText, "text/html");
+              cleanText = tempDoc.body?.textContent?.trim() ?? cleanText;
+            } catch {}
+          }
+          const rawParagraphs = cleanText
+            .split(/\r?\n\r?\n|\r?\n/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length >= 10);
+          const cleaned = cleanParagraphs(rawParagraphs, url);
+          if (cleaned.length >= 2 && cleaned.join(" ").length >= 350) {
+            return {
+              title: typeof item.headline === "string" ? item.headline : undefined,
+              paragraphs: cleaned,
+            };
+          }
+        }
+      }
+    } catch {
+      // 忽略格式不规范的 JSON-LD
+    }
+  }
+
+  // 2. Next.js Hydration 数据 (script#__NEXT_DATA__)
+  const nextDataScript = doc.querySelector('script#__NEXT_DATA__');
+  if (nextDataScript && nextDataScript.textContent) {
+    try {
+      const nextJson = JSON.parse(nextDataScript.textContent);
+      const pageProps = nextJson?.props?.pageProps;
+      if (pageProps) {
+        const candidateText = findContentInObject(pageProps);
+        if (candidateText && candidateText.length >= 350) {
+          const rawParagraphs = candidateText
+            .split(/\r?\n\r?\n|\r?\n/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length >= 10);
+          const cleaned = cleanParagraphs(rawParagraphs, url);
+          if (cleaned.length >= 2) {
+            return {
+              paragraphs: cleaned,
+            };
+          }
+        }
+      }
+    } catch {
+      // 忽略 Next.js 数据解析错误
+    }
+  }
+
+  return null;
+}
+
+/** 探测并抓取 AMP 版本（解决大量支持 Google 移动极速收录的媒体付费墙） */
+async function fetchAmpArticle(originUrl: string, ampUrl: string): Promise<ArticleResult | null> {
+  try {
+    const fullAmpUrl = new URL(ampUrl, originUrl).href;
+    const res = await tauriFetch(fullAmpUrl, {
+      method: "GET",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": "https://t.co/",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    const structured = extractStructuredContent(doc, originUrl);
+    if (structured) {
+      const text = structured.paragraphs.join(" ");
+      if (!isPaywallOrTruncated(text, structured.paragraphs.length)) {
+        return {
+          title: structured.title || doc.title || "",
+          paragraphs: truncateParagraphs(structured.paragraphs),
+          wordCount: text.split(/\s+/).filter(Boolean).length,
+          isFullArticle: true,
+          channel: "direct",
+          channelLabel: "直连抓取 (AMP镜像-结构化)",
+          isPaywallDetected: false,
+        };
+      }
+    }
+
+    doc.querySelectorAll("amp-access-hide, [amp-access-hide], amp-subscriptions-hide, [amp-subscriptions-hide]").forEach((el) => {
+      el.removeAttribute("amp-access-hide");
+      el.removeAttribute("amp-subscriptions-hide");
+    });
+    doc.querySelectorAll("script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el) => el.remove());
+
+    const article = new Readability(doc).parse();
+    if (!article) return null;
+
+    const textContent = article.textContent?.trim() ?? "";
+    const contentDoc = parser.parseFromString(article.content, "text/html");
+    const paragraphs = cleanParagraphs(extractParagraphsFromHtml(contentDoc), originUrl);
+    const isPaywall = isPaywallOrTruncated(textContent, paragraphs.length);
+
+    if (isPaywall) return null;
+
+    return {
+      title: article.title ?? "",
+      paragraphs: truncateParagraphs(paragraphs),
+      wordCount: textContent.split(/\s+/).filter(Boolean).length,
+      isFullArticle: true,
+      channel: "direct",
+      channelLabel: "直连抓取 (AMP镜像)",
+      isPaywallDetected: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 清除已知的遮罩层类名，防止 Readability 被付费墙提示遮罩误导 */
+function cleanPaywallDOMElements(doc: Document) {
+  const paywallSelectors = [
+    ".paywall",
+    "#paywall",
+    "[id*='paywall']",
+    "[class*='paywall']",
+    "[id*='subscriber-gate']",
+    "[class*='subscriber-gate']",
+    "[class*='subscription-barrier']",
+    "[class*='meter-modal']",
+    ".tp-modal",
+    ".tp-backdrop",
+    "#piano-root",
+    ".zephr-overlay",
+    ".fc-ab-root",
+    "#gateway-content",
+    ".ad-container",
+    ".advertisement",
+    "aside",
+  ];
+  doc.querySelectorAll(paywallSelectors.join(", ")).forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    if (tag !== "article" && tag !== "main" && tag !== "body") {
+      el.remove();
+    }
+  });
+
+  doc.querySelectorAll("[style*='blur'], [style*='hidden'], [style*='none']").forEach((el) => {
+    const s = el.getAttribute("style") || "";
+    if (s.includes("blur") || s.includes("filter")) {
+      el.setAttribute("style", s.replace(/filter\s*:[^;]+;?/gi, ""));
+    }
+  });
+}
+
+/** 本地直接请求策略（融合 BPC 最佳实践：Google 搜索导流、Google-InspectionTool、移动端社交 UA） */
+async function fetchTauriDirect(url: string): Promise<ArticleResult> {
+  const strategies: { name: string; headers: Record<string, string> }[] = [
+    {
+      name: "google_search",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "Referer": "https://www.google.com/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
       },
     },
     {
-      name: "googlebot",
+      name: "google_inspection",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "User-Agent": "Mozilla/5.0 (compatible; Google-InspectionTool/1.0)",
         "Referer": "https://www.google.com/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    },
+    {
+      name: "social_mobile",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
+        "Referer": "https://t.co/",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     },
   ];
 
+  let lastCandidate: ArticleResult | null = null;
   let lastError: Error | null = null;
 
   for (const strategy of strategies) {
@@ -239,6 +481,35 @@ async function fetchTauriDirect(url: string): Promise<ArticleResult> {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
 
+      // 1. 结构化数据提取（JSON-LD / Next.js __NEXT_DATA__）- 在删除 script 前探测！
+      const structured = extractStructuredContent(doc, url);
+      if (structured) {
+        const textContent = structured.paragraphs.join(" ");
+        const isPaywall = isPaywallOrTruncated(textContent, structured.paragraphs.length);
+        if (!isPaywall) {
+          return {
+            title: structured.title || doc.title || "",
+            paragraphs: truncateParagraphs(structured.paragraphs),
+            wordCount: textContent.split(/\s+/).filter(Boolean).length,
+            isFullArticle: true,
+            channel: "direct",
+            channelLabel: "直连抓取 (结构化数据)",
+            isPaywallDetected: false,
+          };
+        }
+      }
+
+      // 2. AMP 探针
+      const ampLink = doc.querySelector('link[rel="amphtml"]')?.getAttribute("href");
+      if (ampLink) {
+        const ampResult = await fetchAmpArticle(url, ampLink);
+        if (ampResult && ampResult.isFullArticle) {
+          return ampResult;
+        }
+      }
+
+      // 3. DOM 净化与 Readability 提取
+      cleanPaywallDOMElements(doc);
       doc.querySelectorAll("script, style, noscript, nav, form, iframe, .ad, .ads, .advertisement").forEach((el) => el.remove());
 
       const article = new Readability(doc).parse();
@@ -248,26 +519,34 @@ async function fetchTauriDirect(url: string): Promise<ArticleResult> {
       const contentDoc = parser.parseFromString(article.content, "text/html");
       const paragraphs = cleanParagraphs(extractParagraphsFromHtml(contentDoc), url);
       const isPaywall = isPaywallOrTruncated(textContent, paragraphs.length);
-      const isFullArticle = !isPaywall;
 
-      if (isPaywall && strategy.name === "twitter") {
-        throw new Error("Paywall detected, trying next strategy");
+      if (!isPaywall) {
+        return {
+          title: article.title ?? "",
+          paragraphs: truncateParagraphs(paragraphs),
+          wordCount: textContent.split(/\s+/).filter(Boolean).length,
+          isFullArticle: true,
+          channel: "direct",
+          channelLabel: "直连抓取",
+          isPaywallDetected: false,
+        };
       }
 
-      return {
+      lastCandidate = {
         title: article.title ?? "",
         paragraphs: truncateParagraphs(paragraphs),
         wordCount: textContent.split(/\s+/).filter(Boolean).length,
-        isFullArticle,
+        isFullArticle: false,
         channel: "direct",
-        channelLabel: "直连抓取",
-        isPaywallDetected: isPaywall,
+        channelLabel: "直连抓取 (疑似受限)",
+        isPaywallDetected: true,
       };
     } catch (e) {
       lastError = e as Error;
     }
   }
 
+  if (lastCandidate) return lastCandidate;
   throw lastError ?? new Error("直连抓取失败");
 }
 

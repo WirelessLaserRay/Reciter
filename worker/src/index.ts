@@ -455,8 +455,52 @@ function cleanParagraphs(paragraphs: string[], guardian = false): string[] {
     });
 }
 
-/** 通用提取：JSON-LD articleBody / article 内段落 */
+/** 深度查找对象中的文章长文本或段落块数组 */
+function findContentInObjectWorker(obj: any, depth = 0): string | null {
+  if (!obj || depth > 5) return null;
+  if (typeof obj === "string" && obj.length >= 400 && !obj.startsWith("http") && !obj.startsWith("data:")) {
+    const clean = stripTags(decodeXmlEntities(obj)).trim();
+    if (clean.length >= 350) return clean;
+  }
+  if (Array.isArray(obj)) {
+    const joined = obj
+      .map((item) => {
+        if (typeof item === "string") return stripTags(decodeXmlEntities(item)).trim();
+        if (item?.text) return item.text;
+        if (item?.value) return item.value;
+        if (item?.children && Array.isArray(item.children)) {
+          return item.children.map((c: any) => c.text || "").join("");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+    if (joined.length >= 400) return joined;
+
+    for (const item of obj) {
+      const found = findContentInObjectWorker(item, depth + 1);
+      if (found) return found;
+    }
+  } else if (typeof obj === "object") {
+    const priorityKeys = ["articleBody", "content", "contentHtml", "body", "story", "html", "articleText"];
+    for (const key of priorityKeys) {
+      if (key in obj) {
+        const found = findContentInObjectWorker(obj[key], depth + 1);
+        if (found) return found;
+      }
+    }
+    for (const key of Object.keys(obj)) {
+      if (priorityKeys.includes(key)) continue;
+      const found = findContentInObjectWorker(obj[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** 通用提取：JSON-LD articleBody / Next.js __NEXT_DATA__ / article 标签 */
 function extractJsonLdArticle(html: string): string | null {
+  // 1. JSON-LD (application/ld+json)
   const jsonLdBlocks = [
     ...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
   ];
@@ -465,14 +509,37 @@ function extractJsonLdArticle(html: string): string | null {
       const data = JSON.parse(decodeXmlEntities(m[1]));
       const candidates = Array.isArray(data) ? data : (data?.["@graph"] ?? [data]);
       for (const item of candidates) {
-        if (typeof item?.articleBody === "string" && item.articleBody.trim().length > 200) {
-          return item.articleBody.trim();
+        const body =
+          typeof item?.articleBody === "string"
+            ? item.articleBody
+            : typeof item?.text === "string" && item["@type"] && /article|post|news/i.test(String(item["@type"]))
+            ? item.text
+            : null;
+        if (body && body.trim().length > 300) {
+          return stripTags(decodeXmlEntities(body)).trim();
         }
       }
     } catch {
       // ignore
     }
   }
+
+  // 2. Next.js __NEXT_DATA__
+  const nextDataBlocks = [
+    ...html.matchAll(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/gi),
+  ];
+  for (const m of nextDataBlocks) {
+    try {
+      const nextJson = JSON.parse(m[1]);
+      const pageProps = nextJson?.props?.pageProps;
+      if (pageProps) {
+        const found = findContentInObjectWorker(pageProps);
+        if (found && found.length >= 350) return found;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback to article selector
   const { document } = parseHTML(html);
   const container =
     document.querySelector("article") ??
@@ -601,6 +668,30 @@ async function fetchArticleDirect(
   // ④ 正文太短 → paywall / truncated 判断（条件收紧，避免把片段当全文）
   const isFullArticle = textContent.length >= 500 && isFullEnough(paragraphs);
   if (!isFullArticle) {
+    // 借鉴 BPC：若 Readability 仅抓到付费墙片段，优先尝试从结构化数据（JSON-LD / Next.js）提取未截断正文
+    const structuredText = extractJsonLdArticle(html);
+    if (structuredText && structuredText.trim().length >= 400 && structuredText.length > textContent.length) {
+      const structuredParagraphs = truncateParagraphs(
+        cleanParagraphs(
+          structuredText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
+          guardian
+        ),
+        maxLength
+      );
+      if (structuredParagraphs.length >= 2) {
+        debug.reason = "Paywall bypassed via JSON-LD / Next.js structured data";
+        console.log("[Fallback] Structured data OK", url);
+        return {
+          title: article.title ?? "",
+          paragraphs: structuredParagraphs,
+          wordCount: structuredText.split(/\s+/).filter(Boolean).length,
+          isFullArticle: isFullEnough(structuredParagraphs),
+          isPaywallDetected: false,
+          debug,
+        };
+      }
+    }
+
     debug.paywallDetected = detectPaywall(html, textContent);
     debug.reason = debug.paywallDetected
       ? "Paywall/truncated detected"
