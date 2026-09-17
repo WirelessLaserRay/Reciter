@@ -132,15 +132,48 @@ export async function translateArticle(content: string, engine?: ArticleTranslat
   const clean = content.trim();
   if (!clean) return "";
 
-  // 1. DeepL 翻译
+  // 1. DeepL 翻译（按段落分批，每批 ≤4000 字符，避免超出 DeepL 单次请求字符限制）
   if (activeEngine === "deepl") {
     const key = await getDeepLApiKey();
     if (!key) {
       throw new Error("未配置 DeepL API Key，请前往「设置 → AI与翻译」填写，或切换为 AI 翻译");
     }
-    const result = await translateWithDeepL(clean.slice(0, 30000));
-    if (result) return result;
-    throw new Error("DeepL 全文翻译请求未返回结果，请检查 API Key 或网络连通性");
+    const BATCH_LIMIT = 4000;
+    const paragraphs = clean.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    const batches: string[][] = [];
+    let currentBatch: string[] = [];
+    let currentLen = 0;
+    for (const p of paragraphs) {
+      if (currentLen + p.length > BATCH_LIMIT && currentBatch.length > 0) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentLen = 0;
+      }
+      // 单个段落超出限制时独立成批，截断到限制内
+      if (p.length > BATCH_LIMIT) {
+        if (currentBatch.length > 0) {
+          batches.push(currentBatch);
+          currentBatch = [];
+          currentLen = 0;
+        }
+        batches.push([p.slice(0, BATCH_LIMIT)]);
+      } else {
+        currentBatch.push(p);
+        currentLen += p.length + 2; // +2 for paragraph separator
+      }
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch);
+
+    const translatedParas: string[] = [];
+    for (const batch of batches) {
+      const batchText = batch.join("\n\n");
+      const result = await translateWithDeepL(batchText);
+      if (!result) {
+        throw new Error("DeepL 全文翻译请求未返回结果，请检查 API Key 或网络连通性");
+      }
+      translatedParas.push(result);
+    }
+    return translatedParas.join("\n\n");
   }
 
   // 2. 公共接口兜底（按段落分批翻译）
