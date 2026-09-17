@@ -182,7 +182,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const easyFactor = getEasyDaysFactor(now, easyConfig);
       const adjustedLimit = Math.round(reviewLimit * easyFactor);
       const dueLimit = Math.max(0, adjustedLimit - todayReviewed);
-      const due = dueLimit > 0 ? await db.getDueCards(deckId, dayEnd.toISOString(), tag, keyOnly, dueLimit, ignoredTags) : [];
+      const dueFetchLimit = dueLimit > 0 ? dueLimit + 50 : 0;
+      const rawDue = dueFetchLimit > 0 ? await db.getDueCards(deckId, dayEnd.toISOString(), tag, keyOnly, dueFetchLimit, ignoredTags) : [];
+      const due = rawDue.filter((row) => !isTagIgnored(row.tags, ignoredTags)).slice(0, dueLimit);
 
       // 2. 新卡配额（配额按词库全局计，标签仅过滤选取范围；extraNewCards 支持加学突破）
       // 新导入词库若配额为 0，按默认 20 张安排，避免“持续不安排学习”
@@ -190,7 +192,9 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const learnedToday = await db.countNewLearnedToday(deckId, dayStart.toISOString());
       const baseNewLimit = Math.max(0, effectiveNewPerDay - learnedToday);
       const newLimit = baseNewLimit + Math.max(0, extraNewCards);
-      const fresh = newLimit > 0 ? await db.getNewCards(deckId, newLimit, tag, keyOnly, ignoredTags) : [];
+      const newFetchLimit = newLimit > 0 ? newLimit + 50 : 0;
+      const rawFresh = newFetchLimit > 0 ? await db.getNewCards(deckId, newFetchLimit, tag, keyOnly, ignoredTags) : [];
+      const fresh = rawFresh.filter((row) => !isTagIgnored(row.tags, ignoredTags)).slice(0, newLimit);
 
       // 3. 队列编排：新卡按比例交错穿插到复习卡中（P0-①，默认每 5 张复习卡插 1 张新卡）
       const interleaveRatio = await getInterleaveRatio();
@@ -200,9 +204,6 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       if (await getDeckShuffle(deckId)) {
         ordered = shuffleRows(ordered);
       }
-
-      // 4.1 正则/模糊忽略标签过滤
-      ordered = ordered.filter((row) => !isTagIgnored(row.tags, ignoredTags));
 
       // 5. 单轮上限：防止队列无限增长
       ordered = ordered.slice(0, maxSessionCards);
@@ -247,26 +248,31 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       const dayStartHour = parseDayStartHour(await db.getSetting("day_start"));
       const dayEnd = getDayEndDate(dayStartHour, now);
 
-      // 1. 到期卡片（多词库/排除指定标签）：囊括今日截止日界（dayEnd）前所有到期卡片，而不仅是当前此刻（now）
-      const due =
-        targetReview > 0
-          ? await db.getMultiDeckDueCards(deckIds, dayEnd.toISOString(), targetReview, ignoredTags)
+      // 1. 到期卡片（多词库/排除指定标签）：带缓冲拉取并通过 JS 标签过滤后精准截取目标量
+      const reviewFetchLimit = targetReview > 0 ? targetReview + 50 : 0;
+      const rawDue =
+        reviewFetchLimit > 0
+          ? await db.getMultiDeckDueCards(deckIds, dayEnd.toISOString(), reviewFetchLimit, ignoredTags)
           : [];
+      const due = rawDue
+        .filter((row) => !isTagIgnored(row.tags, ignoredTags))
+        .slice(0, targetReview);
 
-      // 2. 新卡配额（多词库/排除指定标签）
-      const fresh =
-        targetNew > 0
-          ? await db.getMultiDeckNewCards(deckIds, targetNew, ignoredTags)
+      // 2. 新卡配额（多词库/排除指定标签）：带缓冲拉取并通过 JS 标签过滤后精准截取目标量（保证 50 词完整排入）
+      const newFetchLimit = targetNew > 0 ? targetNew + 50 : 0;
+      const rawFresh =
+        newFetchLimit > 0
+          ? await db.getMultiDeckNewCards(deckIds, newFetchLimit, ignoredTags)
           : [];
+      const fresh = rawFresh
+        .filter((row) => !isTagIgnored(row.tags, ignoredTags))
+        .slice(0, targetNew);
 
       // 3. 队列交错
       const interleaveRatio = await getInterleaveRatio();
       let ordered = interleaveQueue(due, fresh, interleaveRatio);
 
-      // 4. 正则/模糊忽略标签过滤安全兜底
-      ordered = ordered.filter((row) => !isTagIgnored(row.tags, ignoredTags));
-
-      // 5. 单轮上限截断
+      // 4. 单轮上限截断
       ordered = ordered.slice(0, maxSessionCards);
 
       const queue: QueueItem[] = ordered.map((row) => ({ row, shownAt: Date.now() }));

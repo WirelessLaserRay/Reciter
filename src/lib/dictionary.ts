@@ -145,11 +145,31 @@ export async function getDeepLApiKey(): Promise<string> {
 
 export async function getDeepLApiUrl(): Promise<string> {
   const raw = await db.getSetting("deepl_api_url");
-  return raw?.trim() || "https://api-free.deepl.com/v2/translate";
+  if (raw?.trim()) return raw.trim();
+  const key = await getDeepLApiKey();
+  if (key && !key.endsWith(":fx")) {
+    return "https://api.deepl.com/v2/translate";
+  }
+  return "https://api-free.deepl.com/v2/translate";
 }
 
 export async function getDeepLCorsProxy(): Promise<string> {
-  return (await db.getSetting("deepl_cors_proxy"))?.trim() ?? "";
+  let raw = (await db.getSetting("deepl_cors_proxy"))?.trim() ?? "";
+  if (!raw) {
+    const sync = (await db.getSetting("sync_endpoint"))?.trim();
+    if (sync) {
+      raw = sync.replace(/\/api\/sync.*$/, "").replace(/\/+$/, "") + "/translate";
+    }
+  }
+  if (raw) {
+    if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+      raw = `https://${raw}`;
+    }
+    if (raw.includes("/api/sync")) {
+      raw = raw.replace(/\/api\/sync.*$/, "/translate");
+    }
+  }
+  return raw;
 }
 
 /** DeepL 翻译（en → zh-CN）；Tauri 直连 DeepL，Web 走 Worker 代理 */
@@ -183,7 +203,8 @@ export async function translateWithDeepL(text: string): Promise<string> {
       });
     }
     if (!res.ok) {
-      console.warn("DeepL 翻译请求失败 status:", res.status);
+      const errDetail = await res.text().catch(() => "");
+      console.warn(`DeepL 翻译请求失败 status: ${res.status}`, errDetail);
       return "";
     }
     const data = (await res.json()) as { translations?: Array<{ text?: string }> };
@@ -196,10 +217,6 @@ export async function translateWithDeepL(text: string): Promise<string> {
 
 /** 测试 DeepL 配置是否可用（供设置页诊断） */
 export async function testDeepL(): Promise<{ ok: boolean; message: string }> {
-  const provider = await getTranslationProvider();
-  if (provider !== "deepl") {
-    return { ok: false, message: "当前例句翻译接口未选择 DeepL" };
-  }
   const key = await getDeepLApiKey();
   if (!key) {
     return { ok: false, message: "未填写 DeepL API Key" };

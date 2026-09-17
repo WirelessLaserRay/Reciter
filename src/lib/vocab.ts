@@ -1,7 +1,8 @@
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { splitMeaningText, isPhrase, removePosPrefix } from "./meaning";
-import { normalizeWordForPhonetic, httpFetch, translateText, getDeepLApiKey, translateWithDeepL } from "@/lib/dictionary";
+import { normalizeWordForPhonetic, httpFetch, translateText, getDeepLApiKey, getDeepLCorsProxy, translateWithDeepL } from "@/lib/dictionary";
+import { isTauri } from "@/lib/env";
 
 export type VocabStandard = "CET4" | "CET6" | "考研" | "专业英语";
 
@@ -126,53 +127,100 @@ export async function saveArticleTranslateEngine(engine: ArticleTranslateEngine)
   await db.setSetting("article_translate_engine", engine);
 }
 
+/** 单个段落 DeepL 翻译，若段落超出 1500 字符安全阈值则按句拆分翻译后合并 */
+async function translateSingleParagraphWithDeepL(paragraph: string): Promise<string> {
+  const p = paragraph.trim();
+  if (!p) return "";
+  if (p.length <= 1500) {
+    return await translateWithDeepL(p);
+  }
+  // 极少数超长段落按句子标点拆分
+  const sentences = p.match(/[^.!?\n]+[.!?\n]+|\S+/g) || [p];
+  const chunks: string[] = [];
+  let cur = "";
+  for (const s of sentences) {
+    if (cur.length + s.length > 1200 && cur.length > 0) {
+      chunks.push(cur.trim());
+      cur = "";
+    }
+    cur += (cur ? " " : "") + s;
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+
+  const translatedChunks: string[] = [];
+  for (const chunk of chunks) {
+    const res = await translateWithDeepL(chunk);
+    translatedChunks.push(res || chunk);
+  }
+  return translatedChunks.join("");
+}
+
 /** 全文翻译成中文（支持 AI / DeepL / 公共接口兜底） */
 export async function translateArticle(content: string, engine?: ArticleTranslateEngine): Promise<string> {
   const activeEngine = engine ?? (await getArticleTranslateEngine());
   const clean = content.trim();
   if (!clean) return "";
 
-  // 1. DeepL 翻译（按段落分批，每批 ≤4000 字符，避免超出 DeepL 单次请求字符限制）
+  // 1. DeepL 翻译（按自然段落一段一段翻译，然后再整合结果）
   if (activeEngine === "deepl") {
     const key = await getDeepLApiKey();
     if (!key) {
       throw new Error("未配置 DeepL API Key，请前往「设置 → AI与翻译」填写，或切换为 AI 翻译");
     }
-    const BATCH_LIMIT = 4000;
-    const paragraphs = clean.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-    const batches: string[][] = [];
-    let currentBatch: string[] = [];
-    let currentLen = 0;
-    for (const p of paragraphs) {
-      if (currentLen + p.length > BATCH_LIMIT && currentBatch.length > 0) {
-        batches.push(currentBatch);
-        currentBatch = [];
-        currentLen = 0;
-      }
-      // 单个段落超出限制时独立成批，截断到限制内
-      if (p.length > BATCH_LIMIT) {
-        if (currentBatch.length > 0) {
-          batches.push(currentBatch);
-          currentBatch = [];
-          currentLen = 0;
-        }
-        batches.push([p.slice(0, BATCH_LIMIT)]);
-      } else {
-        currentBatch.push(p);
-        currentLen += p.length + 2; // +2 for paragraph separator
+    if (!isTauri()) {
+      const proxy = await getDeepLCorsProxy();
+      if (!proxy) {
+        throw new Error("网页端/PWA 尚未配置 DeepL CORS 代理地址，请前往「设置 → AI与翻译」配置代理，或切换为 AI 翻译");
       }
     }
-    if (currentBatch.length > 0) batches.push(currentBatch);
 
-    const translatedParas: string[] = [];
-    for (const batch of batches) {
-      const batchText = batch.join("\n\n");
-      const result = await translateWithDeepL(batchText);
-      if (!result) {
-        throw new Error("DeepL 全文翻译请求未返回结果，请检查 API Key 或网络连通性");
-      }
-      translatedParas.push(result);
+    // 将文章正文按双换行（段落）切分
+    const paragraphs = clean
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (paragraphs.length === 0) return "";
+
+    const translatedParas: string[] = new Array(paragraphs.length);
+    let successCount = 0;
+    let lastError = "";
+
+    // 逐段翻译，并发控制（每批 3 个段落），兼顾响应速度与 API 频控
+    const CONCURRENCY = 3;
+    for (let i = 0; i < paragraphs.length; i += CONCURRENCY) {
+      const slice = paragraphs.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        slice.map(async (p, offset) => {
+          const idx = i + offset;
+          try {
+            const res = await translateSingleParagraphWithDeepL(p);
+            if (res && res.trim()) {
+              translatedParas[idx] = res.trim();
+              successCount++;
+            } else {
+              // DeepL 单段若未能返回，尝试公共接口兜底，确保段落内容不丢失
+              const fallback = await translateText(p).catch(() => "");
+              translatedParas[idx] = fallback || p;
+            }
+          } catch (err) {
+            lastError = String(err);
+            const fallback = await translateText(p).catch(() => "");
+            translatedParas[idx] = fallback || p;
+          }
+        })
+      );
     }
+
+    // 校验：若 DeepL 翻译完全无响应且所有段落未产生有效翻译
+    const hasAnyTranslation = translatedParas.some((t, idx) => t !== paragraphs[idx]);
+    if (successCount === 0 && !hasAnyTranslation) {
+      throw new Error(
+        lastError || "DeepL 分段翻译请求未返回结果，请检查 API Key、CORS 代理或网络连通性"
+      );
+    }
+
+    // 整合所有段落翻译结果
     return translatedParas.join("\n\n");
   }
 

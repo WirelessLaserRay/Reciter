@@ -733,7 +733,7 @@ function StudySession({
                 </div>
                 <div className="rounded-lg bg-muted/50 p-2.5">
                   <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                    {stats.reviewed}
+                    {Math.max(0, stats.reviewed - stats.newDone)}
                   </div>
                   <div className="text-[11px] text-muted-foreground">复习巩固词汇</div>
                 </div>
@@ -786,7 +786,7 @@ function StudySession({
             <CardDescription className="max-w-md">
               {done > 0 ? (
                 <>
-                  复习 {stats.reviewed} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张
+                  复习 {Math.max(0, stats.reviewed - stats.newDone)} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张
                   {stats.hard > 0 ? ` · 模糊 ${stats.hard} 张` : ""}
                 </>
               ) : (
@@ -903,7 +903,7 @@ function StudySession({
           )}
         </div>
         <div className="text-xs text-muted-foreground shrink-0 font-medium">
-          {done} / {total}
+          {Math.min(total, index + 1)} / {total}
         </div>
       </div>
 
@@ -911,7 +911,7 @@ function StudySession({
       <div className="h-1 sm:h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full bg-primary transition-all duration-300"
-          style={{ width: total > 0 ? ((index / total) * 100).toFixed(1) + "%" : "0%" }}
+          style={{ width: total > 0 ? (((index + 1) / total) * 100).toFixed(1) + "%" : "0%" }}
         />
       </div>
 

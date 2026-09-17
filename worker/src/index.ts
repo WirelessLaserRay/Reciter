@@ -167,16 +167,21 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
   if (!text || !Array.isArray(text) || text.length === 0) {
     return json({ error: "Missing text" }, 400, cors);
   }
-  if (text.length > 20) {
-    return json({ error: "Too many text entries (max 20)" }, 400, cors);
+  if (text.length > 50) {
+    return json({ error: "Too many text entries (max 50)" }, 400, cors);
   }
-  if (text.some((t) => typeof t !== "string" || t.length > 2000)) {
-    return json({ error: "Text entry too long (max 2000 chars)" }, 400, cors);
+  if (text.some((t) => typeof t !== "string" || t.length > 5000)) {
+    return json({ error: "Text entry too long (max 5000 chars)" }, 400, cors);
   }
+
+  // 根据 Key 特征自适应选择 Free / Pro API 终端
+  const deeplEndpoint = auth_key.endsWith(":fx")
+    ? "https://api-free.deepl.com/v2/translate"
+    : "https://api.deepl.com/v2/translate";
 
   const deeplBody = JSON.stringify({ text, target_lang: target_lang || "ZH-HANS" });
   try {
-    const deeplRes = await fetch(DEEPL_API, {
+    const deeplRes = await fetch(deeplEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -397,7 +402,7 @@ function extractParagraphsFromHtml(html: string): string[] {
   const blocks: string[] = [];
   document
     .querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre")
-    .forEach((el) => {
+    .forEach((el: any) => {
       const text = decodeXmlEntities(stripTags(el.textContent ?? "")).trim();
       if (text.length >= 2) blocks.push(text);
     });
@@ -555,10 +560,10 @@ async function fetchArticleDirect(
     .querySelectorAll(
       "script, style, noscript, nav, form, iframe, .ad, .ads, .advertisement"
     )
-    .forEach((el) => el.remove());
+    .forEach((el: any) => el.remove());
 
   // ② 200 → Readability
-  let article = new Readability(document as unknown as Document).parse();
+  let article = new Readability(document as any).parse();
   debug.readabilityOk = !!article;
   const guardian = isGuardianUrl(url);
 
@@ -704,9 +709,9 @@ async function fetchArticleFromArchiveToday(
       }
 
       const { document } = parseHTML(html);
-      document.querySelectorAll("#HEADER, #banner, #CONTENT-HEADER, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el) => el.remove());
+      document.querySelectorAll("#HEADER, #banner, #CONTENT-HEADER, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el: any) => el.remove());
 
-      const article = new Readability(document as unknown as Document).parse();
+      const article = new Readability(document as any).parse();
       if (!article) throw new Error("Archive.today Readability failed");
 
       const textContent = article.textContent?.trim() ?? "";
@@ -762,9 +767,9 @@ async function fetchArticleFromWayback(
   if (!pageRes.ok) throw new Error("Wayback fetch HTTP " + pageRes.status);
   const html = await pageRes.text();
   const { document } = parseHTML(html);
-  document.querySelectorAll("#wm-ipp-base, #wm-ipp, #wm-ipp-inside, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el) => el.remove());
+  document.querySelectorAll("#wm-ipp-base, #wm-ipp, #wm-ipp-inside, script, style, noscript, nav, form, iframe, .ad, .ads").forEach((el: any) => el.remove());
 
-  const article = new Readability(document as unknown as Document).parse();
+  const article = new Readability(document as any).parse();
   if (!article) throw new Error("Wayback Readability failed");
 
   const textContent = article.textContent?.trim() ?? "";
@@ -1024,7 +1029,8 @@ export default {
     }
 
     // DeepL 只允许明确的路径，避免把任意请求都当翻译代理
-    if (url.pathname === "/" || url.pathname === "/api/deepl" || url.pathname === "/translate") {
+    const cleanPath = url.pathname.replace(/\/+$/, "") || "/";
+    if (cleanPath === "/" || cleanPath === "/api/deepl" || cleanPath === "/translate") {
       return handleDeepL(request, cors);
     }
 
