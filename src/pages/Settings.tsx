@@ -977,28 +977,28 @@ export default function Settings() {
 
       <Tabs defaultValue="general" className="space-y-6">
         <div className="w-full overflow-x-auto pb-1">
-          <TabsList className="inline-flex h-auto w-full min-w-[560px] sm:min-w-0 justify-start sm:justify-center gap-1.5 p-1 bg-muted/60">
-            <TabsTrigger value="general" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+          <TabsList className="inline-flex h-auto w-max min-w-full justify-start sm:justify-center gap-1.5 p-1 bg-muted/60">
+            <TabsTrigger value="general" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <Palette className="size-4" />
               <span>外观与通用</span>
             </TabsTrigger>
-            <TabsTrigger value="learning" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+            <TabsTrigger value="learning" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <Brain className="size-4" />
               <span>学习与记忆</span>
             </TabsTrigger>
-            <TabsTrigger value="exam" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+            <TabsTrigger value="exam" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <CalendarClock className="size-4" />
               <span>备考规划</span>
             </TabsTrigger>
-            <TabsTrigger value="ai" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+            <TabsTrigger value="ai" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <Sparkles className="size-4" />
               <span>AI与翻译</span>
             </TabsTrigger>
-            <TabsTrigger value="reading" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+            <TabsTrigger value="reading" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <Newspaper className="size-4" />
               <span>阅读与订阅</span>
             </TabsTrigger>
-            <TabsTrigger value="data" className="flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
+            <TabsTrigger value="data" className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs sm:text-sm">
               <Database className="size-4" />
               <span>数据与同步</span>
             </TabsTrigger>
