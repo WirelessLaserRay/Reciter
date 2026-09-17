@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   BookOpen,
   ExternalLink,
+  Eye,
+  EyeOff,
   Loader2,
   Newspaper,
   RefreshCw,
@@ -136,6 +138,11 @@ function saveFavorites(list: FavoriteArticle[]) {
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
 }
 
+type TranslationMode = "off" | "all" | "hover";
+
+// 文章全文翻译会话级缓存（内存级 Map，以文章链接/标识为 key，在应用会话期间常驻）
+const translationSessionCache = new Map<string, string>();
+
 export default function DailyArticle() {
   const [source, setSource] = useState("cgtn");
   const [topic, setTopic] = useState("");
@@ -179,6 +186,43 @@ export default function DailyArticle() {
   const [showQuizAnswers, setShowQuizAnswers] = useState(false);
   const [translation, setTranslation] = useState("");
   const [translating, setTranslating] = useState(false);
+  const [translationMode, setTranslationMode] = useState<TranslationMode>("off");
+  // 记录光标当前悬停的段落索引
+  const [hoveredParagraph, setHoveredParagraph] = useState<number | null>(null);
+  // 点击控制覆盖（key: 段落索引, value: boolean 是否强制显示/隐藏）
+  // 点击的显示控制优先级高于光标悬停
+  const [clickOverrides, setClickOverrides] = useState<Map<number, boolean>>(new Map());
+
+  const handleParagraphClick = (idx: number) => {
+    setClickOverrides((prev) => {
+      const next = new Map(prev);
+      const override = prev.get(idx);
+      // 若有点击覆盖则按点击覆盖，否则按当前是否被光标悬停
+      const isCurrentlyVisible = override !== undefined ? override : hoveredParagraph === idx;
+      // 切换显示状态：若当前已显示则转为隐藏(false)，若当前隐藏则转为显示(true)
+      next.set(idx, !isCurrentlyVisible);
+      return next;
+    });
+  };
+
+  const handleParagraphMouseEnter = (idx: number) => {
+    setHoveredParagraph(idx);
+  };
+
+  const handleParagraphMouseLeave = (idx: number) => {
+    setHoveredParagraph((curr) => (curr === idx ? null : curr));
+    // 光标移开时：若该段落曾因点击被强制设为隐藏(false)，移开后重置以便下次移入能重新触发
+    // 若被点击设为显示(true)，则保留 true（点击常显优先级高于光标移开）
+    setClickOverrides((prev) => {
+      if (prev.get(idx) === false) {
+        const next = new Map(prev);
+        next.delete(idx);
+        return next;
+      }
+      return prev;
+    });
+  };
+
   const [translateEngine, setTranslateEngine] = useState<ArticleTranslateEngine>("ai");
   const [workerOk, setWorkerOk] = useState(false);
   const [aiOk, setAiOk] = useState(false);
@@ -249,6 +293,9 @@ export default function DailyArticle() {
     setWordError("");
     setImportMsg("");
     setTranslation("");
+    setTranslationMode("off");
+    setClickOverrides(new Map());
+    setHoveredParagraph(null);
   };
 
   const openArticle = async (item: NewsItem, channel: ArticleChannel = "auto") => {
@@ -267,7 +314,19 @@ export default function DailyArticle() {
     setImportMsg("");
     setSidebarTab("words");
     setSelectedOptions([]);
-    setTranslation("");
+    setClickOverrides(new Map());
+    setHoveredParagraph(null);
+
+    // 会话级缓存检查
+    const cached = translationSessionCache.get(item.link);
+    if (cached) {
+      setTranslation(cached);
+      setTranslationMode("all");
+    } else {
+      setTranslation("");
+      setTranslationMode("off");
+    }
+
     setArticleLoading(true);
     try {
       const res = await fetchArticleContent(item.link, channel);
@@ -475,13 +534,29 @@ export default function DailyArticle() {
     await saveArticleTranslateEngine(eng);
   };
 
-  const handleTranslateArticle = async () => {
+  const handleTranslateArticle = async (forceRefresh = false) => {
     if (!content) return;
+    const cacheKey = selected?.link || content.slice(0, 100);
+
+    // 非强制刷新且命中会话级缓存
+    if (!forceRefresh && translationSessionCache.has(cacheKey)) {
+      const cached = translationSessionCache.get(cacheKey)!;
+      setTranslation(cached);
+      setTranslationMode("all");
+      setClickOverrides(new Map());
+      setHoveredParagraph(null);
+      return;
+    }
+
     setTranslating(true);
     setWordError("");
     try {
       const t = await translateArticle(content, translateEngine);
       setTranslation(t);
+      translationSessionCache.set(cacheKey, t);
+      setTranslationMode("all");
+      setClickOverrides(new Map());
+      setHoveredParagraph(null);
     } catch (e) {
       setWordError(String(e));
     } finally {
@@ -897,22 +972,72 @@ export default function DailyArticle() {
               )}
               {content && (
                 <div className="space-y-4">
-                  {translation ? (() => {
+                  {translationMode !== "off" && translation ? (() => {
                     const en = content.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
                     const zh = translation.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
                     const len = Math.max(en.length, zh.length);
                     return (
                       <div className="space-y-4">
-                        {Array.from({ length: len }, (_, i) => (
-                          <div key={i} className="grid min-w-0 gap-2 border-b pb-3 lg:grid-cols-2">
-                            <div className="min-w-0 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90">
-                              {en[i] || ""}
+                        {Array.from({ length: len }, (_, i) => {
+                          const override = clickOverrides.get(i);
+                          // 点击的显示控制优先级高于光标悬停
+                          const isVisible = override !== undefined ? override : hoveredParagraph === i;
+                          const isPinned = override === true;
+
+                          return (
+                            <div key={i} className="grid min-w-0 gap-3 border-b pb-3 lg:grid-cols-2">
+                              {/* 英文原文 */}
+                              <div className="min-w-0 p-2 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90 select-text">
+                                {en[i] || ""}
+                              </div>
+
+                              {/* 译文 */}
+                              {translationMode === "all" ? (
+                                <div className="min-w-0 p-2 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90 select-text">
+                                  {zh[i] || ""}
+                                </div>
+                              ) : (
+                                <div
+                                  onClick={() => handleParagraphClick(i)}
+                                  onMouseEnter={() => handleParagraphMouseEnter(i)}
+                                  onMouseLeave={() => handleParagraphMouseLeave(i)}
+                                  className={cn(
+                                    "group relative min-w-0 h-full rounded-md p-2 transition-all cursor-pointer select-text border border-dashed",
+                                    isPinned
+                                      ? "bg-muted/50 border-primary/40 shadow-2xs"
+                                      : isVisible
+                                        ? "bg-muted/30 border-border/80"
+                                        : "border-border/60 hover:border-primary/50 hover:bg-muted/20"
+                                  )}
+                                  title={isVisible ? "点击隐藏此段译文" : "点击固定显示译文，或悬停直接查看"}
+                                >
+                                  {/* 隐藏时的提示胶囊（未显示时展示） */}
+                                  <div
+                                    className={cn(
+                                      "absolute inset-0 flex items-center justify-center p-2 transition-opacity duration-150 pointer-events-none",
+                                      isVisible ? "opacity-0" : "opacity-100"
+                                    )}
+                                  >
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-background/90 text-muted-foreground border shadow-2xs">
+                                      <Eye className="size-3.5 text-muted-foreground/70" />
+                                      悬停或点击查看译文
+                                    </span>
+                                  </div>
+
+                                  {/* 译文文本 */}
+                                  <div
+                                    className={cn(
+                                      "whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90 transition-opacity duration-150",
+                                      isVisible ? "opacity-100" : "opacity-0"
+                                    )}
+                                  >
+                                    {zh[i] || ""}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="min-w-0 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground/90">
-                              {zh[i] || ""}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })() : (
@@ -920,17 +1045,84 @@ export default function DailyArticle() {
                       {content}
                     </div>
                   )}
+
                   <div className="border-t pt-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleTranslateArticle}
-                        disabled={translating}
-                      >
-                        {translating ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Sparkles className="size-3.5 mr-1.5" />}
-                        {translating ? "正在翻译…" : translation ? "重新翻译" : "全文翻译"}
-                      </Button>
+                      {!translation ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleTranslateArticle(false)}
+                          disabled={translating}
+                        >
+                          {translating ? (
+                            <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                          ) : (
+                            <Sparkles className="size-3.5 mr-1.5" />
+                          )}
+                          {translating ? "正在翻译…" : "全文翻译"}
+                        </Button>
+                      ) : (
+                        <>
+                          <div className="inline-flex rounded-lg border bg-muted/30 p-0.5 text-xs shadow-2xs">
+                            <Button
+                              variant={translationMode === "all" ? "default" : "ghost"}
+                              size="sm"
+                              className="h-7 px-2.5 text-xs rounded-md"
+                              onClick={() => {
+                                setTranslationMode("all");
+                                setClickOverrides(new Map());
+                                setHoveredParagraph(null);
+                              }}
+                            >
+                              <Eye className="size-3.5 mr-1" />
+                              显示全部译文
+                            </Button>
+                            <Button
+                              variant={translationMode === "hover" ? "default" : "ghost"}
+                              size="sm"
+                              className="h-7 px-2.5 text-xs rounded-md"
+                              onClick={() => {
+                                setTranslationMode("hover");
+                                setClickOverrides(new Map());
+                                setHoveredParagraph(null);
+                              }}
+                            >
+                              <EyeOff className="size-3.5 mr-1" />
+                              隐藏译文
+                            </Button>
+                            <Button
+                              variant={translationMode === "off" ? "default" : "ghost"}
+                              size="sm"
+                              className="h-7 px-2.5 text-xs rounded-md"
+                              onClick={() => {
+                                setTranslationMode("off");
+                                setClickOverrides(new Map());
+                                setHoveredParagraph(null);
+                              }}
+                            >
+                              <BookOpen className="size-3.5 mr-1" />
+                              显示原文
+                            </Button>
+                          </div>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => void handleTranslateArticle(true)}
+                            disabled={translating}
+                            title="强制重新调用引擎翻译全文并更新缓存"
+                          >
+                            {translating ? (
+                              <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                            ) : (
+                              <RefreshCw className="size-3.5 mr-1.5" />
+                            )}
+                            {translating ? "正在重新翻译…" : "重新翻译"}
+                          </Button>
+                        </>
+                      )}
 
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span className="shrink-0">翻译引擎：</span>
@@ -961,23 +1153,21 @@ export default function DailyArticle() {
                           </SelectContent>
                         </Select>
                       </div>
-
-                      {translation && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => setTranslation("")}
-                        >
-                          隐藏译文
-                        </Button>
-                      )}
                     </div>
 
                     {translation && (
-                      <span className="text-[11px] text-muted-foreground">
-                        当前引擎：{translateEngine === "deepl" ? "DeepL 专业翻译" : translateEngine === "fallback" ? "公共接口" : "AI 大模型"}
-                      </span>
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span>
+                          当前引擎：
+                          {translateEngine === "deepl"
+                            ? "DeepL 专业翻译"
+                            : translateEngine === "fallback"
+                              ? "公共接口"
+                              : "AI 大模型"}
+                        </span>
+                        <span className="text-muted-foreground/40">|</span>
+                        <span>已缓存</span>
+                      </div>
                     )}
                   </div>
                 </div>
