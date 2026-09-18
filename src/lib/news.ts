@@ -431,6 +431,20 @@ function cleanPaywallDOMElements(doc: Document) {
 async function fetchTauriDirect(url: string): Promise<ArticleResult> {
   const strategies: { name: string; headers: Record<string, string> }[] = [
     {
+      // 策略一：伪装 Googlebot（cloaking 高命中，绝大多数付费墙媒体对 Googlebot 开放全文）
+      name: "googlebot",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        // Googlebot 不带 Referer，带了反而暴露是伪造
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        // 伪造 Google 爬虫 IP（部分服务端检查 X-Forwarded-For）
+        "X-Forwarded-For": "66.249.66.1",
+        "From": "googlebot(at)googlebot.com",
+      },
+    },
+    {
+      // 策略二：模拟用户从 Google 搜索点击进入（First Click Free 政策）
       name: "google_search",
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -444,15 +458,7 @@ async function fetchTauriDirect(url: string): Promise<ArticleResult> {
       },
     },
     {
-      name: "google_inspection",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Google-InspectionTool/1.0)",
-        "Referer": "https://www.google.com/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    },
-    {
+      // 策略三：模拟 Twitter/X 社交平台导流（部分媒体对社交导流开放全文）
       name: "social_mobile",
       headers: {
         "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
@@ -703,51 +709,56 @@ async function fetchTauriArticleContent(url: string, channel: ArticleChannel = "
   // 自动优化通道级联：Direct -> Jina -> Archive.today -> Wayback
   let candidateResult: ArticleResult | null = null;
   let lastError: Error | null = null;
+  let directPaywallDetected = false;
 
-  // 1. 直连尝试
+  // 1. 直连尝试（Googlebot cloaking 为主策略）
   try {
     const res = await fetchTauriDirect(url);
     if (res.isFullArticle && !res.isPaywallDetected) {
       return res;
     }
     candidateResult = res;
+    // 记录：服务端直接返回了付费墙截断内容（Jina 拿到的也是同样截断的，跳过 Jina）
+    directPaywallDetected = !!res.isPaywallDetected;
   } catch (e) {
     lastError = e as Error;
   }
 
-  // 2. Jina Reader 尝试
-  try {
-    const res = await fetchTauriJina(url);
-    if (res.isFullArticle && !res.isPaywallDetected) {
-      return res;
+  // 2. Jina Reader：仅在 Direct 完全失败（异常）时尝试，服务端截断内容 Jina 也绕不过
+  if (!directPaywallDetected) {
+    try {
+      const res = await fetchTauriJina(url);
+      if (res.isFullArticle && !res.isPaywallDetected) {
+        return res;
+      }
+      if (!candidateResult || res.paragraphs.length > candidateResult.paragraphs.length) {
+        candidateResult = res;
+      }
+    } catch (e) {
+      lastError = e as Error;
     }
-    if (!candidateResult || (res.paragraphs.length > candidateResult.paragraphs.length)) {
-      candidateResult = res;
-    }
-  } catch (e) {
-    lastError = e as Error;
   }
 
-  // 3. Archive.today 快照尝试
+  // 3. Archive.today 快照：快照抓取的是付费墙出现前存档的版本
   try {
     const res = await fetchTauriArchiveToday(url);
     if (res.isFullArticle && !res.isPaywallDetected) {
       return res;
     }
-    if (!candidateResult || (res.paragraphs.length > candidateResult.paragraphs.length)) {
+    if (!candidateResult || res.paragraphs.length > candidateResult.paragraphs.length) {
       candidateResult = res;
     }
   } catch (e) {
     lastError = e as Error;
   }
 
-  // 4. Wayback Machine 历史快照尝试
+  // 4. Wayback Machine 历史快照
   try {
     const res = await fetchTauriWayback(url);
     if (res.isFullArticle && !res.isPaywallDetected) {
       return res;
     }
-    if (!candidateResult || (res.paragraphs.length > candidateResult.paragraphs.length)) {
+    if (!candidateResult || res.paragraphs.length > candidateResult.paragraphs.length) {
       candidateResult = res;
     }
   } catch (e) {

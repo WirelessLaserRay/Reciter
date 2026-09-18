@@ -36,7 +36,7 @@ import { db } from "@/lib/db";
 import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
-import { generateCardsFromText } from "@/lib/ai-generate";
+import { generateCardsFromText, type AIMode } from "@/lib/ai-generate";
 import { useTaskStore } from "@/stores/useTaskStore";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +77,10 @@ export default function Import() {
   const [dragOver, setDragOver] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [manualFormat, setManualFormat] = useState<ImportFormat | "auto">("auto");
+  const [delimiterType, setDelimiterType] = useState<string>("auto");
+  const [customDelimiter, setCustomDelimiter] = useState<string>("");
   const [manualText, setManualText] = useState("");
+  const [aiMode, setAiMode] = useState<AIMode>("study_material");
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -97,6 +100,20 @@ export default function Import() {
   const [importProgress, setImportProgress] = useState({ phase: "" as "" | "phonetic" | "db", done: 0, total: 0 });
   const [autoPhonetic, setAutoPhonetic] = useState(false);
   const [backgroundPhonetic, setBackgroundPhonetic] = useState(false);
+
+  /** 获取有效的分隔符 */
+  const getEffectiveDelimiter = (): string | undefined => {
+    if (delimiterType === "auto") return undefined;
+    if (delimiterType === "tab") return "\t";
+    if (delimiterType === "comma") return ",";
+    if (delimiterType === "pipe") return "|";
+    if (delimiterType === "dash") return " - ";
+    if (delimiterType === "colon") return ":";
+    if (delimiterType === "semicolon") return ";";
+    if (delimiterType === "space") return " ";
+    if (delimiterType === "custom") return customDelimiter || undefined;
+    return undefined;
+  };
 
   /** 解析结果 → 冲突检测（DB 匹配）→ 预览 */
   const handleParsed = async (name: string, parsed: ImportFileResult) => {
@@ -173,23 +190,26 @@ export default function Import() {
 
   /** 解析文件文本 → 预览 */
   const handleText = async (name: string, text: string) => {
-    await handleParsed(name, parseImportFile(name, text));
+    const effDelim = getEffectiveDelimiter();
+    await handleParsed(name, parseImportFile(name, text, effDelim));
   };
 
   /** 手动输入文本 → 预览 */
   const handleManualText = async () => {
     if (!manualText.trim()) return;
-    await handleParsed("手动输入", parseTextInput(manualText, manualFormat));
+    const effDelim = getEffectiveDelimiter();
+    await handleParsed("手动输入", parseTextInput(manualText, manualFormat, effDelim));
   };
 
-  /** AI 从文章/笔记生成闪卡 → 预览 */
+  /** AI 识别与生成（支持学习资料解析与语料生成闪卡）→ 预览 */
   const handleAIGenerate = async () => {
     if (!aiText.trim()) return;
     setAiBusy(true);
     setAiError(null);
     try {
-      const json = await generateCardsFromText(aiText);
-      await handleParsed("AI 生成", parseTextInput(json, "json"));
+      const json = await generateCardsFromText(aiText, { mode: aiMode });
+      const modeLabel = aiMode === "study_material" ? "AI 资料解析" : "AI 语料闪卡";
+      await handleParsed(modeLabel, parseTextInput(json, "json"));
     } catch (e) {
       setAiError(String(e));
     } finally {
@@ -412,54 +432,136 @@ export default function Import() {
           <Card>
             <CardHeader>
               <CardTitle>手动输入</CardTitle>
-              <CardDescription>粘贴 Markdown / CSV / JSON / TXT 内容，自动识别后预览导入</CardDescription>
+              <CardDescription>粘贴 Markdown / CSV / JSON / TXT 内容，支持自定义分隔符与例句解析</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <Label className="shrink-0">格式</Label>
-                <Select
-                  value={manualFormat}
-                  onValueChange={(v) => setManualFormat(v as ImportFormat | "auto")}
-                >
-                  <SelectTrigger className="w-44">
-                    <SelectValue placeholder="选择解析格式">
-                      {manualFormat === "auto"
-                        ? "自动识别 (推荐)"
-                        : manualFormat === "markdown"
-                          ? "Markdown 格式"
-                          : manualFormat === "csv"
-                            ? "CSV 表格"
-                            : manualFormat === "json"
-                              ? "JSON 数据"
-                              : "TXT 纯文本"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="w-48">
-                    <SelectItem value="auto" className="py-2">
-                      <span className="font-medium text-sm">自动识别</span>
-                      <span className="text-xs text-muted-foreground ml-1.5">(推荐)</span>
-                    </SelectItem>
-                    <SelectItem value="markdown" className="py-2">
-                      <span className="font-medium text-sm">Markdown (.md)</span>
-                    </SelectItem>
-                    <SelectItem value="csv" className="py-2">
-                      <span className="font-medium text-sm">CSV 表格 (.csv)</span>
-                    </SelectItem>
-                    <SelectItem value="json" className="py-2">
-                      <span className="font-medium text-sm">JSON 数据 (.json)</span>
-                    </SelectItem>
-                    <SelectItem value="txt" className="py-2">
-                      <span className="font-medium text-sm">TXT 纯文本 (.txt)</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Label className="shrink-0 text-xs text-muted-foreground">格式</Label>
+                  <Select
+                    value={manualFormat}
+                    onValueChange={(v) => setManualFormat(v as ImportFormat | "auto")}
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue placeholder="选择解析格式">
+                        {manualFormat === "auto"
+                          ? "自动识别 (推荐)"
+                          : manualFormat === "markdown"
+                            ? "Markdown 格式"
+                            : manualFormat === "csv"
+                              ? "CSV 表格"
+                              : manualFormat === "json"
+                                ? "JSON 数据"
+                                : "TXT 纯文本"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="w-44">
+                      <SelectItem value="auto" className="py-2">
+                        <span className="font-medium text-sm">自动识别</span>
+                        <span className="text-xs text-muted-foreground ml-1.5">(推荐)</span>
+                      </SelectItem>
+                      <SelectItem value="markdown" className="py-2">
+                        <span className="font-medium text-sm">Markdown (.md)</span>
+                      </SelectItem>
+                      <SelectItem value="csv" className="py-2">
+                        <span className="font-medium text-sm">CSV 表格 (.csv)</span>
+                      </SelectItem>
+                      <SelectItem value="json" className="py-2">
+                        <span className="font-medium text-sm">JSON 数据 (.json)</span>
+                      </SelectItem>
+                      <SelectItem value="txt" className="py-2">
+                        <span className="font-medium text-sm">TXT 纯文本 (.txt)</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Label className="shrink-0 text-xs text-muted-foreground">分隔符</Label>
+                  <Select
+                    value={delimiterType}
+                    onValueChange={setDelimiterType}
+                  >
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="分隔符">
+                        {delimiterType === "auto"
+                          ? "自动检测"
+                          : delimiterType === "tab"
+                            ? "Tab 制表符 (\\t)"
+                            : delimiterType === "comma"
+                              ? "逗号 (,)"
+                              : delimiterType === "pipe"
+                                ? "竖线 (|)"
+                                : delimiterType === "dash"
+                                  ? "破折号 ( - )"
+                                  : delimiterType === "colon"
+                                    ? "冒号 (:)"
+                                    : delimiterType === "semicolon"
+                                      ? "分号 (;)"
+                                      : delimiterType === "space"
+                                        ? "空格"
+                                        : "自定义..."}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="w-48">
+                      <SelectItem value="auto" className="py-2">
+                        <span className="font-medium text-sm">自动检测</span>
+                        <span className="text-xs text-muted-foreground ml-1.5">(默认)</span>
+                      </SelectItem>
+                      <SelectItem value="tab" className="py-2">
+                        <span className="font-medium text-sm">Tab 制表符 (\t)</span>
+                      </SelectItem>
+                      <SelectItem value="comma" className="py-2">
+                        <span className="font-medium text-sm">逗号 (, / ，)</span>
+                      </SelectItem>
+                      <SelectItem value="pipe" className="py-2">
+                        <span className="font-medium text-sm">竖线 (|)</span>
+                      </SelectItem>
+                      <SelectItem value="dash" className="py-2">
+                        <span className="font-medium text-sm">破折号 ( - )</span>
+                      </SelectItem>
+                      <SelectItem value="colon" className="py-2">
+                        <span className="font-medium text-sm">冒号 (: / ：)</span>
+                      </SelectItem>
+                      <SelectItem value="semicolon" className="py-2">
+                        <span className="font-medium text-sm">分号 (;)</span>
+                      </SelectItem>
+                      <SelectItem value="space" className="py-2">
+                        <span className="font-medium text-sm">空格</span>
+                      </SelectItem>
+                      <SelectItem value="custom" className="py-2">
+                        <span className="font-medium text-sm">自定义分隔符...</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {delimiterType === "custom" && (
+                  <input
+                    type="text"
+                    placeholder="如 ::: 或 ---"
+                    className="h-9 w-32 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={customDelimiter}
+                    onChange={(e) => setCustomDelimiter(e.target.value)}
+                  />
+                )}
+
                 <Button onClick={handleManualText} disabled={!manualText.trim()}>
                   解析预览
                 </Button>
               </div>
+
               <Textarea
                 rows={6}
-                placeholder={"每行一个词条，例如：\nabandon\t放弃\n# 四级词汇\nabandon, 放弃"}
+                placeholder={
+                  delimiterType === "custom" && customDelimiter
+                    ? `每行一个词条（支持第3列写入例句），例如：\nabandon ${customDelimiter} vt. 放弃 ${customDelimiter} He abandoned the plan.\nsubtle ${customDelimiter} adj. 微妙的`
+                    : delimiterType === "comma"
+                      ? "每行一个词条，例如：\nabandon, vt. 放弃, He abandoned the plan.\n# 核心词库\nsubtle, adj. 微妙的"
+                      : delimiterType === "pipe"
+                        ? "每行一个词条，例如：\nabandon | vt. 放弃 | He abandoned the plan.\nsubtle | adj. 微妙的"
+                        : "每行一个词条（支持第3列写例句），例如：\nabandon\tvt. 放弃\tHe abandoned the plan.\n# 四级词汇\nabandon, 放弃"
+                }
                 value={manualText}
                 onChange={(e) => setManualText(e.target.value)}
               />
@@ -468,20 +570,62 @@ export default function Import() {
 
           <Card>
             <CardHeader>
-              <CardTitle>AI 智能生成</CardTitle>
-              <CardDescription>粘贴文章/笔记，AI 自动提取单词并生成闪卡</CardDescription>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="size-4 text-primary" />
+                    {aiMode === "study_material" ? "AI 识别：学习资料解析" : "AI 识别：语料生成闪卡"}
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {aiMode === "study_material"
+                      ? "精准解析学习资料中的单词/短语、词性、词义，并提取原文例句（或补齐例句）完整写入词库"
+                      : "粘贴整篇英文文章或外刊阅读材料，AI 根据词汇水平提炼最具学习价值的生词与短语生成闪卡"}
+                  </CardDescription>
+                </div>
+
+                <div className="inline-flex rounded-lg border bg-muted/50 p-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setAiMode("study_material")}
+                    className={cn(
+                      "rounded-md px-3 py-1 font-medium transition-all",
+                      aiMode === "study_material"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    学习资料解析
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiMode("corpus")}
+                    className={cn(
+                      "rounded-md px-3 py-1 font-medium transition-all",
+                      aiMode === "corpus"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    语料生成闪卡
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               <Textarea
-                rows={6}
-                placeholder="粘贴英文文章或笔记内容…"
+                rows={7}
+                placeholder={
+                  aiMode === "study_material"
+                    ? "粘贴学习资料、生词笔记或教材讲义，例如：\n1. subtle adj. 微妙的，不易察觉的\n   He noticed a subtle change in her attitude. 他注意到她态度的微妙变化。\n2. take into account 考虑到，体谅\n3. reluctant adj. 不情愿的，勉强的"
+                    : "粘贴整篇英文文章、外刊报道或阅读材料段落，AI 将自动筛选提炼生词生成闪卡…"
+                }
                 value={aiText}
                 onChange={(e) => setAiText(e.target.value)}
               />
               {aiError && <p className="text-xs text-red-600">{aiError}</p>}
               <Button onClick={handleAIGenerate} disabled={aiBusy || !aiText.trim()}>
                 {aiBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                生成闪卡并预览
+                {aiMode === "study_material" ? "解析学习资料并生成卡片" : "提炼语料并生成闪卡"}
               </Button>
             </CardContent>
           </Card>
@@ -618,8 +762,9 @@ export default function Import() {
                     <tr className="text-left text-xs text-muted-foreground">
                       <th className="w-8 px-2 py-2"></th>
                       <th className="px-2 py-2">词库</th>
-                      <th className="px-2 py-2">单词</th>
+                      <th className="px-2 py-2">单词/短语</th>
                       <th className="px-2 py-2">释义</th>
+                      <th className="px-2 py-2">例句</th>
                       <th className="px-2 py-2">标签</th>
                       <th className="px-2 py-2">状态</th>
                     </tr>
@@ -651,6 +796,9 @@ export default function Import() {
                         </td>
                         <td className="max-w-56 truncate px-2 py-1.5 text-muted-foreground" title={r.back}>
                           {r.back}
+                        </td>
+                        <td className="max-w-52 truncate px-2 py-1.5 text-xs text-muted-foreground" title={r.markdown || "无例句"}>
+                          {r.markdown ? r.markdown.split(/\r?\n/)[0] : <span className="text-muted-foreground/40">-</span>}
                         </td>
                         <td className="px-2 py-1.5">
                           {r.tags.length > 0 ? (

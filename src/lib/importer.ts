@@ -165,14 +165,27 @@ export function parseJSON(content: string): ParseResult {
   return { bookTitle: "", cards, warnings, duplicates };
 }
 
-/** 解析 TXT：每行一个词条，支持 Tab/竖线/逗号/破折号分隔；# 开头为词库名 */
-export function parseTXT(content: string, defaultDeck = "手动导入"): ParseResult {
+/** 解析 TXT：每行一个词条；支持自定义分隔符或自动探测 Tab/竖线/逗号/破折号/冒号；支持多列例句写入；# 开头为词库名 */
+export function parseTXT(
+  content: string,
+  defaultDeck = "手动导入",
+  customDelimiter?: string
+): ParseResult {
   const cards: ParsedCard[] = [];
   const warnings: string[] = [];
   const duplicates: string[] = [];
   const seen = new Set<string>();
   let deckName = defaultDeck;
   const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
+
+  // 规范化自定义分隔符（支持用户输入 \t 转义）
+  const normalizedDelimiter =
+    customDelimiter !== undefined && customDelimiter !== ""
+      ? customDelimiter === "\\t"
+        ? "\t"
+        : customDelimiter
+      : undefined;
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -181,37 +194,96 @@ export function parseTXT(content: string, defaultDeck = "手动导入"): ParseRe
       if (name) deckName = name;
       continue;
     }
-    const tab = line.indexOf("\t");
-    const pipe = line.indexOf("|");
-    const comma = line.search(/[,，]/);
-    const dash = line.search(/\s+[-—–]\s+/);
-    const seps = [tab, pipe, comma, dash].filter((i) => i >= 0);
+
     let front = line;
     let back = "";
-    if (seps.length > 0) {
-      const idx = Math.min(...seps);
-      front = line.slice(0, idx).trim();
-      back = line.slice(idx + 1).replace(/^\s*[-—–|,，]?\s*/, "").trim();
+    let markdown = "";
+
+    if (normalizedDelimiter) {
+      let parts: string[] = [];
+      if (normalizedDelimiter === " " || normalizedDelimiter === "\\s+") {
+        // 空格切分：第一段为单词，后续为释义
+        const firstSpace = line.search(/\s+/);
+        if (firstSpace >= 0) {
+          parts = [line.slice(0, firstSpace), line.slice(firstSpace).trim()];
+        } else {
+          parts = [line];
+        }
+      } else {
+        parts = line.split(normalizedDelimiter);
+      }
+
+      if (parts.length >= 2) {
+        front = parts[0].trim();
+        back = parts[1].trim();
+        // 如果有第 3 栏或更多（例如例句或附加说明），作为 markdown 写入
+        if (parts.length >= 3) {
+          markdown = parts
+            .slice(2)
+            .map((p) => p.trim())
+            .filter(Boolean)
+            .join("\n\n");
+        }
+      } else {
+        front = line;
+        back = line;
+      }
+    } else {
+      // 默认自动探测常见分隔符
+      const tab = line.indexOf("\t");
+      const pipe = line.indexOf("|");
+      const comma = line.search(/[,，]/);
+      const dash = line.search(/\s+[-—–]\s+/);
+      const colon = line.search(/\s*[:：]\s*/);
+      const seps = [tab, pipe, comma, dash, colon].filter((i) => i >= 0);
+      if (seps.length > 0) {
+        const idx = Math.min(...seps);
+        front = line.slice(0, idx).trim();
+        back = line.slice(idx + 1).replace(/^\s*[-—–|,，:：]?\s*/, "").trim();
+      }
     }
+
     if (!front) continue;
     if (!back) back = front;
     const key = deckName + "\u0000" + front;
-    if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
+    if (seen.has(key)) {
+      duplicates.push(`[${deckName}] ${front}`);
+      continue;
+    }
     seen.add(key);
     const meaning = splitMeaningText(back, front);
-    cards.push({ front, back, markdown: "", phonetic: extractPhoneticFromText(front), deckName, folder: "", tags: [], highlights: [], isKey: false, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
+    cards.push({
+      front,
+      back,
+      markdown,
+      phonetic: extractPhoneticFromText(front),
+      deckName,
+      folder: "",
+      tags: [],
+      highlights: [],
+      isKey: false,
+      meaningPrimary: meaning.primary,
+      meaningSecondary: meaning.secondary,
+    });
   }
   return { bookTitle: "", cards, warnings, duplicates };
 }
 
-/** 手动输入解析：按格式解析，auto 时自动识别 */
-export function parseTextInput(content: string, format: ImportFormat | "auto" = "auto"): ImportFileResult {
+/** 手动输入解析：按格式解析，auto 时自动识别，支持自定义分隔符 */
+export function parseTextInput(
+  content: string,
+  format: ImportFormat | "auto" = "auto",
+  customDelimiter?: string
+): ImportFileResult {
   const trimmed = content.trim();
   let fmt: ImportFormat;
   if (format !== "auto") {
     fmt = format;
   } else if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
     fmt = "json";
+  } else if (customDelimiter && customDelimiter.trim()) {
+    // 若用户显式指定了自定义分隔符，优先按 txt 规则解析
+    fmt = "txt";
   } else {
     const nonEmptyLines = trimmed.split(/\r?\n/).filter(Boolean);
     const first = nonEmptyLines[0] ?? "";
@@ -227,12 +299,20 @@ export function parseTextInput(content: string, format: ImportFormat | "auto" = 
     case "markdown":
       return { fileName: "pasted.md", format: "markdown", ...parseMarkdown(content) };
     default:
-      return { fileName: "pasted.txt", format: "txt", ...parseTXT(content) };
+      return {
+        fileName: "pasted.txt",
+        format: "txt",
+        ...parseTXT(content, "手动导入", customDelimiter),
+      };
   }
 }
 
 /** 按文件扩展名自动选择解析器 */
-export function parseImportFile(fileName: string, content: string): ImportFileResult {
+export function parseImportFile(
+  fileName: string,
+  content: string,
+  customDelimiter?: string
+): ImportFileResult {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (ext === "csv") {
     return { fileName, format: "csv", ...parseCSV(content) };
@@ -241,7 +321,11 @@ export function parseImportFile(fileName: string, content: string): ImportFileRe
     return { fileName, format: "json", ...parseJSON(content) };
   }
   if (ext === "txt") {
-    return { fileName, format: "txt", ...parseTXT(content) };
+    return {
+      fileName,
+      format: "txt",
+      ...parseTXT(content, "手动导入", customDelimiter),
+    };
   }
   return { fileName, format: "markdown", ...parseMarkdown(content) };
 }
