@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
+  Compass,
   FileUp,
   Loader2,
   RefreshCw,
@@ -35,7 +36,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { db } from "@/lib/db";
 import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
-import { parseImportFile, parseTextInput, type ImportFileResult, type ImportFormat } from "@/lib/importer";
+import { parseImportFile, parseTextInput, parseApkgFile, type ImportFileResult, type ImportFormat } from "@/lib/importer";
 import { generateCardsFromText, type AIMode } from "@/lib/ai-generate";
 import { useTaskStore } from "@/stores/useTaskStore";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,7 @@ interface PreviewRow {
   back: string;
   phonetic: string;
   markdown: string;
-  sourceType: "markdown" | "csv" | "json" | "manual";
+  sourceType: "markdown" | "csv" | "json" | "manual" | "apkg";
   tags: string[];
   isKey: boolean;
   meaningPrimary: string;
@@ -66,7 +67,7 @@ interface ImportResult {
   decks: number;
 }
 
-const ACCEPT = ".md,.markdown,.csv,.json,.txt";
+const ACCEPT = ".md,.markdown,.csv,.json,.txt,.apkg";
 
 export default function Import() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,8 +222,14 @@ export default function Import() {
   const handleFile = async (file: File) => {
     if (!file) return;
     try {
-      const text = await file.text();
-      await handleText(file.name, text);
+      if (file.name.toLowerCase().endsWith(".apkg")) {
+        const buffer = await file.arrayBuffer();
+        const res = await parseApkgFile(file.name, buffer);
+        await handleParsed(file.name, res);
+      } else {
+        const text = await file.text();
+        await handleText(file.name, text);
+      }
     } catch (e) {
       setStage("idle");
       setWarnings([String(e)]);
@@ -244,12 +251,22 @@ export default function Import() {
         const path = payload.paths?.[0];
         if (path) {
           const name = path.split(/[\\/]/).pop() ?? path;
-          invoke<string>("read_text_file", { path })
-            .then((text) => handleText(name, text))
-            .catch((e) => {
-              setStage("idle");
-              setWarnings([String(e)]);
-            });
+          if (name.toLowerCase().endsWith(".apkg")) {
+            invoke<number[]>("read_binary_file", { path })
+              .then((bytes) => parseApkgFile(name, new Uint8Array(bytes)))
+              .then((res) => handleParsed(name, res))
+              .catch((e) => {
+                setStage("idle");
+                setWarnings([String(e)]);
+              });
+          } else {
+            invoke<string>("read_text_file", { path })
+              .then((text) => handleText(name, text))
+              .catch((e) => {
+                setStage("idle");
+                setWarnings([String(e)]);
+              });
+          }
         }
       }
     }).then((unlisten) => {
@@ -339,7 +356,7 @@ export default function Import() {
           back: r.back,
           phonetic,
           markdown: r.markdown,
-          sourceType: r.sourceType,
+          sourceType: r.sourceType === "apkg" ? "manual" : r.sourceType,
           tags: r.tags,
           isKey: r.isKey ? 1 : 0,
           meaningPrimary: r.meaningPrimary ?? "",
@@ -389,11 +406,19 @@ export default function Import() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">导入词库</h2>
-        <p className="text-sm text-muted-foreground">
-          支持 Markdown / CSV / JSON 批量导入，解析后预览、冲突检测、一键入库
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">导入词库</h2>
+          <p className="text-sm text-muted-foreground">
+            支持 Markdown / CSV / JSON / TXT 以及 Anki (.apkg) 导入，解析后预览、冲突检测、一键入库
+          </p>
+        </div>
+        <Link to="/deck-hub">
+          <Button variant="outline" size="sm" className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
+            <Compass className="size-4" />
+            前往词库广场 (现成词库一键下载)
+          </Button>
+        </Link>
       </div>
 
       {stage === "idle" && (
@@ -415,7 +440,7 @@ export default function Import() {
           >
             <Upload className="size-10 text-muted-foreground" />
             <div className="font-medium">拖拽文件到这里，或点击选择文件</div>
-            <p className="text-sm text-muted-foreground">.md / .csv / .json</p>
+            <p className="text-sm text-muted-foreground">.md / .csv / .json / .txt / .apkg (Anki)</p>
           </div>
           <input
             ref={fileInputRef}

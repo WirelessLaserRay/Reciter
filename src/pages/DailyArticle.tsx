@@ -45,6 +45,7 @@ import {
   type NewsTopic,
   type ArticleChannel,
 } from "@/lib/news";
+import { openExternalLink } from "@/lib/native-ui";
 import {
   generateArticleQuestions,
   recognizeNewWords,
@@ -804,34 +805,46 @@ export default function DailyArticle() {
               </div>
               <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
                 <span>{selected.source} · {selected.pubDate}</span>
-                <a
-                  className="inline-flex items-center gap-1 text-xs underline text-primary hover:opacity-80"
-                  href={selected.link}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs underline text-primary hover:opacity-80 cursor-pointer"
+                  onClick={() =>
+                    openExternalLink(selected.link, {
+                      title: selected.title,
+                      preferMode: "webview",
+                    })
+                  }
                 >
                   原文 <ExternalLink className="size-3" />
-                </a>
+                </button>
                 {archiveUrls && (
                   <>
-                    <a
-                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground"
-                      href={archiveUrls.archiveToday}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground cursor-pointer"
+                      onClick={() =>
+                        openExternalLink(archiveUrls.archiveToday, {
+                          title: `Archive.today - ${selected.title}`,
+                          preferMode: "webview",
+                        })
+                      }
                       title="在 Archive.today 公共快照库中查看"
                     >
                       Archive 快照 <ExternalLink className="size-3" />
-                    </a>
-                    <a
-                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground"
-                      href={archiveUrls.wayback}
-                      target="_blank"
-                      rel="noreferrer"
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs underline text-muted-foreground hover:text-foreground cursor-pointer"
+                      onClick={() =>
+                        openExternalLink(archiveUrls.wayback, {
+                          title: `Wayback Machine - ${selected.title}`,
+                          preferMode: "webview",
+                        })
+                      }
                       title="在 Wayback Machine 历史档案馆中查看"
                     >
                       Wayback 快照 <ExternalLink className="size-3" />
-                    </a>
+                    </button>
                   </>
                 )}
               </CardDescription>
@@ -916,14 +929,18 @@ export default function DailyArticle() {
                       尝试 Wayback Machine
                     </Button>
                     {archiveUrls && (
-                      <a
-                        href={archiveUrls.archiveToday}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-border bg-background hover:bg-accent text-foreground"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openExternalLink(archiveUrls.archiveToday, {
+                            title: `Archive.today - ${selected.title}`,
+                            preferMode: "webview",
+                          })
+                        }
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-border bg-background hover:bg-accent text-foreground cursor-pointer"
                       >
                         外部 Archive 打开 <ExternalLink className="size-3" />
-                      </a>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -955,14 +972,18 @@ export default function DailyArticle() {
                       切换到 Wayback 快照
                     </Button>
                     {archiveUrls && (
-                      <a
-                        href={archiveUrls.archiveToday}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-amber-300 dark:border-amber-800 bg-background hover:bg-accent text-foreground"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openExternalLink(archiveUrls.archiveToday, {
+                            title: `Archive.today - ${selected.title}`,
+                            preferMode: "webview",
+                          })
+                        }
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-amber-300 dark:border-amber-800 bg-background hover:bg-accent text-foreground cursor-pointer"
                       >
-                        外部快照浏览器查看 <ExternalLink className="size-3" />
-                      </a>
+                        外部快照查看 <ExternalLink className="size-3" />
+                      </button>
                     )}
                   </div>
                 </div>

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BookOpen,
   Check,
+  Compass,
   Download,
   Folder,
   Loader2,
@@ -227,6 +228,12 @@ export default function DeckList() {
 
           {activeTab === "decks" && (
             <>
+              <Link to="/deck-hub">
+                <Button variant="outline" size="sm" className="gap-1.5 border-primary/30 text-primary hover:bg-primary/5">
+                  <Compass className="size-4" />
+                  <span>词库广场</span>
+                </Button>
+              </Link>
               {selectedDeckIds.size > 0 && (
                 <Button variant="outline" size="sm" onClick={handleExportDecks} disabled={exportBusy}>
                   {exportBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}

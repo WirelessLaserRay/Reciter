@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronsLeft,
   ChevronsRight,
+  Compass,
   FileUp,
   GraduationCap,
   LayoutDashboard,
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/", label: "今日学习", icon: LayoutDashboard },
   { to: "/decks", label: "词库", icon: BookOpen },
+  { to: "/deck-hub", label: "词库广场", icon: Compass },
   { to: "/study", label: "学习", icon: GraduationCap },
   { to: "/weak-words", label: "弱词本", icon: AlertTriangle },
   { to: "/daily-article", label: "每日一文", icon: Newspaper },

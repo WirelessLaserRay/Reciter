@@ -1,8 +1,9 @@
 import { parseMarkdown, type ParsedCard, type ParseResult } from "./markdown-parser";
 import { extractPhoneticFromText } from "@/lib/phonetic";
 import { splitMeaningText, isPhrase } from "./meaning";
+import { parseAPKG } from "./apkg-parser";
 
-export type ImportFormat = "markdown" | "csv" | "json" | "txt";
+export type ImportFormat = "markdown" | "csv" | "json" | "txt" | "apkg";
 
 export interface ImportFileResult extends ParseResult {
   fileName: string;
@@ -328,4 +329,18 @@ export function parseImportFile(
     };
   }
   return { fileName, format: "markdown", ...parseMarkdown(content) };
+}
+
+/** 解析 Anki .apkg 二进制文件 */
+export async function parseApkgFile(
+  fileName: string,
+  buffer: ArrayBuffer | Uint8Array
+): Promise<ImportFileResult> {
+  const defaultDeck = fileName.replace(/\.apkg$/i, "").trim() || "Anki 导入";
+  const res = await parseAPKG(buffer, defaultDeck);
+  return {
+    fileName,
+    format: "apkg",
+    ...res,
+  };
 }

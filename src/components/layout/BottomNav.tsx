@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Compass,
   FileUp,
   GraduationCap,
   LayoutDashboard,
@@ -32,6 +33,7 @@ const PRIMARY_TABS = [
 ];
 
 const MORE_TABS = [
+  { to: "/deck-hub", label: "词库广场", icon: Compass },
   { to: "/weak-words", label: "弱词本", icon: AlertTriangle },
   { to: "/stats", label: "统计看板", icon: BarChart3 },
   { to: "/import", label: "导入词库", icon: FileUp },

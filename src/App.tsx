@@ -13,6 +13,7 @@ import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
 import WeakWords from "@/pages/WeakWords";
 import DailyArticle from "@/pages/DailyArticle";
+import DeckHub from "@/pages/DeckHub";
 
 function App() {
   const theme = useThemeStore((s) => s.theme);
@@ -39,6 +40,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="/decks" element={<DeckList />} />
           <Route path="/decks/:id" element={<DeckDetail />} />
+          <Route path="/deck-hub" element={<DeckHub />} />
           <Route path="/study" element={<Study />} />
           <Route path="/import" element={<Import />} />
           <Route path="/stats" element={<Stats />} />
