@@ -259,6 +259,41 @@ npx tsx .install/sqljs-test.ts     # sql.js 后端 CRUD / 迁移 / 恢复链路
 
 ---
 
+## 鸣谢与开源参考 (Acknowledgments & References)
+
+Reciter 的诞生与持续演进，离不开开源社区与语言学习领域的众多优秀项目、前沿学术研究以及开放数据贡献者。在此向以下项目、团队与作者致以由衷的敬意与感谢：
+
+### 核心算法与产品理念
+- **[Anki](https://github.com/ankitects/anki)**：现代间隔重复学习与数字化闪卡生态的奠基者。Reciter 吸收了 Anki 的主动回忆卡片理念、牌组管理模式以及 `.apkg` 记忆库生态设计。
+- **[FSRS (Free Spaced Repetition Scheduler)](https://github.com/open-spaced-repetition/fsrs4anki)** 与 **[ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs)**：由 Jarrett Ye 及 Open Spaced Repetition 团队研发的现代神经网络间隔重复算法。相比传统 SM-2 算法大幅降低记忆留存负担，驱动 Reciter 的核心卡片流转与自适应调度引擎。
+- **墨墨背单词 (MaiMemo)**：其严谨的抗遗忘曲线、熟词生义沉浸拆分及词汇复习流交互为 Reciter 提供了诸多优秀的产品体验设计启发。
+
+### 开放词典、语料与数据源
+- **[Qwerty Learner](https://github.com/RealKai42/qwerty-learner)**：开源英语词库打字标杆项目（作者 @RealKai42）。为 Reciter 词库广场提供了权威考研、四六级、专四专八、托福雅思、高考大纲及程序员核心词汇的结构化 JSON 规范与 CDN 镜像支持。
+- **[ECDICT (简明英汉词典)](https://github.com/skywind3000/ECDICT)**：由 Skywind3000 主导维护的 77 万词条大型英汉词典，为词库词形变化、音标规范与柯林斯星级词汇提供了扎实的数据参考。
+- **[AnkiWeb 共享牌组](https://ankiweb.net/shared/decks/)** 与 **[AnkiChina 中文社区](https://www.ankichina.net/)**：全球学习者互助分享的丰富闪卡生态，激发了 Reciter 对轻量 APKG 原生解压与跨平台导入的支持。
+- **[COCA (当代美国英语语料库)](https://www.english-corpora.org/coca/)**：权威现代美语高频词频统计与词汇广度参考基石。
+- **[Free Dictionary API](https://dictionaryapi.dev/)** 与 **有道词典开放建议服务**：为卡片导入后台音标自动补齐、基础释义联想及发音对照提供了高可用的接口支持。
+- **[ZenQuotes API](https://zenquotes.io/)**：驱动应用主页「每日一句」英文名言数据供应。
+
+### 架构基础与开源组件
+- **[Tauri](https://github.com/tauri-apps/tauri)**：跨平台 Rust 桌面端应用框架，赋予 Reciter 极小的包体积与极佳的内存性能。
+- **[sql.js](https://github.com/sql-js/sql.js)**：SQLite WebAssembly 移植版本，使 PWA 网页端能无缝复用桌面端全部 SQLite 关系数据迁移与 SQL 逻辑。
+- **[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss)** 与 **[shadcn/ui](https://github.com/shadcn-ui/ui)**：极简、现代、优雅的原子化样式与无障碍设计系统。
+- **[Radix UI Primitives](https://github.com/radix-ui/primitives)**：无样式、强可访问性的无障碍 UI 交互基石。
+- **[unified](https://github.com/unifiedjs/unified) / [remark](https://github.com/remarkjs/remark)**：标准健壮的 Markdown 抽象语法树（AST）解析生态，实现自由格式笔记批量提炼闪卡。
+- **[Mozilla Readability](https://github.com/mozilla/readability)**：Firefox 阅读模式核心开源库，为「每日一文」新闻正文提取与降噪提供坚实保障。
+- **[fflate](https://github.com/101arrowz/fflate)**：轻量极速的 JavaScript 压缩解压引擎，驱动纯前端零服务端解包 `.apkg` 数据库。
+- **[Zustand](https://github.com/pmndrs/zustand)** 与 **[Recharts](https://github.com/recharts/recharts)**：分别驱动轻量响应式状态流与记忆留存率、复习负荷多维图表渲染。
+- **[Lucide Icons](https://github.com/lucide-icons/lucide)** 与 **[Geist Font](https://github.com/vercel/geist-font)**：现代极简线性图标与排版字体支撑。
+
+### 声明与免责
+- 本项目遵循 [MIT 许可证](LICENSE) 开源。
+- 本项目收录与引用的所有公开词库、大纲数据、外部新闻及 API 接口，其知识产权与最终解释权归各自原作者与机构所有。
+- 本项目所有数据处理逻辑与内置示例均仅供个人语言学习、技术实践与学术交流使用，严禁用于任何商业牟利行为。
+
+---
+
 ## 🤝 贡献
 
 项目处于持续迭代阶段，欢迎参与。改动请遵循：

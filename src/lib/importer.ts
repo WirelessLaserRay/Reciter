@@ -1,6 +1,6 @@
 import { parseMarkdown, type ParsedCard, type ParseResult } from "./markdown-parser";
 import { extractPhoneticFromText } from "@/lib/phonetic";
-import { splitMeaningText, isPhrase } from "./meaning";
+import { splitMeaningText, extractAndNormalizeMeaning } from "./meaning";
 import { parseAPKG } from "./apkg-parser";
 
 export type ImportFormat = "markdown" | "csv" | "json" | "txt" | "apkg";
@@ -114,7 +114,7 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
   return { bookTitle: "", cards, warnings, duplicates };
 }
 
-/** 解析 JSON：数组 [{front|word, back|meaning, deck?, tags?}] */
+/** 解析 JSON：支持标准数组、Qwerty Learner 格式、嵌套 cards/words/items 数组及键值对词典对象 */
 export function parseJSON(content: string): ParseResult {
   const cards: ParsedCard[] = [];
   const warnings: string[] = [];
@@ -126,44 +126,186 @@ export function parseJSON(content: string): ParseResult {
   } catch (e) {
     return { bookTitle: "", cards, warnings: [`JSON 解析失败: ${(e as Error).message}`], duplicates };
   }
-  const arr = Array.isArray(data) ? data : (data as { cards?: unknown[] })?.cards;
-  if (!Array.isArray(arr)) {
-    return { bookTitle: "", cards, warnings: ["JSON 格式应为数组或含 cards 数组的对象"], duplicates };
+
+  let arr: unknown[] | null = null;
+  let defaultDeckFromJson = "";
+  let defaultFolderFromJson = "";
+
+  if (Array.isArray(data)) {
+    arr = data;
+  } else if (typeof data === "object" && data !== null) {
+    const rootObj = data as Record<string, unknown>;
+    if (typeof rootObj.title === "string" || typeof rootObj.name === "string" || typeof rootObj.deck === "string") {
+      defaultDeckFromJson = String(rootObj.title ?? rootObj.name ?? rootObj.deck ?? "").trim();
+    }
+    if (typeof rootObj.folder === "string") {
+      defaultFolderFromJson = String(rootObj.folder).trim();
+    }
+
+    const candidateArrays = [
+      rootObj.cards,
+      rootObj.words,
+      rootObj.items,
+      rootObj.list,
+      rootObj.vocabulary,
+      rootObj.data,
+      rootObj.dict,
+    ];
+    for (const c of candidateArrays) {
+      if (Array.isArray(c)) {
+        arr = c;
+        break;
+      }
+    }
+
+    // 兼顾以单词为 key 的字典对象结构，例如 { "abandon": "vt. 放弃", "ability": "n. 能力" }
+    if (!arr) {
+      const entries = Object.entries(rootObj);
+      if (
+        entries.length > 0 &&
+        entries.every(
+          ([k, v]) =>
+            typeof k === "string" &&
+            k.length > 0 &&
+            (typeof v === "string" || Array.isArray(v) || (typeof v === "object" && v !== null))
+        )
+      ) {
+        arr = entries.map(([k, v]) => {
+          if (typeof v === "string" || Array.isArray(v)) {
+            return { word: k, trans: v };
+          }
+          return { word: k, ...(v as object) };
+        });
+      }
+    }
   }
+
+  if (!Array.isArray(arr)) {
+    return {
+      bookTitle: defaultDeckFromJson,
+      cards,
+      warnings: ["JSON 格式应为数组或含 cards/words/items 列表的对象"],
+      duplicates,
+    };
+  }
+
   for (const item of arr) {
     if (typeof item !== "object" || item === null) continue;
     const obj = item as Record<string, unknown>;
-    const front = String(obj.front ?? obj.word ?? "").trim();
-    const back = String(obj.back ?? obj.meaning ?? "").trim();
-    const pos = String(obj.pos ?? obj.partOfSpeech ?? "").trim();
-    const example = String(obj.example ?? "").trim();
-    const exampleCn = String(obj.example_cn ?? "").trim();
-    const isPhraseWord = isPhrase(front);
-    const finalBack = pos && !isPhraseWord ? `${pos} ${back}` : back;
+
+    // 词目（支持 front, word, name, term, headWord 等常见字段）
+    const front = String(
+      obj.front ??
+        obj.word ??
+        obj.name ??
+        obj.term ??
+        obj.headword ??
+        obj.headWord ??
+        obj.title ??
+        obj.key ??
+        ""
+    ).trim();
+
+    // 释义源数据（支持 trans, translation, definition, back, meaning, explain, explanation 等）
+    const rawMeaning =
+      obj.trans ??
+      obj.translation ??
+      obj.definition ??
+      obj.back ??
+      obj.meaning ??
+      obj.explain ??
+      obj.explanation ??
+      obj.cn ??
+      obj.paraphrase ??
+      obj.translate ??
+      "";
+
+    const explicitPos = String(obj.pos ?? obj.partOfSpeech ?? "").trim();
+
+    // 结构化提取词性与清洗后的释义
+    const { back: finalBack, meaningPrimary, meaningSecondary } =
+      extractAndNormalizeMeaning(front, rawMeaning, explicitPos);
+
+    // 音标提取与规范化
+    let phonetic = String(
+      obj.phonetic ??
+        obj.usphone ??
+        obj.ukphone ??
+        obj.phone ??
+        obj.ipa ??
+        ""
+    ).trim();
+    if (phonetic && !phonetic.startsWith("/") && !phonetic.startsWith("[")) {
+      phonetic = `/${phonetic}/`;
+    }
+    if (!phonetic) {
+      phonetic = extractPhoneticFromText(front);
+    }
+
+    // 例句提取
+    const rawExample =
+      obj.example ??
+      obj.sentence ??
+      (Array.isArray(obj.sentences) ? obj.sentences[0] : "") ??
+      "";
+    const example = typeof rawExample === "string" ? rawExample.trim() : "";
+
+    const rawExampleCn =
+      obj.example_cn ??
+      obj.example_zh ??
+      obj.sentence_cn ??
+      obj.sen_cn ??
+      "";
+    const exampleCn = typeof rawExampleCn === "string" ? rawExampleCn.trim() : "";
+
     const markdown = example ? (exampleCn ? `${example}\n\n${exampleCn}` : example) : exampleCn;
-    const deckName = String(obj.deck ?? obj.deckName ?? "JSON 导入").trim() || "JSON 导入";
-    const folder = String(obj.folder ?? "").trim();
-    const rawTags = obj.tags;
+
+    const deckName =
+      String(obj.deck ?? obj.deckName ?? obj.book ?? (defaultDeckFromJson || "JSON 导入")).trim() ||
+      "JSON 导入";
+    const folder = String(obj.folder ?? defaultFolderFromJson ?? "").trim();
+
+    const rawTags = obj.tags ?? obj.tag;
     const tags = Array.isArray(rawTags)
       ? rawTags.map(String)
       : typeof rawTags === "string"
-        ? rawTags.split(/[;；|]/).map((t) => t.trim()).filter(Boolean)
+        ? rawTags.split(/[;；|,]/).map((t) => t.trim()).filter(Boolean)
         : [];
-    const isKey = /^(1|true|yes|是|true)$/i.test(String(obj.isKey ?? obj.is_key ?? obj.key ?? ""));
-    const phonetic = typeof obj.phonetic === "string" && obj.phonetic.trim()
-      ? obj.phonetic.trim()
-      : extractPhoneticFromText(front);
-    if (!front || !back) {
-      if (front || back) warnings.push(`JSON 条目缺少字段: "${(front || back).slice(0, 60)}"`);
+
+    const isKey = /^(1|true|yes|是|true)$/i.test(
+      String(obj.isKey ?? obj.is_key ?? obj.key ?? obj.important ?? "")
+    );
+
+    if (!front || !finalBack) {
+      if (front || finalBack) {
+        warnings.push(`JSON 条目缺少字段: "${(front || finalBack).slice(0, 60)}"`);
+      }
       continue;
     }
+
     const key = deckName + "\u0000" + front;
-    if (seen.has(key)) { duplicates.push(`[${deckName}] ${front}`); continue; }
+    if (seen.has(key)) {
+      duplicates.push(`[${deckName}] ${front}`);
+      continue;
+    }
     seen.add(key);
-    const meaning = splitMeaningText(finalBack, front);
-    cards.push({ front, back: finalBack, markdown, phonetic, deckName, folder, tags, highlights: [], isKey, meaningPrimary: meaning.primary, meaningSecondary: meaning.secondary });
+
+    cards.push({
+      front,
+      back: finalBack,
+      markdown,
+      phonetic,
+      deckName,
+      folder,
+      tags,
+      highlights: [],
+      isKey,
+      meaningPrimary,
+      meaningSecondary,
+    });
   }
-  return { bookTitle: "", cards, warnings, duplicates };
+
+  return { bookTitle: defaultDeckFromJson, cards, warnings, duplicates };
 }
 
 /** 解析 TXT：每行一个词条；支持自定义分隔符或自动探测 Tab/竖线/逗号/破折号/冒号；支持多列例句写入；# 开头为词库名 */

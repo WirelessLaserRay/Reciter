@@ -506,7 +506,7 @@ export default function DeckHub() {
                       )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {card.pos && (
+                      {card.pos && !card.back.startsWith(card.pos) && (
                         <span className="mr-1.5 font-semibold text-primary">{card.pos}</span>
                       )}
                       {card.back}

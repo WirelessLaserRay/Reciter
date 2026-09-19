@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { extractPhoneticFromText } from "@/lib/phonetic";
-import { splitMeaningText, isPhrase } from "@/lib/meaning";
+import { splitMeaningText, isPhrase, extractAndNormalizeMeaning } from "@/lib/meaning";
 import { parseAPKG } from "@/lib/apkg-parser";
 
 export type HubCategory = "all" | "anki_hub" | "exam" | "study_abroad" | "general" | "major";
@@ -205,7 +205,7 @@ export const HUB_DECKS: HubDeckMeta[] = [
     source: "官方内置",
     builtin: true,
     localPath: "decks/kaoyan_core.json",
-    remoteUrls: makeQwertyUrls("KaoYan_3_T.json"),
+    remoteUrls: makeQwertyUrls("KaoYan_2024.json"),
     sampleWords: [
       {
         front: "advocate",
@@ -246,7 +246,7 @@ export const HUB_DECKS: HubDeckMeta[] = [
     source: "官方内置",
     builtin: true,
     localPath: "decks/cet4_core.json",
-    remoteUrls: makeQwertyUrls("CET4_T.json"),
+    remoteUrls: makeQwertyUrls("xinghuoqiaoji_4.json"),
     sampleWords: [
       {
         front: "abandon",
@@ -419,16 +419,16 @@ export const HUB_DECKS: HubDeckMeta[] = [
   // ==================== 出国与留学 (Study Abroad) ====================
   {
     id: "toefl_core",
-    name: "托福 (TOEFL) 核心重点词汇 (4200+全量词)",
+    name: "托福 (TOEFL) 核心重点词汇 (4000+全量词)",
     category: "study_abroad",
     categoryLabel: "出国留学",
     tags: ["托福", "北美留学", "学科交叉"],
-    wordCount: 4264,
+    wordCount: 4032,
     difficulty: 4,
     description:
-      "涵盖北美托福听力与阅读常考的自然科学、天文学、地质学、社会历史与艺术等核心学科词汇，共 4,264 词。",
+      "涵盖北美托福听力与阅读常考的自然科学、天文学、地质学、社会历史与艺术等核心学科词汇，共 4,032 词。",
     source: "开源社区",
-    remoteUrls: makeQwertyUrls("TOEFL_3_T.json"),
+    remoteUrls: makeQwertyUrls("TOEFL_ZhangHongYan.json"),
     sampleWords: [
       {
         front: "catastrophe",
@@ -455,16 +455,16 @@ export const HUB_DECKS: HubDeckMeta[] = [
   },
   {
     id: "ielts_core",
-    name: "雅思 (IELTS) 核心学术高频词 (3500+全量词)",
+    name: "雅思 (IELTS) 核心学术高频词 (3600+全量词)",
     category: "study_abroad",
     categoryLabel: "出国留学",
     tags: ["雅思", "学术类A类", "听说读写"],
-    wordCount: 3575,
+    wordCount: 3673,
     difficulty: 4,
     description:
       "针对雅思学术类（A类）阅读与大作文精准提炼，包含学术动词、地道逻辑连接短语与图表写作必备词汇。",
     source: "开源社区",
-    remoteUrls: makeQwertyUrls("IELTS_3_T.json"),
+    remoteUrls: makeQwertyUrls("IELTSVocabularyBible.json"),
     sampleWords: [
       {
         front: "coherent",
@@ -495,12 +495,12 @@ export const HUB_DECKS: HubDeckMeta[] = [
     category: "study_abroad",
     categoryLabel: "出国留学",
     tags: ["GRE", "要你命3000", "词汇巅峰"],
-    wordCount: 3040,
+    wordCount: 3041,
     difficulty: 5,
     description:
       "GRE 填空与阅读必备攻坚词库，覆盖学术逻辑、哲学思辨、精准修饰词与经典反义对立意群，冲击 325+ 高分。",
     source: "开源社区",
-    remoteUrls: makeQwertyUrls("GRE3000_3_T.json"),
+    remoteUrls: makeQwertyUrls("ZaiYaoNiMing_GRE3000.json"),
     sampleWords: [
       {
         front: "anomaly",
@@ -785,24 +785,27 @@ export function normalizeRawCards(rawArray: any[]): HubCardSample[] {
   const normalized: HubCardSample[] = [];
   for (const item of rawArray) {
     if (!item || typeof item !== "object") continue;
-    const front = String(item.name || item.word || item.front || "").trim();
+    const front = String(
+      item.name || item.word || item.front || item.term || item.headWord || item.headword || ""
+    ).trim();
     if (!front) continue;
 
-    let back = "";
-    if (Array.isArray(item.trans)) {
-      back = item.trans.join("；");
-    } else if (typeof item.back === "string") {
-      back = item.back;
-    } else if (typeof item.meaning === "string") {
-      back = item.meaning;
-    } else if (typeof item.definition === "string") {
-      back = item.definition;
-    }
-    back = back.trim();
-    if (!back) back = front;
+    const rawMeaning =
+      item.trans ??
+      item.translation ??
+      item.definition ??
+      item.back ??
+      item.meaning ??
+      item.explain ??
+      item.explanation ??
+      "";
+
+    const explicitPos = String(item.pos || item.partOfSpeech || "").trim();
+    const { pos, back } = extractAndNormalizeMeaning(front, rawMeaning, explicitPos);
+    if (!back && !front) continue;
 
     let phonetic = String(
-      item.usphone || item.ukphone || item.phonetic || extractPhoneticFromText(front) || ""
+      item.usphone || item.ukphone || item.phonetic || item.phone || extractPhoneticFromText(front) || ""
     ).trim();
     if (phonetic && !phonetic.startsWith("/") && !phonetic.startsWith("[")) {
       phonetic = `/${phonetic}/`;
@@ -818,7 +821,8 @@ export function normalizeRawCards(rawArray: any[]): HubCardSample[] {
 
     normalized.push({
       front,
-      back,
+      pos: pos || undefined,
+      back: back || front,
       phonetic,
       example,
       example_cn: exampleCn,
@@ -950,7 +954,10 @@ export async function importHubDeck(
   for (let i = 0; i < total; i++) {
     const card = loadedCards[i];
     const isPhraseWord = isPhrase(card.front);
-    const finalBack = card.pos && !isPhraseWord ? `${card.pos} ${card.back}` : card.back;
+    let finalBack = card.back;
+    if (card.pos && !isPhraseWord && !card.back.startsWith(card.pos)) {
+      finalBack = `${card.pos} ${card.back}`;
+    }
     const meaning = splitMeaningText(finalBack, card.front);
     const markdown = card.example
       ? card.example_cn
@@ -1071,7 +1078,10 @@ export async function importFromCustomUrl(
     for (let i = 0; i < total; i++) {
       const card = normalized[i];
       const isPhraseWord = isPhrase(card.front);
-      const finalBack = card.pos && !isPhraseWord ? `${card.pos} ${card.back}` : card.back;
+      let finalBack = card.back;
+      if (card.pos && !isPhraseWord && !card.back.startsWith(card.pos)) {
+        finalBack = `${card.pos} ${card.back}`;
+      }
       const meaning = splitMeaningText(finalBack, card.front);
 
       await db.upsertCard(
