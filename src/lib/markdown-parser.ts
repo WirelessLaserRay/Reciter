@@ -43,7 +43,7 @@ function stripInline(raw: string): string {
   return raw
     .replace(/\*\*/g, "")
     .replace(/\*/g, "")
-    .replace(/\`/g, "")
+    .replace(/`/g, "")
     .replace(/==([^=]+)==/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .trim();

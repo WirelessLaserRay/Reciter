@@ -39,8 +39,8 @@ function isOriginAllowed(origin: string | null): boolean {
 function corsHeaders(origin: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token",
-    "Access-Control-Expose-Headers": "X-Snapshot-Updated-At",
+    "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token, X-Device-Id, X-Expected-Updated-At, X-Force, If-Match",
+    "Access-Control-Expose-Headers": "X-Snapshot-Updated-At, X-Snapshot-Device-Id, Retry-After",
     "Access-Control-Max-Age": "86400",
   };
   if (origin) {
@@ -56,12 +56,50 @@ function json(data: unknown, status = 200, cors: Record<string, string>): Respon
   });
 }
 
-function isAuthorized(request: Request, env: Env): boolean {
-  const token = request.headers.get("X-Sync-Token") ?? "";
-  return !!env.SYNC_TOKEN && token === env.SYNC_TOKEN;
+/** 常量时间字符串比对，防止侧信道时序攻击泄露 SYNC_TOKEN */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
 }
 
-/** 处理 /api/sync/* 的轻量全量快照同步 */
+function isAuthorized(request: Request, env: Env): boolean {
+  const token = request.headers.get("X-Sync-Token") ?? "";
+  const expected = env.SYNC_TOKEN ?? "";
+  if (!expected || !token) return false;
+  return timingSafeEqual(token, expected);
+}
+
+/** 滑动时间窗口简易限流器（实例内存级，防止暴力枚举与泛洪） */
+interface RateLimitBucket {
+  count: number;
+  resetTime: number;
+}
+const rateLimitMap = new Map<string, RateLimitBucket>();
+
+function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = rateLimitMap.get(key);
+  if (!bucket || now > bucket.resetTime) {
+    if (rateLimitMap.size > 2000) {
+      for (const [k, v] of rateLimitMap.entries()) {
+        if (now > v.resetTime) rateLimitMap.delete(k);
+      }
+    }
+    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  if (bucket.count >= limit) {
+    return false;
+  }
+  bucket.count++;
+  return true;
+}
+
+/** 处理 /api/sync/* 的轻量全量快照同步（支持并发冲突检测与设备追踪） */
 async function handleSync(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -76,14 +114,22 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
   if (path === "/api/sync/meta" && request.method === "GET") {
     const raw = await env.KV_BINDING.get(SNAPSHOT_KEY);
     let updatedAt: string | null = null;
+    let deviceId: string | null = null;
     if (raw) {
       try {
-        updatedAt = (JSON.parse(raw) as { updatedAt?: string }).updatedAt ?? null;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.snapshot === "string") {
+          updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
+          deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId : null;
+        } else if (parsed && typeof parsed.updatedAt === "string") {
+          updatedAt = parsed.updatedAt;
+          deviceId = parsed.deviceId ?? null;
+        }
       } catch {
         updatedAt = null;
       }
     }
-    return json({ updatedAt }, 200, cors);
+    return json({ updatedAt, deviceId }, 200, cors);
   }
 
   if (path === "/api/sync/snapshot") {
@@ -92,14 +138,15 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       if (raw === null) {
         return json({ error: "No snapshot yet" }, 404, cors);
       }
-      // 兼容旧数据：如果 raw 本身就是备份 JSON，则直接返回；否则取合并结构里的 snapshot
       let snapshot = raw;
       let updatedAt: string | null = null;
+      let deviceId: string | null = null;
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed.snapshot === "string") {
           snapshot = parsed.snapshot;
           updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
+          deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId : null;
         }
       } catch {
         // raw 是旧版直接存储的备份 JSON
@@ -110,6 +157,9 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       };
       if (updatedAt) {
         responseHeaders["X-Snapshot-Updated-At"] = updatedAt;
+      }
+      if (deviceId) {
+        responseHeaders["X-Snapshot-Device-Id"] = deviceId;
       }
       return new Response(snapshot, {
         status: 200,
@@ -122,16 +172,54 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       if (!raw || raw.length > 10 * 1024 * 1024) {
         return json({ error: "Snapshot too large (max 10MB)" }, 413, cors);
       }
+
+      // 验证必须是合法的 JSON 对象
       try {
-        JSON.parse(raw); // 校验必须是合法 JSON
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+          return json({ error: "Invalid backup JSON: root must be an object" }, 400, cors);
+        }
       } catch {
         return json({ error: "Invalid JSON" }, 400, cors);
       }
+
+      // 乐观并发控制：客户端若提供预期时间戳且未声明 force，则检测云端并发更新
+      const isForce = url.searchParams.get("force") === "true" || request.headers.get("X-Force") === "true";
+      const expectedUpdatedAt = request.headers.get("X-Expected-Updated-At") || request.headers.get("If-Match");
+
+      if (!isForce && expectedUpdatedAt) {
+        const existingRaw = await env.KV_BINDING.get(SNAPSHOT_KEY);
+        if (existingRaw) {
+          try {
+            const existing = JSON.parse(existingRaw);
+            const currentUpdatedAt = typeof existing?.updatedAt === "string" ? existing.updatedAt : null;
+            if (currentUpdatedAt && currentUpdatedAt !== expectedUpdatedAt) {
+              return json(
+                {
+                  error: "Conflict",
+                  message: "云端检测到更新的快照，若继续将覆盖云端数据",
+                  remoteUpdatedAt: currentUpdatedAt,
+                  remoteDeviceId: existing?.deviceId ?? null,
+                },
+                409,
+                cors
+              );
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const clientDeviceId = request.headers.get("X-Device-Id")?.trim().slice(0, 50) || "unknown";
       const updatedAt = new Date().toISOString();
-      // 合并为单个 Key，避免 KV 最终一致性下 snapshot 与 updated_at 读取不一致
-      const payload = JSON.stringify({ updatedAt, snapshot: raw });
+      const payload = JSON.stringify({
+        updatedAt,
+        deviceId: clientDeviceId,
+        snapshot: raw,
+      });
       await env.KV_BINDING.put(SNAPSHOT_KEY, payload);
-      return json({ ok: true, updatedAt }, 200, cors);
+      return json({ ok: true, updatedAt, deviceId: clientDeviceId }, 200, cors);
     }
 
     if (request.method === "DELETE") {
@@ -143,7 +231,7 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
   return json({ error: "Not Found" }, 404, cors);
 }
 
-/** 原有 DeepL CORS 代理 */
+/** 原有 DeepL CORS 代理（强化参数校验与超时保护） */
 async function handleDeepL(request: Request, cors: Record<string, string>): Promise<Response> {
   if (request.method !== "POST") {
     return json({ error: "Method Not Allowed" }, 405, cors);
@@ -152,6 +240,7 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
   let body: {
     text?: string[];
     target_lang?: string;
+    source_lang?: string;
     auth_key?: string;
   };
   try {
@@ -160,7 +249,7 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
     return json({ error: "Invalid JSON" }, 400, cors);
   }
 
-  const { auth_key, text, target_lang } = body;
+  const { auth_key, text, target_lang, source_lang } = body;
   if (!auth_key) {
     return json({ error: "Missing auth_key" }, 400, cors);
   }
@@ -174,12 +263,24 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
     return json({ error: "Text entry too long (max 5000 chars)" }, 400, cors);
   }
 
+  const sanitizedTarget = (target_lang || "ZH-HANS").trim().toUpperCase();
+  if (!/^[A-Z]{2,3}(-[A-Z0-9]{2,4})?$/.test(sanitizedTarget)) {
+    return json({ error: "Invalid target_lang code" }, 400, cors);
+  }
+
   // 根据 Key 特征自适应选择 Free / Pro API 终端
   const deeplEndpoint = auth_key.endsWith(":fx")
     ? "https://api-free.deepl.com/v2/translate"
     : "https://api.deepl.com/v2/translate";
 
-  const deeplBody = JSON.stringify({ text, target_lang: target_lang || "ZH-HANS" });
+  const deeplPayload: Record<string, unknown> = {
+    text,
+    target_lang: sanitizedTarget,
+  };
+  if (source_lang && typeof source_lang === "string" && /^[A-Z]{2,3}$/i.test(source_lang.trim())) {
+    deeplPayload.source_lang = source_lang.trim().toUpperCase();
+  }
+
   try {
     const deeplRes = await fetch(deeplEndpoint, {
       method: "POST",
@@ -187,7 +288,8 @@ async function handleDeepL(request: Request, cors: Record<string, string>): Prom
         "Content-Type": "application/json",
         Authorization: `DeepL-Auth-Key ${auth_key}`,
       },
-      body: deeplBody,
+      body: JSON.stringify(deeplPayload),
+      signal: AbortSignal.timeout(15000),
     });
     const responseBody = await deeplRes.text();
     return new Response(responseBody, {
@@ -418,18 +520,100 @@ function isGuardianUrl(url: string): boolean {
   return /theguardian\.com/i.test(url);
 }
 
-/** 简单 SSRF 防护：禁止自定义 RSS 请求内网/保留地址 */
+/** 严格 SSRF 防护：禁止请求内网/保留地址/非标准协议与非法端口 */
 function isBlockedRssUrl(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host === "localhost" || host.endsWith(".local")) return true;
-    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    const parsed = new URL(url);
+    // 1. 协议限制
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return true;
+    }
+
+    // 2. 端口限制（只允许标准网络端口）
+    if (parsed.port && !["80", "443", "8080", "8443"].includes(parsed.port)) {
+      return true;
+    }
+
+    const host = parsed.hostname.toLowerCase().trim();
+    if (!host) return true;
+
+    // 3. 内部域名与特殊测试顶级域
+    if (
+      host === "localhost" ||
+      host.endsWith(".local") ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".internal") ||
+      host.endsWith(".lan") ||
+      host.endsWith(".home") ||
+      host.endsWith(".corp") ||
+      host.endsWith(".test") ||
+      host.endsWith(".example") ||
+      host.endsWith(".invalid") ||
+      host.includes("nip.io") ||
+      host.includes("sslip.io") ||
+      host.includes("localtest.me") ||
+      host.includes("lvh.me")
+    ) {
+      return true;
+    }
+
+    // 4. IPv6 检测
+    const cleanHost = host.replace(/^\[|\]$/g, "");
+    if (cleanHost.includes(":")) {
+      // IPv6 回环、未指定、链路本地、唯一本地、IPv4 映射
+      if (
+        cleanHost === "::1" ||
+        cleanHost === "::" ||
+        cleanHost.startsWith("fe80:") ||
+        cleanHost.startsWith("fc00:") ||
+        cleanHost.startsWith("fd00:") ||
+        cleanHost.startsWith("ff") ||
+        cleanHost.includes("::ffff:")
+      ) {
+        return true;
+      }
+    }
+
+    // 5. 纯整数或十六进制 IP 绕过（如 2130706433 或 0x7f000001）
+    if (/^(0x[0-9a-f]+|\d+)$/i.test(cleanHost)) {
+      return true;
+    }
+
+    // 6. IPv4 点分十进制解析
+    const ipv4 = cleanHost.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (ipv4) {
       const a = parseInt(ipv4[1], 10);
       const b = parseInt(ipv4[2], 10);
-      if (a === 10 || a === 127 || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)) {
-        return true;
-      }
+      const c = parseInt(ipv4[3], 10);
+      const d = parseInt(ipv4[4], 10);
+      if (a > 255 || b > 255 || c > 255 || d > 255) return true;
+
+      // 0.0.0.0/8 (当前网络)
+      if (a === 0) return true;
+      // 10.0.0.0/8 (私有网络)
+      if (a === 10) return true;
+      // 100.64.0.0/10 (运营商级 NAT)
+      if (a === 100 && b >= 64 && b <= 127) return true;
+      // 127.0.0.0/8 (环回地址)
+      if (a === 127) return true;
+      // 169.254.0.0/16 (链路本地 / 云平台元数据)
+      if (a === 169 && b === 254) return true;
+      // 172.16.0.0/12 (私有网络)
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      // 192.0.0.0/24 (IETF 协议)
+      if (a === 192 && b === 0 && c === 0) return true;
+      // 192.0.2.0/24 (TEST-NET-1)
+      if (a === 192 && b === 0 && c === 2) return true;
+      // 192.168.0.0/16 (私有网络)
+      if (a === 192 && b === 168) return true;
+      // 198.18.0.0/15 (基准测试)
+      if (a === 198 && (b === 18 || b === 19)) return true;
+      // 198.51.100.0/24 (TEST-NET-2)
+      if (a === 198 && b === 51 && c === 100) return true;
+      // 203.0.113.0/24 (TEST-NET-3)
+      if (a === 203 && b === 0 && c === 113) return true;
+      // 224.0.0.0/4 及以上 (组播与未来保留 240.0.0.0/4, 广播 255.255.255.255)
+      if (a >= 224) return true;
     }
   } catch {
     return true;
@@ -615,6 +799,24 @@ async function fetchArticleDirect(
     throw new Error(debug.reason);
   }
   if (!res.ok) throw new Error("Article fetch failed: " + res.status);
+
+  // 校验 Content-Type：防止请求大文件、媒体流或非 HTML 数据导致内存过载
+  const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+  if (
+    contentType &&
+    !contentType.includes("text/html") &&
+    !contentType.includes("application/xhtml+xml") &&
+    !contentType.includes("text/xml") &&
+    !contentType.includes("text/plain")
+  ) {
+    throw new Error("Unsupported content-type: " + contentType);
+  }
+
+  const contentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
+  if (contentLength > 5_000_000) {
+    throw new Error("Article too large (max 5MB)");
+  }
+
   const html = await res.text();
   // 防止超大 HTML 导致 linkedom/Readability 消耗过多 CPU/内存
   if (html.length > 5_000_000) {
@@ -1111,17 +1313,44 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
+    const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+
+    // 1. 同步接口限流：每分钟上限 30 次（防御暴力猜测与高频刷库）
     if (isSync) {
+      if (!checkRateLimit(`sync:${clientIp}`, 30, 60_000)) {
+        return json(
+          { error: "Too Many Requests", message: "同步请求过于频繁，请稍候再试" },
+          429,
+          { ...cors, "Retry-After": "60" }
+        );
+      }
       return handleSync(request, env, cors);
     }
 
+    // 2. 新闻接口限流：全文抓取每分钟上限 60 次，聚合列表每分钟上限 30 次
     if (url.pathname.startsWith("/api/news")) {
+      const isArticle = url.pathname === "/api/news/article";
+      const limit = isArticle ? 60 : 30;
+      if (!checkRateLimit(`news:${clientIp}`, limit, 60_000)) {
+        return json(
+          { error: "Too Many Requests", message: "文章提取过于频繁，请稍候再试" },
+          429,
+          { ...cors, "Retry-After": "60" }
+        );
+      }
       return handleNews(request, cors);
     }
 
-    // DeepL 只允许明确的路径，避免把任意请求都当翻译代理
+    // 3. DeepL 翻译代理：每分钟上限 60 次
     const cleanPath = url.pathname.replace(/\/+$/, "") || "/";
     if (cleanPath === "/" || cleanPath === "/api/deepl" || cleanPath === "/translate") {
+      if (!checkRateLimit(`deepl:${clientIp}`, 60, 60_000)) {
+        return json(
+          { error: "Too Many Requests", message: "翻译请求过于频繁，请稍候再试" },
+          429,
+          { ...cors, "Retry-After": "60" }
+        );
+      }
       return handleDeepL(request, cors);
     }
 

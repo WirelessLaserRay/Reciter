@@ -48,7 +48,7 @@ async function generatePhonetic(word: string): Promise<string> {
       { role: "user", content: `请给出英语单词 "${word}" 的 IPA 音标（英式或美式均可），只输出音标。` },
     ]);
     const cleaned = raw.trim().replace(/^["'“”]|["'“”]$/g, "");
-    return /^[\/\[]/.test(cleaned) || /[ˈˌa-zæɒɔɪʊʌəɜːiːuːɑːeɪaɪɔɪəʊ]/i.test(cleaned) ? cleaned : "";
+    return (cleaned.startsWith("/") || cleaned.startsWith("[")) || /[ˈˌa-zæɒɔɪʊʌəɜːiːuːɑːeɪaɪɔɪəʊ]/i.test(cleaned) ? cleaned : "";
   } catch {
     return "";
   }

@@ -54,10 +54,10 @@ export function parseSections(content: string): Record<string, string> {
 export function parseOptions(text: string | undefined): string[] | null {
   if (!text) return null;
   const items = text
-    .split(/(?=[A-D][\.、．)）]\s*)/)
+    .split(/(?=[A-D][.、．)）]\s*)/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((s) => s.replace(/^[A-D][\.、．)）]\s*/, "").trim());
+    .map((s) => s.replace(/^[A-D][.、．)）]\s*/, "").trim());
   return items.length >= 2 ? items : null;
 }
 

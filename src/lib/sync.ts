@@ -186,9 +186,10 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
     return { ok: false, message: "请先填写同步地址和 Token" };
   }
 
+  let check: PushConflictCheck | null = null;
   // 若未强制，先检查冲突
   if (!options?.force) {
-    const check = await checkPushConflict();
+    check = await checkPushConflict();
     if (check.hasConflict) {
       return {
         ok: false,
@@ -207,14 +208,35 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
     // 过滤设备本地独立配置、AI 配置与各服务接口密钥，绝不上传到云端快照
     data.settings = (data.settings ?? []).filter((s) => !isPreservedDeviceSetting(s.key));
     const body = JSON.stringify(data);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Sync-Token": cfg.token,
+      "X-Device-Id": isTauri() ? "desktop-win32" : "web-pwa",
+    };
+    if (options?.force) {
+      headers["X-Force"] = "true";
+    } else if (check?.remoteUpdatedAt) {
+      headers["X-Expected-Updated-At"] = check.remoteUpdatedAt;
+    }
+
     const res = await httpFetch(`${syncBase(cfg.endpoint)}/api/sync/snapshot`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Sync-Token": cfg.token,
-      },
+      headers,
       body,
     });
+    if (res.status === 409) {
+      let errData: { message?: string; remoteUpdatedAt?: string | null } = {};
+      try {
+        errData = (await res.json()) as typeof errData;
+      } catch {}
+      return {
+        ok: false,
+        conflict: true,
+        remoteUpdatedAt: errData.remoteUpdatedAt ?? check?.remoteUpdatedAt ?? null,
+        localLastSync: check?.localLastSync ?? null,
+        message: errData.message ?? "云端检测到更新的快照，若继续将覆盖云端数据，请确认。",
+      };
+    }
     if (!res.ok) {
       return {
         ok: false,

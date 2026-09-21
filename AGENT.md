@@ -40,14 +40,17 @@
 
 ### 2.3 完成一个功能必须
 
-1. **编写/更新测试**：每个新增或变更的功能必须新增或更新对应测试（`.install/*-test.ts` 或项目测试），覆盖新功能与回归场景
-2. **`npm run build`** 通过（tsc 严格检查 + vite 构建）
-3. **运行测试**：纯逻辑用 `npx tsx .install/<测试名>.ts` 跑单测（sql.js 后端可注入 `new SqlJsBackend(() => initSqlJs())` 在 node 中完整测试 SQL 链路），确认全部通过
-4. **更新 `CHANGELOG.md`**（Keep a Changelog：新版本段 [x.y.z] + Added/Fixed/Verified）
-5. **更新 `README.md`**（功能矩阵/结构/使用方式如有变化）
-6. **提交推送**：Conventional Commits（`feat:`/`fix:`/`docs:`/`chore:`），body 列要点
-7. **部署**：
-   - PWA：推送 main 即自动部署（GitHub Actions → Pages），验证 https://wirelesslaserray.github.io/Reciter/ 返回 200
+1. **编写/更新测试**：每个新增或变更的功能在 `tests/` 下新增或更新对应 Vitest 测试，覆盖核心算法、边界条件与回归场景
+2. **自动化门禁检查**：
+   - `npm run lint`：ESLint 检查通过（0 错误）
+   - `npx tsc --noEmit`：TypeScript 严格类型检查通过（0 错误）
+   - `npm test`：Vitest 测试套件全部通过（入库自动化）
+   - `npm run build`：生产构建打包成功
+3. **更新 `CHANGELOG.md`**（Keep a Changelog：新版本段 [x.y.z] + Added/Fixed/Verified/Infrastructure/Refactor）
+4. **更新 `README.md`**（功能矩阵/结构/使用方式如有变化）
+5. **提交推送**：Conventional Commits（`feat:`/`fix:`/`docs:`/`chore:`/`refactor:`/`test:`），body 列要点
+6. **部署**：
+   - PWA：推送 main 即自动触发 GitHub Actions CI 门禁与 Pages 部署，验证 https://wirelesslaserray.github.io/Reciter/ 返回 200
    - Windows 正式版：`npm run tauri build` 后需**关闭运行中的 release exe 再重建**（文件占用），重建后桌面快捷方式即新版
 
 ### 2.4 提交规范

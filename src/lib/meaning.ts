@@ -59,7 +59,7 @@ export const CHINESE_POS_MAP: Record<string, string> = {
 /** 规范化词性标识符（统一为小写带点标准格式，如 n., vt., vi., adj., adv.） */
 export function normalizePosTag(raw?: string): string {
   if (!raw) return "";
-  let t = raw.trim().replace(/^[（(\[【\s]+|[）)\]】\s]+$/g, "").trim().toLowerCase();
+  let t = raw.trim().replace(/^[（([【\s]+|[）)\]】\s]+$/g, "").trim().toLowerCase();
   if (CHINESE_POS_MAP[t]) return CHINESE_POS_MAP[t];
   if (t === "a" || t === "a.") return "adj.";
   if (t === "ad" || t === "ad.") return "adv.";
@@ -86,10 +86,10 @@ export const POS_RE =
   /\b(?:vt\.?&vi|vi\.?&vt|vt\.\/vi|vi\.\/vt|n|vt|vi|v|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part)\.(?:\/(?:vt|vi|v|n|adj|adv|pron)\.)*/i;
 
 const SUFFIX_POS_RE =
-  /[\(\[（【]\s*([a-zA-Z]+(?:\.[a-zA-Z]+)*\.?|名|名词|动|动词|及物|不及物|形|形容词|副|副词|代|代词|介|介词|连|连词|数|数词|冠|冠词|感|叹|感叹词|noun|verb|adjective|adverb)\s*[\)\]）】]\s*$/i;
+  /[([（【]\s*([a-zA-Z]+(?:\.[a-zA-Z]+)*\.?|名|名词|动|动词|及物|不及物|形|形容词|副|副词|代|代词|介|介词|连|连词|数|数词|冠|冠词|感|叹|感叹词|noun|verb|adjective|adverb)\s*[)\]）】]\s*$/i;
 
 const BRACKET_PREFIX_RE =
-  /^\s*[\(\[（【]\s*([a-zA-Z]+(?:\.[a-zA-Z]+)*\.?|名|名词|动|动词|及物|不及物|形|形容词|副|副词|代|代词|介|介词|连|连词|数|数词|冠|冠词|感|叹|感叹词|noun|verb|adjective|adverb)\s*[\)\]）】]\s*/i;
+  /^\s*[([（【]\s*([a-zA-Z]+(?:\.[a-zA-Z]+)*\.?|名|名词|动|动词|及物|不及物|形|形容词|副|副词|代|代词|介|介词|连|连词|数|数词|冠|冠词|感|叹|感叹词|noun|verb|adjective|adverb)\s*[)\]）】]\s*/i;
 
 const POS_PREFIX_RE =
   /^\s*((?:(?:interj|abbr|adj|adv|art|aux|phr|prep|pron|conj|num|int|vt|vi|ad|noun|verb|adjective|adverb)\b\.?|[avn]\.)(?:\s*[/&+,、]\s*(?:(?:interj|abbr|adj|adv|art|aux|phr|prep|pron|conj|num|int|vt|vi|ad|noun|verb|adjective|adverb)\b\.?|[avn]\.))*)\s*/i;

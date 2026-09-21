@@ -462,7 +462,7 @@ export async function readBackupFile(): Promise<BackupData | null> {
     const raw = JSON.parse(content);
     return sanitizeBackupData(raw);
   } catch (e) {
-    throw new Error(String(e));
+    throw new Error(String(e), { cause: e });
   }
 }
 

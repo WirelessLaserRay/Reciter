@@ -161,7 +161,7 @@ export async function fetchDailyQuote(date: Date = new Date()): Promise<DailyQuo
     return { text: cached.text, translation: cached.translation, author: cached.author, source: cached.source };
   }
 
-  let quote = await fetchZenQuote();
+  const quote = await fetchZenQuote();
   if (quote) {
     quote.translation = await translateQuote(quote);
     await writeCache(date, quote);

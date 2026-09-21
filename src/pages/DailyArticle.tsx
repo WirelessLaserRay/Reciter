@@ -266,7 +266,7 @@ export default function DailyArticle() {
       setWorkerOk(!!base);
       const ai = await getAIConfig().catch(() => ({ enabled: false } as { enabled: boolean }));
       setAiOk(ai.enabled);
-      const vs = await getVocabStandard().catch(() => "考研" as "考研");
+      const vs = await getVocabStandard().catch(() => "考研" as const);
       setVocabLabel(vs === "CET4" ? "四级" : vs === "CET6" ? "六级" : vs === "专业英语" ? "专业英语" : "考研");
       const eng = await getArticleTranslateEngine().catch(() => "ai" as const);
       setTranslateEngine(eng);

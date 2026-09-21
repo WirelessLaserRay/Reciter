@@ -50,8 +50,9 @@ function parseCSVLines(text: string): string[][] {
 }
 
 const COLUMN_ALIASES: Record<string, keyof ParsedCard | "deck"> = {
-  front: "front", word: "front", 单词: "front", 词: "front",
+  front: "front", word: "front", 单词: "front", 词: "front", headword: "front",
   back: "back", meaning: "back", 释义: "back", 意思: "back", 含义: "back",
+  trans: "back", translation: "back", definition: "back", explain: "back", explanation: "back",
   deck: "deck", deckname: "deck", 词库: "deck", 分组: "deck",
   tags: "tags", tag: "tags", 标签: "tags",
   key: "isKey", iskey: "isKey", 重点: "isKey",
@@ -79,13 +80,12 @@ export function parseCSV(content: string, defaultDeck = "CSV 导入"): ParseResu
 
   const dataRows = header ? rows.slice(1) : rows;
   for (const r of dataRows) {
-    let front = "";
+    let front = header ? ((colMap[0] === "front" ? r[0] : "") ?? "") : (r[0] ?? "");
     let back = "";
     let deckName = defaultDeck;
     let tags: string[] = [];
     let isKey = false;
     if (header) {
-      front = (colMap[0] === "front" ? r[0] : "") ?? "";
       for (let i = 0; i < r.length; i++) {
         const col = colMap[i];
         if (!col) continue;
@@ -343,7 +343,7 @@ export function parseTXT(
     let markdown = "";
 
     if (normalizedDelimiter) {
-      let parts: string[] = [];
+      let parts: string[];
       if (normalizedDelimiter === " " || normalizedDelimiter === "\\s+") {
         // 空格切分：第一段为单词，后续为释义
         const firstSpace = line.search(/\s+/);

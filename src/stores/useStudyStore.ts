@@ -394,7 +394,7 @@ export const useStudyStore = create<StudyState>((set, get) => ({
       grade === Rating.Again ||
       newFsrs.state === State.Learning ||
       newFsrs.state === State.Relearning;
-    let queueNext = [...get().queue];
+    const queueNext = [...get().queue];
 
     // 无论是否重插，都更新当前索引的卡片为最新状态（作为历史记录留在队列中）
     queueNext[index] = {

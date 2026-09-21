@@ -28,7 +28,7 @@ export class SqlJsBackend implements SQLBackend {
 
   async init(): Promise<void> {
     const SQL = await this.factory();
-    let saved: Uint8Array | null = null;
+    let saved: Uint8Array | null;
     try {
       saved = (await get<Uint8Array>(DB_KEY).catch(() => undefined)) ?? null;
     } catch {

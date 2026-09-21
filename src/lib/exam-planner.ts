@@ -88,14 +88,14 @@ export async function getExamConfig(): Promise<ExamConfig> {
     db.getSetting("exam_daily_new_override"),
     db.getSetting("exam_target_stability"),
   ]);
-  let deckIds: number[] = [];
+  let deckIds: number[];
   try {
     const parsed = JSON.parse(deckIdsRaw ?? "[]");
     deckIds = Array.isArray(parsed) ? parsed.map(Number).filter(Boolean) : [];
   } catch {
     deckIds = [];
   }
-  let ignoredTags: string[] = [];
+  let ignoredTags: string[];
   try {
     const parsed = JSON.parse(ignoredTagsRaw ?? "[]");
     ignoredTags = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
@@ -412,7 +412,7 @@ export function generateHeuristicStudyAdvice(
   }
 
   // 2. 学情与节奏诊断
-  let paceEvaluation = "";
+  let paceEvaluation: string;
   if (daysActive7 >= 5) {
     paceEvaluation = `近 7 天坚持打卡 **${daysActive7}** 天，日均新学 **${avgNewPerDay}** 词，自律性极高，保持良好学习势头！`;
   } else if (daysActive7 >= 2) {
@@ -422,7 +422,7 @@ export function generateHeuristicStudyAdvice(
   }
 
   // 3. 记忆健康度与熟练度诊断
-  let memoryEvaluation = "";
+  let memoryEvaluation: string;
   if (totalReview7 === 0) {
     memoryEvaluation = `新的一天，今日共有 **${targetReview}** 张复习卡等待巩固。`;
   } else if (retentionRate7 >= 88) {
@@ -432,7 +432,7 @@ export function generateHeuristicStudyAdvice(
   }
 
   const effectiveWeak = planWeakCount || weakCount;
-  let weakComment = "";
+  let weakComment: string;
   let weakAction = "对连续遗忘的卡片及时点击“弱词”标记，善用主动回忆与释义对照加深印记。";
   if (effectiveWeak > 15) {
     weakComment = `当前系统已识别并归集 **${effectiveWeak}** 个弱词；`;

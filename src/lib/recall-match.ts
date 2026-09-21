@@ -95,8 +95,7 @@ export interface WordSpellingResult {
   targetWord: string;
 }
 
-/** 规范化单个单词或短语字符串（消除全角、智能引号、连字符、多余空格和首尾标点） */
-function cleanVariant(raw: string): string {
+export function cleanVariant(raw: string): string {
   return raw
     .toLowerCase()
     .replace(/[\u2018\u2019\u201b`]/g, "'") // 统一各类单引号
@@ -110,7 +109,7 @@ function cleanVariant(raw: string): string {
 }
 
 /** 提取目标词或用户输入中包含的所有有效变体候选（括号注释、动词to前缀、标点容错等） */
-function extractWordCandidates(rawWord: string): string[] {
+export function extractWordCandidates(rawWord: string): string[] {
   const candidates: string[] = [];
   const addCandidate = (s: string) => {
     const cleaned = cleanVariant(s);
@@ -120,7 +119,7 @@ function extractWordCandidates(rawWord: string): string[] {
     }
     // 1. 去除括号注释（例如 "(vt.)"、"（英）"、"(飞机起飞)"、"[n.]"）
     const withoutBrackets = cleanVariant(
-      cleaned.replace(/\s*[(（\[【][^()（）\[\]【】]*[)）\]】]/g, "")
+      cleaned.replace(/\s*[(（[【][^()（）[\]【】]*[)）\]】]/g, "")
     );
     if (withoutBrackets && !candidates.includes(withoutBrackets)) {
       candidates.push(withoutBrackets);
@@ -162,7 +161,7 @@ function extractWordCandidates(rawWord: string): string[] {
     }
 
     // 6. 去除所有标点符号（例如 "don't" -> "dont"）
-    const withoutPunct = cleanVariant(targetForTo.replace(/['".,\/#!$%\^&\*;:{}=\-_`~()]/g, ""));
+    const withoutPunct = cleanVariant(targetForTo.replace(/['".,/#!$%^&*;:{}=\-_`~()]/g, ""));
     if (withoutPunct && withoutPunct !== targetForTo && !candidates.includes(withoutPunct)) {
       candidates.push(withoutPunct);
     }
@@ -183,7 +182,7 @@ function extractWordCandidates(rawWord: string): string[] {
  * 清理词语表面展示噪声（剥离中英文括号注释），用于获取最精准的提示掩码与词长统计
  */
 export function getCleanWordForDisplay(rawWord: string): string {
-  const stripped = rawWord.replace(/\s*[(（\[【][^()（）\[\]【】]*[)）\]】]/g, "").trim();
+  const stripped = rawWord.replace(/\s*[(（[【][^()（）[\]【】]*[)）\]】]/g, "").trim();
   return stripped || rawWord.trim();
 }
 

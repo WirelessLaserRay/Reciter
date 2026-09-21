@@ -16,9 +16,52 @@
 
 ## [Unreleased]
 
-### Planned
+### Infrastructure
 
-- 后续方向：更多题型（AI 口语/拼写纠错）、备份加密、多端迁移、FSRS-6 升级预留等
+- **引入 Vitest 自动化测试套件**：
+  - 建立 `tests/` 目录并配置 `vitest.config.ts`，首期提供 7 个测试文件与 36 个测试用例，覆盖：
+    - 日期边界与区间计算（`day.test.ts`）
+    - 拼写检查与候选词提取（`recall-match.test.ts`）
+    - 词性与释义规整引擎（`meaning.test.ts`）
+    - FSRS-5 调度与状态转换（`fsrs.test.ts`）
+    - 考试倒计时与计划列表压缩（`exam-planner.test.ts`）
+    - 多格式词库导入与分隔符识别（`importer.test.ts`）
+    - SQLite 数据库 001~010 镜像迁移幂等性与核心 CRUD、配额及每日统计累加（`migrations-and-crud.test.ts`）
+- **接入 GitHub Actions CI 全自动化门禁**：
+  - 新增 `.github/workflows/ci.yml`，在 PR 及代码推送时自动执行完整门禁链：`npm ci` -> `npm run lint` -> `npx tsc --noEmit` -> `npm test` -> `npm run build`。
+- **引入 ESLint 9 扁平配置（Flat Config）**：
+  - 配置 `eslint.config.js`（结合 `@eslint/js`、`typescript-eslint`、`eslint-plugin-react-hooks`），修复全项目正则无用转义、未使用变量等代码异味，实现 0 错误门禁。
+
+### Refactor
+
+- **巨型文件分解：设置中心（`Settings.tsx`）**：
+  - 将原 2,323 行、98 KB 的巨型上帝组件按功能领域解耦拆分为 6 个高内聚独立标签组件（`GeneralTab`、`LearningTab`、`ExamTab`、`AITab`、`ReadingTab`、`DataTab`），主入口精简至不足 100 行。
+- **巨型文件分解：数据库访问层（`db.ts`）**：
+  - 将原 1,478 行、60 KB 的单体类解耦重构为领域仓储架构（`BaseDB`、`SettingsRepository`、`DeckRepository`、`CardRepository`、`StudyRepository`、`StatsRepository`、`ReciterDB`），对外保持 100% 零破坏性向前兼容（无缝保留 `db` 单例与所有方法签名）。
+
+### Security
+
+- **Cloudflare Worker 安全加固与防护**：
+  - **防御侧信道时序攻击**：在 `worker/src/index.ts` 中实现常量时间字符串比对（`timingSafeEqual`），防止攻击者通过响应时延探测枚举 `SYNC_TOKEN`。
+  - **生产级 SSRF 纵深防御**：重构 `isBlockedRssUrl`，全面封禁所有私有网段（10/8, 127/8, 172.16/12, 192.168/16, 169.254/16 云元数据, 100.64/10 CGNAT, 0.0.0.0/8, 224/4 组播/保留）、IPv6 本地地址与 IPv4 映射（`::1`, `fe80:`, `fc00:`, `::ffff:`）、纯数字/十六进制 IP 绕过，以及 `nip.io`/`sslip.io` 等动态域名解析绕过。
+  - **基于客户端 IP 的内存滑动窗口限流**：为同步接口（30次/分）、文章提取（60次/分）、新闻聚合（30次/分）和 DeepL 代理（60次/分）注入自动限流拦截（HTTP 429），防御暴力枚举与泛洪攻击。
+  - **资源类型与体积安全防护**：文章抓取前预检 `Content-Type` 与 `Content-Length`，拦截二进制媒体大文件与非 HTML 内容，防止内存击穿。
+- **桌面端 Content-Security-Policy (CSP) 强化**：
+  - 在 `src-tauri/tauri.conf.json` 中配置严密的内容安全策略白名单，防御外部 Markdown 与富文本潜在的 XSS 攻击，同时放行本地资源、sql.js WASM 运行时及必要的数据源接口。
+
+### Infrastructure
+
+- **跨端快照同步服务端并发乐观锁与设备追踪**：
+  - Worker `/api/sync/snapshot` 新增支持 `X-Expected-Updated-At` / `If-Match` 乐观并发控制，当多设备并发写入时服务端直接拦截并返回 HTTP 409 Conflict，杜绝静默 last-write-wins 数据覆盖。
+  - 同步元数据中引入 `deviceId` 追踪，精确标识提交快照的客户端设备类型。
+  - 客户端 `src/lib/sync.ts` 联动携带设备标识与预期时间戳，并完善 409 冲突回退解析。
+  - Worker 增加 `"typecheck": "tsc --noEmit"` 并接入根级 CI 全自动化流程。
+
+### Chore
+
+- **开发依赖与编译选项规范化**：
+  - 将 `shadcn` CLI 工具从生产 `dependencies` 移至 `devDependencies`。
+  - 升级 `tsconfig.json` 的编译目标与库至 `ES2022`。
 
 ---
 
