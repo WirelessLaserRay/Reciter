@@ -2,14 +2,9 @@ import { useEffect, useState, useMemo } from "react";
 import {
   Sparkles,
   Check,
-  Plus,
-  X,
-  BookOpen,
-  Tag,
   GraduationCap,
   Loader2,
   AlertCircle,
-  Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,9 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { parseDayStartHour, getDayEndDate } from "@/lib/day";
 import {
@@ -32,30 +24,25 @@ import {
   generateAIStudyPlan,
   saveAIStudyPlan,
   getSavedAIStudyPlan,
-  formatCompactList,
   type ExamConfig,
 } from "@/lib/exam-planner";
 import { useDeckStore } from "@/stores/useDeckStore";
-import { matchTagPattern } from "@/lib/tag-filter";
-import MarkdownView from "@/components/common/MarkdownView";
+import {
+  type ExamPlanDialogProps,
+  type PreviewStats,
+  ExamBasicFields,
+  ExamDeckSelector,
+  ExamIgnoredTags,
+  ExamStabilitySettings,
+  ExamStatsPreview,
+  ExamAiPlanSection,
+} from "./exam-plan";
 
-interface Props {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSaved?: () => void;
-}
-
-const QUICK_EXAM_PRESETS = [
-  "大学英语四级 (CET-4)",
-  "大学英语六级 (CET-6)",
-  "考研英语",
-  "雅思 (IELTS)",
-  "托福 (TOEFL)",
-  "GRE",
-  "高考英语",
-];
-
-export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
+export default function ExamPlanDialog({
+  open,
+  onOpenChange,
+  onSaved,
+}: ExamPlanDialogProps) {
   const { decks, cardCounts } = useDeckStore();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -77,19 +64,7 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
   const [savedMacroPlan, setSavedMacroPlan] = useState<string>("");
 
   // 实时预览统计数据
-  const [previewStats, setPreviewStats] = useState<{
-    remainingNew: number;
-    dueToday: number;
-    recommendedDailyNew: number;
-    avgStability: number;
-    masteryRate: number;
-    mastered: number;
-    learning: number;
-    weak: number;
-    total: number;
-    inSprintPhase: boolean;
-    sprintBufferDays: number;
-  } | null>(null);
+  const [previewStats, setPreviewStats] = useState<PreviewStats | null>(null);
   const [calculatingPreview, setCalculatingPreview] = useState(false);
 
   // 初始化加载已有配置
@@ -165,9 +140,13 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
         if (!active) return;
 
         const sprintBufferDays = targetStability > 0 ? Math.min(targetStability, 21) : 0;
-        const effectiveBuffer = Math.min(sprintBufferDays, Math.max(0, Math.floor(daysUntil * 0.4)));
+        const effectiveBuffer = Math.min(
+          sprintBufferDays,
+          Math.max(0, Math.floor(daysUntil * 0.4))
+        );
         const effectiveDays = Math.max(1, daysUntil - effectiveBuffer);
-        const inSprintPhase = targetStability > 0 && daysUntil > 0 && daysUntil <= effectiveBuffer;
+        const inSprintPhase =
+          targetStability > 0 && daysUntil > 0 && daysUntil <= effectiveBuffer;
 
         let dailyNew = 0;
         if (fresh > 0) {
@@ -206,7 +185,16 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
       active = false;
       clearTimeout(timer);
     };
-  }, [open, selectedDeckIds, ignoredTags, date, daysUntil, useManualNew, overrideDailyNew, targetStability]);
+  }, [
+    open,
+    selectedDeckIds,
+    ignoredTags,
+    date,
+    daysUntil,
+    useManualNew,
+    overrideDailyNew,
+    targetStability,
+  ]);
 
   const toggleDeck = (id: number) => {
     setSelectedDeckIds((prev) =>
@@ -247,7 +235,10 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
         date,
         deckIds: selectedDeckIds,
         ignoredTags,
-        dailyNewOverride: Number.isFinite(dailyOverride) && (dailyOverride ?? 0) > 0 ? dailyOverride : null,
+        dailyNewOverride:
+          Number.isFinite(dailyOverride) && (dailyOverride ?? 0) > 0
+            ? dailyOverride
+            : null,
         targetStability: targetStability >= 0 ? targetStability : 0,
       };
       await saveExamConfig(config);
@@ -278,7 +269,10 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
         date,
         deckIds: selectedDeckIds,
         ignoredTags,
-        dailyNewOverride: Number.isFinite(dailyOverride) && (dailyOverride ?? 0) > 0 ? dailyOverride : null,
+        dailyNewOverride:
+          Number.isFinite(dailyOverride) && (dailyOverride ?? 0) > 0
+            ? dailyOverride
+            : null,
         targetStability: targetStability >= 0 ? targetStability : 0,
       };
       await saveExamConfig(config);
@@ -313,554 +307,64 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto pr-1 space-y-5">
-            {/* 1. 考试名称与快速填入 */}
-            <div className="space-y-2">
-              <Label htmlFor="exam-title" className="text-sm font-medium">
-                考试 / 目标名称
-              </Label>
-              <Input
-                id="exam-title"
-                placeholder="例如：大学英语六级、考研英语、托福单词冲刺"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {QUICK_EXAM_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setTitle(preset)}
-                    className="rounded-md border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ExamBasicFields
+              title={title}
+              setTitle={setTitle}
+              date={date}
+              setDate={setDate}
+              daysUntil={daysUntil}
+            />
 
-            {/* 2. 考试日期与倒计时 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="exam-date" className="text-sm font-medium">
-                  考试目标日期 <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="exam-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                />
-              </div>
-              <div className="flex items-end pb-1">
-                {date ? (
-                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3.5 py-2 text-sm text-blue-700 dark:text-blue-300 w-full flex items-center justify-between">
-                    <span className="font-medium">距离目标考试：</span>
-                    <span className="font-bold text-lg">{daysUntil} 天</span>
-                  </div>
-                ) : (
-                  <div className="rounded-lg bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground w-full">
-                    请先选择考试日期以计算每日配额
-                  </div>
-                )}
-              </div>
-            </div>
+            <ExamDeckSelector
+              decks={decks}
+              cardCounts={cardCounts}
+              selectedDeckIds={selectedDeckIds}
+              setSelectedDeckIds={setSelectedDeckIds}
+              toggleDeck={toggleDeck}
+            />
 
-            {/* 3. 词库选择 */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium flex items-center gap-1.5">
-                  <BookOpen className="size-4 text-primary" />
-                  学习目标词库
-                </Label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDeckIds(decks.map((d) => d.id))}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    全选
-                  </button>
-                  <span className="text-muted-foreground/40 text-xs">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDeckIds([])}
-                    className="text-xs text-muted-foreground hover:underline"
-                  >
-                    全部 (不限制)
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                支持勾选多个词库进行联合学习调度。若未勾选任何词库，则默认覆盖全部词库。
-              </p>
-              {selectedDeckIds.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-xs">
-                  <span className="text-muted-foreground">已选词库：</span>
-                  {(() => {
-                    const names = decks
-                      .filter((d) => selectedDeckIds.includes(d.id))
-                      .map((d) => (d.folder ? `${d.folder}/${d.name}` : d.name));
-                    const summary = formatCompactList(names, 3);
-                    return (
-                      <>
-                        {summary.displayed.map((n) => (
-                          <Badge
-                            key={n}
-                            variant="secondary"
-                            className="px-2 py-0.5 text-xs font-normal max-w-[150px] truncate bg-primary/10 text-primary border border-primary/20"
-                          >
-                            {n}
-                          </Badge>
-                        ))}
-                        {summary.remainingCount > 0 && (
-                          <Badge
-                            variant="outline"
-                            className="px-2 py-0.5 text-xs font-normal text-muted-foreground cursor-help hover:bg-muted"
-                            title={`全部已选词库 (${summary.totalCount}个):\n${summary.fullText}`}
-                          >
-                            ……等共 {summary.totalCount} 个词库
-                          </Badge>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-              <div className="max-h-36 overflow-y-auto rounded-md border p-2 space-y-1 bg-background/50">
-                {decks.length === 0 ? (
-                  <div className="p-3 text-center text-xs text-muted-foreground">
-                    暂无词库，请先创建或导入词库
-                  </div>
-                ) : (
-                  decks.map((d) => {
-                    const isSelected = selectedDeckIds.includes(d.id);
-                    return (
-                      <label
-                        key={d.id}
-                        className={`flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-sm transition-colors ${
-                          isSelected ? "bg-primary/10 font-medium" : "hover:bg-muted/60"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <input
-                            type="checkbox"
-                            className="size-4 rounded border-gray-300 text-primary"
-                            checked={isSelected}
-                            onChange={() => toggleDeck(d.id)}
-                          />
-                          <span className="truncate">
-                            {d.folder ? `${d.folder}/${d.name}` : d.name}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                          {cardCounts?.[d.id] ?? 0} 词
-                        </span>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            <ExamIgnoredTags
+              ignoredTags={ignoredTags}
+              setIgnoredTags={setIgnoredTags}
+              availableTags={availableTags}
+              toggleIgnoredTag={toggleIgnoredTag}
+              customTagInput={customTagInput}
+              setCustomTagInput={setCustomTagInput}
+              addCustomTag={addCustomTag}
+              showAllIgnored={showAllIgnored}
+              setShowAllIgnored={setShowAllIgnored}
+            />
 
-            {/* 4. 要忽略的标签 (可多选排除) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium flex items-center gap-1.5">
-                  <Tag className="size-4 text-amber-500" />
-                  要忽略/跳过的标签
-                </Label>
-                {ignoredTags.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setIgnoredTags([])}
-                    className="text-xs text-muted-foreground hover:underline"
-                  >
-                    清空已选
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                带有这些标签的单词将不会被安排到今日新学与到期复习中（如“已掌握”、“简单”等已熟悉的单词集合）。
-              </p>
+            <ExamStabilitySettings
+              targetStability={targetStability}
+              setTargetStability={setTargetStability}
+              isCustomStability={isCustomStability}
+              setIsCustomStability={setIsCustomStability}
+              customStabilityInput={customStabilityInput}
+              setCustomStabilityInput={setCustomStabilityInput}
+              previewStats={previewStats}
+              useManualNew={useManualNew}
+              setUseManualNew={setUseManualNew}
+              overrideDailyNew={overrideDailyNew}
+              setOverrideDailyNew={setOverrideDailyNew}
+              daysUntil={daysUntil}
+            />
 
-              {/* 现有标签芯片选择 */}
-              {availableTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 rounded-md border bg-muted/20">
-                  {availableTags.map((tag) => {
-                    const isDirectlyIgnored = ignoredTags.includes(tag);
-                    const isPatternIgnored = !isDirectlyIgnored && ignoredTags.some((p) => matchTagPattern(tag, p));
-                    const isIgnored = isDirectlyIgnored || isPatternIgnored;
-                    return (
-                      <Badge
-                        key={tag}
-                        variant={isIgnored ? "destructive" : "outline"}
-                        className="cursor-pointer select-none px-2.5 py-1 text-xs transition-all hover:scale-105"
-                        onClick={() => toggleIgnoredTag(tag)}
-                        title={isPatternIgnored ? "匹配已设定的模糊/正则规则" : undefined}
-                      >
-                        {isIgnored && <Check className="mr-1 inline size-3" />}
-                        {tag}
-                        {isPatternIgnored && (
-                          <span className="ml-1 text-[10px] opacity-75">(规则匹配)</span>
-                        )}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  当前词库中暂无可用标签，可在下方手动输入需要排除的标签名。
-                </p>
-              )}
+            <ExamStatsPreview
+              previewStats={previewStats}
+              calculatingPreview={calculatingPreview}
+              targetStability={targetStability}
+              daysUntil={daysUntil}
+              selectedDeckIds={selectedDeckIds}
+              decks={decks}
+              ignoredTags={ignoredTags}
+            />
 
-              {/* 自定义添加忽略标签（支持模糊与正则） */}
-              <div className="space-y-1 pt-1">
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="输入标签名、通配符（如*四级*）或正则（如^CET[46]、简单|已学）"
-                    value={customTagInput}
-                    onChange={(e) => setCustomTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addCustomTag();
-                      }
-                    }}
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={addCustomTag}
-                    disabled={!customTagInput.trim()}
-                    className="h-8 shrink-0 text-xs"
-                  >
-                    <Plus className="size-3.5 mr-1" />
-                    添加规则
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  支持关键词模糊匹配（如“简单”）、通配符（如“*四级*”）及正则表达式（如“^CET[46]”、“简单|已掌握”）。
-                </p>
-              </div>
+            <ExamAiPlanSection
+              savedMacroPlan={savedMacroPlan}
+              generatingAI={generatingAI}
+            />
 
-              {/* 已选忽略标签清单展示 */}
-              {ignoredTags.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-xs text-muted-foreground">已排除规则：</span>
-                  {(() => {
-                    const isFolded = !showAllIgnored && ignoredTags.length > 6;
-                    const displayed = isFolded ? ignoredTags.slice(0, 5) : ignoredTags;
-                    return (
-                      <>
-                        {displayed.map((t) => {
-                          const matchCount = availableTags.filter((tag) => matchTagPattern(tag, t)).length;
-                          return (
-                            <Badge
-                              key={t}
-                              variant="secondary"
-                              className="gap-1 border-destructive/30 bg-destructive/10 text-destructive text-xs"
-                              title={matchCount > 0 ? `匹配当前 ${matchCount} 个词库标签` : undefined}
-                            >
-                              {t}
-                              {matchCount > 1 && (
-                                <span className="ml-0.5 rounded-full bg-destructive/20 px-1 text-[10px] font-mono">
-                                  {matchCount}
-                                </span>
-                              )}
-                              <X
-                                className="size-3 cursor-pointer hover:opacity-75"
-                                onClick={() => toggleIgnoredTag(t)}
-                              />
-                            </Badge>
-                          );
-                        })}
-                        {ignoredTags.length > 6 && (
-                          <Badge
-                            variant="outline"
-                            className="cursor-pointer gap-1 text-xs border-dashed text-muted-foreground hover:bg-muted"
-                            onClick={() => setShowAllIgnored(!showAllIgnored)}
-                          >
-                            {showAllIgnored ? "收起" : `……等共 ${ignoredTags.length} 条 (点击展开)`}
-                          </Badge>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
-
-            {/* 5. 目标熟练度要求设定 */}
-            <div className="space-y-2 rounded-lg border bg-muted/20 p-3.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium flex items-center gap-1.5">
-                  <Target className="size-4 text-primary" />
-                  目标熟练度设定
-                </Label>
-                {previewStats && (
-                  <span className="text-xs text-muted-foreground">
-                    平均稳定性：<strong className="text-foreground">{previewStats.avgStability}</strong> 天 · 达成率 <strong className="text-primary">{previewStats.masteryRate}%</strong>
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                设定考前希望达到的词汇熟练度。系统根据所选档位自动推算记忆沉淀所需的复习周期，在考前预留冲刺期并提早完成生词吸收。
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                {[
-                  { value: 7, label: "基本掌握 (推荐)", desc: "稳定性 >= 7天 · 预留 7 天冲刺缓冲" },
-                  { value: 14, label: "深度牢固", desc: "稳定性 >= 14天 · 预留 14 天多轮强化" },
-                  { value: 30, label: "永久记忆", desc: "稳定性 >= 30天 · 预留 21 天高阶强化" },
-                  { value: 0, label: "学完即可", desc: "初识浏览 · 线性平摊至考前最后一天" },
-                ].map((tier) => (
-                  <button
-                    key={tier.value}
-                    type="button"
-                    onClick={() => {
-                      setTargetStability(tier.value);
-                      setIsCustomStability(false);
-                    }}
-                    className={`text-left rounded-lg border p-2.5 transition-colors ${
-                      !isCustomStability && targetStability === tier.value
-                        ? "border-primary bg-primary/10 text-primary font-medium shadow-xs"
-                        : "border-border bg-background/60 hover:bg-muted/60 text-muted-foreground"
-                    }`}
-                  >
-                    <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-                      {tier.label}
-                      {!isCustomStability && targetStability === tier.value && (
-                        <Check className="size-3 text-primary" />
-                      )}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{tier.desc}</div>
-                  </button>
-                ))}
-              </div>
-
-              {/* 自定义熟练度稳定性天数 */}
-              <div className="pt-1 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCustomStability(true)}
-                  className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                    isCustomStability
-                      ? "border-primary bg-primary/10 text-primary font-medium"
-                      : "border-border bg-background/60 text-muted-foreground hover:bg-muted/60"
-                  }`}
-                >
-                  自定义目标稳定性
-                </button>
-                {isCustomStability && (
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={180}
-                      className="w-20 h-7 text-xs"
-                      value={customStabilityInput}
-                      onChange={(e) => {
-                        setCustomStabilityInput(e.target.value);
-                        const v = parseInt(e.target.value, 10);
-                        if (Number.isFinite(v) && v >= 0) {
-                          setTargetStability(v);
-                        }
-                      }}
-                      placeholder="如 10"
-                    />
-                    <span className="text-xs text-muted-foreground">天（考前预留对应天数用于复习固化）</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 6. 每日新学目标安排方式 */}
-            <div className="space-y-2 rounded-lg border bg-muted/20 p-3.5">
-              <Label className="text-sm font-medium">每日新学目标设定</Label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer text-xs sm:text-sm">
-                  <input
-                    type="radio"
-                    name="daily-mode"
-                    checked={!useManualNew}
-                    onChange={() => setUseManualNew(false)}
-                  />
-                  <span>
-                    智能动态均摊：根据剩余新词量与有效天数自动计算
-                    {previewStats && previewStats.remainingNew > 0 && daysUntil > 0 && (
-                      <span className="font-semibold text-primary ml-1">
-                        (约 {previewStats.recommendedDailyNew} 词/天)
-                      </span>
-                    )}
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer text-xs sm:text-sm">
-                  <input
-                    type="radio"
-                    name="daily-mode"
-                    checked={useManualNew}
-                    onChange={() => setUseManualNew(true)}
-                  />
-                  <span>手动固定每日新学词数</span>
-                </label>
-                {useManualNew && (
-                  <div className="pl-6 pt-1 flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={500}
-                      className="w-28 h-8 text-xs"
-                      placeholder="如 30"
-                      value={overrideDailyNew}
-                      onChange={(e) => setOverrideDailyNew(e.target.value)}
-                    />
-                    <span className="text-xs text-muted-foreground">张卡片 / 天</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 7. 实时任务编排预览 */}
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Sparkles className="size-3.5" />
-                  今日编排任务预览
-                </span>
-                {calculatingPreview && (
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Loader2 className="size-3 animate-spin" /> 计算中…
-                  </span>
-                )}
-              </div>
-
-              {/* 熟练度全景与冲刺期状态卡 */}
-              {previewStats && (
-                <div className="rounded-lg bg-background/90 border p-2.5 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-foreground flex items-center gap-1">
-                      <Target className="size-3.5 text-primary" />
-                      范围熟练度全景
-                    </span>
-                    <Badge variant="outline" className="text-[10px] h-4">
-                      {targetStability > 0 ? `目标: 稳定 >= ${targetStability} 天` : "目标: 学完即可"}
-                    </Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-1 text-muted-foreground text-[11px]">
-                    <span>
-                      已学词汇平均稳定性: <strong className="text-foreground">{previewStats.avgStability}</strong> 天
-                    </span>
-                    <span>
-                      目标达成率: <strong className="text-primary">{previewStats.masteryRate}%</strong> (已掌握 {previewStats.mastered} / 学习中 {previewStats.learning} / 弱词 {previewStats.weak} / 未学 {previewStats.remainingNew})
-                    </span>
-                  </div>
-
-                  {/* 多段进度条 */}
-                  {previewStats.total > 0 && (
-                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
-                      <div
-                        className="bg-emerald-500 h-full transition-all"
-                        style={{ width: `${(previewStats.mastered / previewStats.total) * 100}%` }}
-                        title={`已掌握: ${previewStats.mastered} 词`}
-                      />
-                      <div
-                        className="bg-blue-500 h-full transition-all"
-                        style={{ width: `${(previewStats.learning / previewStats.total) * 100}%` }}
-                        title={`学习中: ${previewStats.learning} 词`}
-                      />
-                      <div
-                        className="bg-amber-500 h-full transition-all"
-                        style={{ width: `${(previewStats.weak / previewStats.total) * 100}%` }}
-                        title={`弱词: ${previewStats.weak} 词`}
-                      />
-                      <div
-                        className="bg-slate-300 dark:bg-slate-700 h-full transition-all"
-                        style={{ width: `${(previewStats.remainingNew / previewStats.total) * 100}%` }}
-                        title={`未学: ${previewStats.remainingNew} 词`}
-                      />
-                    </div>
-                  )}
-
-                  {/* 冲刺阶段或攻坚期提示 */}
-                  {previewStats.inSprintPhase ? (
-                    <div className="rounded bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 px-2 py-1 text-[11px] font-medium flex items-center gap-1.5">
-                      <span className="size-1.5 rounded-full bg-amber-500 shrink-0" />
-                      当前已处于考前冲刺期（预留 {previewStats.sprintBufferDays} 天冲刺）：新词已自动置 0，专注复习与弱词冲刺，力保考前跨越熟练度门槛！
-                    </div>
-                  ) : targetStability > 0 && daysUntil > 0 ? (
-                    <div className="text-[11px] text-muted-foreground">
-                      当前处于新词攻坚期：将在考前第 {previewStats.sprintBufferDays} 天前学完全部新词，随后进入全量复习冲刺。
-                    </div>
-                  ) : null}
-                </div>
-              )}
-
-              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
-                  <div className="text-xl font-bold text-primary">
-                    {previewStats?.recommendedDailyNew ?? 0}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {previewStats?.inSprintPhase ? "新学 (冲刺暂停)" : "今日新学目标"}
-                  </div>
-                </div>
-                <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
-                  <div className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                    {previewStats?.dueToday ?? 0}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">今日到期复习</div>
-                </div>
-                <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
-                  <div className="text-xl font-bold text-foreground">
-                    {previewStats?.remainingNew ?? 0}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">范围内待学新词</div>
-                </div>
-              </div>
-              <div className="text-[11px] text-muted-foreground pt-1.5 flex flex-wrap items-center justify-between gap-1.5 border-t border-primary/10">
-                <span className="flex items-center gap-1">
-                  <BookOpen className="size-3 text-blue-500 shrink-0" />
-                  目标词库：
-                  {selectedDeckIds.length === 0
-                    ? "全部词库"
-                    : formatCompactList(
-                        decks
-                          .filter((d) => selectedDeckIds.includes(d.id))
-                          .map((d) => (d.folder ? `${d.folder}/${d.name}` : d.name)),
-                        2
-                      ).compactText}
-                </span>
-                {ignoredTags.length > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Tag className="size-3 text-amber-500 shrink-0" />
-                    排除规则：{formatCompactList(ignoredTags, 2).compactText}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-muted-foreground text-center pt-0.5">
-                点击开始后，系统将自动汇聚所选词库卡片并排除设定标签，生成交错学习队列。
-              </p>
-            </div>
-
-            {/* 已生成的 AI 分阶段宏观规划 */}
-            {savedMacroPlan && (
-              <details className="rounded-xl border border-primary/25 bg-muted/20 p-3.5 text-xs group" open={generatingAI}>
-                <summary className="cursor-pointer font-medium hover:text-foreground list-none flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-primary font-semibold">
-                    <Sparkles className="size-3.5" />
-                    AI 分阶段宏观备考规划
-                  </span>
-                  <span className="text-[11px] text-muted-foreground group-open:hidden">点击展开查看 ▸</span>
-                  <span className="text-[11px] text-muted-foreground hidden group-open:inline">收起 ▾</span>
-                </summary>
-                <div className="mt-2.5 max-h-48 overflow-y-auto rounded-md bg-background/80 border p-3">
-                  <MarkdownView content={savedMacroPlan} className="text-xs" />
-                </div>
-              </details>
-            )}
-
-            {/* 提示消息 */}
             {msg && (
               <div
                 className={`rounded-md p-3 text-xs flex items-center gap-2 ${
@@ -869,7 +373,11 @@ export default function ExamPlanDialog({ open, onOpenChange, onSaved }: Props) {
                     : "bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20"
                 }`}
               >
-                {msg.ok ? <Check className="size-4 shrink-0" /> : <AlertCircle className="size-4 shrink-0" />}
+                {msg.ok ? (
+                  <Check className="size-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="size-4 shrink-0" />
+                )}
                 <span>{msg.text}</span>
               </div>
             )}

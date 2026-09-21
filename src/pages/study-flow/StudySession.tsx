@@ -1,0 +1,918 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  ClipboardList,
+  Keyboard,
+  Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  RefreshCw,
+  Sparkles,
+  Star,
+  Tag,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { db } from "@/lib/db";
+import { previewIntervals, getRetrievability, type IntervalPreview } from "@/lib/fsrs";
+import { getEffectiveRetention, getLeechThreshold } from "@/lib/settings";
+import { getAIConfig } from "@/lib/ai-client";
+import {
+  getActiveRecallEnabled,
+  getLearningSteps,
+  getQuickTestMs,
+  getRatingMode,
+  getRestUntil,
+  getSummaryInterval,
+} from "@/lib/study-prefs";
+import { resolveStudyMode } from "@/lib/study-mode";
+import { fetchExamples, fetchPhonetic } from "@/lib/dictionary";
+import { getDisplayPhonetic } from "@/lib/phonetic";
+import { getCardExamples } from "@/lib/card-examples";
+import { preloadSpeech } from "@/lib/tts";
+import { getCardMeaning } from "@/lib/meaning";
+import StudyCard, { type Distractor } from "@/components/study/StudyCard";
+import { useStudyStore } from "@/stores/useStudyStore";
+import { useDeckStore } from "@/stores/useDeckStore";
+import AIChatPanel from "@/components/ai/AIChatPanel";
+import {
+  generateCompletionEncouragement,
+  getDaysUntilExam,
+  getExamConfig,
+  getTodayOrchestratedPlan,
+  markTodayPlanCompleted,
+} from "@/lib/exam-planner";
+import { autoPushIfConfigured } from "@/lib/sync";
+import { formatDuration, rowToState } from "./helpers";
+import { SessionMiniSummary } from "./SessionMiniSummary";
+
+/** 学习主界面（统一学习流，多模式自适应） */
+export function StudySession({
+  onStartTagQuiz,
+}: {
+  /** 标签学习完成后的针对性测试入口（选择/填空为主） */
+  onStartTagQuiz?: (deckId: number, tag: string) => void;
+}) {
+  const {
+    deckId,
+    deckName,
+    tagName,
+    keyOnly,
+    isOrchestrated,
+    orchestratedTarget,
+    orchestratedTitle,
+    queue,
+    index,
+    stats,
+    finished,
+    loadQueue,
+    rate,
+    markShown,
+    reset,
+    skip,
+    ignore,
+  } = useStudyStore();
+  const navigate = useNavigate();
+  const [preview, setPreview] = useState<IntervalPreview | null>(null);
+  const [retrievability, setRetrievability] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [remainingNew, setRemainingNew] = useState<number | null>(null);
+  const [encouragement, setEncouragement] = useState<string | null>(null);
+  const [encouragementLoading, setEncouragementLoading] = useState(false);
+  const [encouragementRefreshing, setEncouragementRefreshing] = useState(false);
+
+  // 学习偏好 + AI 状态
+  const [ratingMode, setRatingMode] = useState<"3" | "4">("3");
+  const [activeRecallEnabled, setActiveRecallEnabled] = useState(true);
+  const [summaryInterval, setSummaryInterval] = useState(10);
+  const [showMiniSummary, setShowMiniSummary] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [rateReady, setRateReady] = useState(false);
+  // 弱词阈值（设置页可调，默认 3）
+  const [leechThreshold, setLeechThreshold] = useState(3);
+  // 已异步获取的音标缓存（card_id → phonetic），用于缺失音标卡片即时显示
+  const [phoneticMap, setPhoneticMap] = useState<Record<number, string>>({});
+  // 熟练卡秒答阈值（毫秒，可在设置中调整）
+  const [quickMs, setQuickMs] = useState(5000);
+  // 单轮上限休息提示
+  const [restLabel, setRestLabel] = useState("");
+  // 中途退出确认
+  const [exitOpen, setExitOpen] = useState(false);
+  // 全词库卡片精简池（选择题干扰项 + 同族词匹配）
+  const [deckDistractors, setDeckDistractors] = useState<Distractor[]>([]);
+  // 手动快速收录弱词本卡片 ID 缓存与操作提示
+  const [weakCardIds, setWeakCardIds] = useState<Set<number>>(new Set());
+  const [weakNotice, setWeakNotice] = useState<string | null>(null);
+
+  // 备战 AI 编排任务完成时，生成个性化鼓励语并记录完成状态
+  useEffect(() => {
+    if (finished && isOrchestrated && stats.reviewed + stats.newDone > 0) {
+      let active = true;
+      setEncouragementLoading(true);
+      (async () => {
+        try {
+          const cfg = await getExamConfig();
+          const days = cfg.date ? getDaysUntilExam(cfg.date) : 0;
+          const text = await generateCompletionEncouragement({
+            examTitle: cfg.title || orchestratedTitle || "备考任务",
+            daysUntil: days,
+            newDone: stats.newDone,
+            reviewedTotal: stats.reviewed,
+          });
+          if (active) {
+            setEncouragement(text);
+            const decks = useDeckStore.getState().decks;
+            const plan = await getTodayOrchestratedPlan(decks).catch(() => null);
+            if (plan?.isCompleted) {
+              await markTodayPlanCompleted(text);
+            }
+          }
+        } catch {
+          // fallback
+        } finally {
+          if (active) setEncouragementLoading(false);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }
+  }, [finished, isOrchestrated, stats.reviewed, stats.newDone, orchestratedTitle]);
+
+  // 跟踪本轮会话是否已向云端提交推送，避免重复推送
+  const hasPushedInSessionRef = useRef(false);
+
+  // 学习完成时自动同步进度至云端
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (finished && stats.reviewed + stats.newDone > 0) {
+      hasPushedInSessionRef.current = true;
+      setSyncNotice("正在自动同步云端进度...");
+      autoPushIfConfigured()
+        .then((res) => {
+          if (res.ok) {
+            setSyncNotice("学习进度已自动同步至云端");
+            setTimeout(() => setSyncNotice(null), 3500);
+          } else if (res.conflict) {
+            setSyncNotice("云端有新进度冲突，已保留本地学习记录，可在设置页处理");
+          } else {
+            setSyncNotice(null);
+          }
+        })
+        .catch(() => {
+          setSyncNotice(null);
+        });
+    }
+  }, [finished, stats.reviewed, stats.newDone]);
+
+  // 页面离开/侧边栏切换/路由跳转/组件卸载时：若本轮有评分操作且未推送过，静默触发自动上传
+  useEffect(() => {
+    return () => {
+      const store = useStudyStore.getState();
+      const ratedCount = store.stats.reviewed + store.stats.newDone + store.stats.actions;
+      if (ratedCount > 0 && !hasPushedInSessionRef.current) {
+        hasPushedInSessionRef.current = true;
+        void autoPushIfConfigured().catch(() => {});
+      }
+    };
+  }, []);
+
+  const handleRefreshEncouragement = async () => {
+    setEncouragementRefreshing(true);
+    try {
+      const cfg = await getExamConfig();
+      const days = cfg.date ? getDaysUntilExam(cfg.date) : 0;
+      const text = await generateCompletionEncouragement({
+        examTitle: cfg.title || orchestratedTitle || "备考任务",
+        daysUntil: days,
+        newDone: stats.newDone,
+        reviewedTotal: stats.reviewed,
+      });
+      setEncouragement(text);
+      await markTodayPlanCompleted(text);
+    } catch {
+      // ignore
+    } finally {
+      setEncouragementRefreshing(false);
+    }
+  };
+
+  // AI 助手右侧栏：折叠状态持久化；窄屏（<lg）退化为卡片下方面板
+  const [aiPanelOpen, setAiPanelOpen] = useState(
+    () => localStorage.getItem("reciter-ai-panel-open") !== "0"
+  );
+  // 展开/收起动画：先动宽度，动画结束后再卸载面板内容
+  const [aiPanelMounted, setAiPanelMounted] = useState(aiPanelOpen);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
+  );
+
+  useEffect(() => {
+    if (aiPanelOpen) {
+      setAiPanelMounted(true);
+      return;
+    }
+    const timer = setTimeout(() => setAiPanelMounted(false), 300);
+    return () => clearTimeout(timer);
+  }, [aiPanelOpen]);
+
+  const toggleAiPanel = () => {
+    setAiPanelOpen((v) => {
+      const next = !v;
+      localStorage.setItem("reciter-ai-panel-open", next ? "1" : "0");
+      return next;
+    });
+  };
+
+  // 监听视口切换（桌面侧栏 / 移动端折叠面板）
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // 当会话完成或空队列时，查询词库是否还有未学新词
+  useEffect(() => {
+    if (finished && deckId !== null) {
+      if (isOrchestrated) {
+        getExamConfig()
+          .then((cfg) => db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags))
+          .then((cnt) => setRemainingNew(cnt))
+          .catch(() => setRemainingNew(null));
+      } else {
+        db.getNewCards(deckId, 100, tagName || undefined, keyOnly)
+          .then((cards) => setRemainingNew(cards.length))
+          .catch(() => setRemainingNew(null));
+      }
+    }
+  }, [finished, deckId, tagName, keyOnly, isOrchestrated]);
+
+  const item = queue[index];
+  const total = queue.length;
+  const done = stats.reviewed;
+  const sessionDuration = stats.sessionStartTime > 0
+    ? formatDuration((Date.now() - stats.sessionStartTime) / 1000)
+    : "0 秒";
+
+  // 当前音标：卡片字段优先，异步获取结果其次；派生值保证切换卡片时同步更新
+  const phoneticText = item ? getDisplayPhonetic(item.row.phonetic, phoneticMap, item.row.card_id) : "";
+
+  // 当前卡片是否属于弱词（达到遗忘阈值或手动收录）
+  const isCurrentWeak = Boolean(
+    item && (
+      item.row.lapses >= leechThreshold ||
+      weakCardIds.has(item.row.card_id)
+    )
+  );
+
+  // 快捷加入 / 移出弱词本
+  const handleToggleWeak = async () => {
+    if (!item) return;
+    const cardId = item.row.card_id;
+    try {
+      if (isCurrentWeak) {
+        await db.dismissWeakWord(cardId);
+        setWeakCardIds((prev) => {
+          const next = new Set(prev);
+          next.delete(cardId);
+          return next;
+        });
+        item.row.lapses = 0;
+        setWeakNotice("已从弱词本移出");
+      } else {
+        await db.markCardWeak(cardId, leechThreshold);
+        setWeakCardIds((prev) => new Set(prev).add(cardId));
+        item.row.lapses = Math.max(item.row.lapses, leechThreshold);
+        setWeakNotice("已加入弱词本");
+      }
+      setTimeout(() => setWeakNotice(null), 2500);
+    } catch (e) {
+      setWeakNotice(`操作失败: ${String(e)}`);
+      setTimeout(() => setWeakNotice(null), 3000);
+    }
+  };
+
+  // 预先加载队列前 5 个单词/词组的例句、音标与发音，展示时直接命中本地持久化缓存
+  useEffect(() => {
+    let cancelled = false;
+    for (let i = index; i < Math.min(queue.length, index + 5); i++) {
+      const row = queue[i]?.row;
+      if (!row) continue;
+      if (getCardExamples(row.tags).length === 0) {
+        void fetchExamples(row.front).catch(() => {});
+      }
+      preloadSpeech(row.front);
+      if (!row.phonetic && !(row.card_id in phoneticMap)) {
+        const cId = row.card_id;
+        const word = row.front;
+        void fetchPhonetic(word)
+          .then((ph) => {
+            if (!cancelled && ph) {
+              setPhoneticMap((prev) => (prev[cId] === ph ? prev : { ...prev, [cId]: ph }));
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [index, queue, phoneticMap]);
+
+  // 完成时检查是否有单轮上限设置
+  useEffect(() => {
+    if (!finished) return;
+    (async () => {
+      const restUntil = await getRestUntil();
+      if (restUntil > Date.now()) {
+        const mins = Math.ceil((restUntil - Date.now()) / 60000);
+        setRestLabel(`已达到单轮学习上限，建议休息 ${mins} 分钟后再继续`);
+      } else {
+        setRestLabel("");
+      }
+    })().catch(() => {});
+  }, [finished]);
+
+  // 加载学习偏好与 AI 配置
+  useEffect(() => {
+    (async () => {
+      const [rm, ar, si, aiCfg, qms, leech] = await Promise.all([
+        getRatingMode(),
+        getActiveRecallEnabled(),
+        getSummaryInterval(),
+        getAIConfig(),
+        getQuickTestMs(),
+        getLeechThreshold(),
+      ]);
+      setRatingMode(rm);
+      setActiveRecallEnabled(ar);
+      setSummaryInterval(si);
+      setAiEnabled(aiCfg.enabled);
+      setQuickMs(qms);
+      setLeechThreshold(leech);
+    })().catch(() => {});
+  }, []);
+
+  // 加载全词库干扰项池（只取 front/back，供选择题与同族词使用）
+  useEffect(() => {
+    let cancelled = false;
+    db.getRandomDistractors(deckId ?? 0, 0, 100)
+      .then((cards) => {
+        if (cancelled) return;
+        setDeckDistractors(cards);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [deckId]);
+
+  // 将数据库干扰项池与当前队列卡片融合，确保随时有充足的干扰项
+  const effectiveDistractors = useMemo(() => {
+    const map = new Map<string, Distractor>();
+    for (const c of deckDistractors) {
+      if (c.front) map.set(c.front.trim().toLowerCase(), c);
+    }
+    for (const q of queue) {
+      const c = q.row;
+      if (c.front && !map.has(c.front.trim().toLowerCase())) {
+        map.set(c.front.trim().toLowerCase(), c);
+      }
+    }
+    return Array.from(map.values());
+  }, [deckDistractors, queue]);
+
+  // 卡片切换时：重置间隔预览/可检索度；迷你小结出现时先不开始计时
+  useEffect(() => {
+    setPreview(null);
+    setRetrievability(null);
+    if (item && !showMiniSummary) {
+      markShown();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, queue.length]);
+
+  /** 当前卡片的统一学习流模式 */
+  const modeConfig = useMemo(
+    () => (item ? resolveStudyMode(rowToState(item.row), aiEnabled, activeRecallEnabled, leechThreshold) : null),
+    [item, aiEnabled, activeRecallEnabled, leechThreshold]
+  );
+
+  /** 揭示答案：计算四档间隔预览与记忆可检索度 */
+  const handleReveal = useCallback(async () => {
+    if (!item) return;
+    const state = rowToState(item.row);
+    try {
+      const [retention, learningSteps] = await Promise.all([
+        getEffectiveRetention(),
+        getLearningSteps(),
+      ]);
+      const [p, r] = await Promise.all([
+        previewIntervals(state, undefined, retention, learningSteps),
+        getRetrievability(state, undefined, retention, learningSteps),
+      ]);
+      setPreview(p);
+      setRetrievability(r);
+    } catch {
+      // 预览失败不阻断评分流程
+    }
+  }, [item]);
+
+  const handleContinue = () => {
+    markShown();
+    setShowMiniSummary(false);
+  };
+
+  /** 迷你小结 → AI 巩固薄弱词：跳转到弱词本统一处理 */
+  const handleAIReviewFromSummary = (words: string[]) => {
+    if (words.length === 0) return;
+    navigate("/weak-words");
+  };
+
+  const handleRate = useCallback(
+    async (grade: 1 | 2 | 3 | 4) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const before = useStudyStore.getState().stats.reviewed;
+        const hasNext = await rate(grade);
+        const newDone = before + 1;
+        if (newDone > 0 && newDone % summaryInterval === 0 && hasNext) {
+          setShowMiniSummary(true);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, rate, summaryInterval]
+  );
+
+  /** AI 深度复习完成：以 ai_test 来源评分并推进队列 */
+  const handleAIComplete = useCallback(
+    async (grade: 1 | 2 | 3 | 4, aiQuestion: string, aiAnswer: string) => {
+      if (!item || busy) return;
+      setBusy(true);
+      try {
+        const before = useStudyStore.getState().stats.reviewed;
+        const hasNext = await rate(grade, Date.now() - item.shownAt, {
+          source: "ai_test",
+          aiQuestion,
+          aiAnswer,
+        });
+        const newDone = before + 1;
+        if (newDone > 0 && newDone % summaryInterval === 0 && hasNext) {
+          setShowMiniSummary(true);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [item, busy, rate, summaryInterval]
+  );
+
+  // 键盘快捷键 1-4（仅在当前模式允许评分时生效）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!rateReady) return;
+      const g = parseInt(e.key, 10);
+      if (g >= 1 && g <= 4) handleRate(g as 1 | 2 | 3 | 4);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rateReady, handleRate]);
+
+  // 结束页（本轮完成）
+  if (finished) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="flex items-center justify-between">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/">
+              <ArrowLeft className="size-4" />
+              返回首页
+            </Link>
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {isOrchestrated ? (
+              <span className="flex items-center gap-1.5 font-medium text-primary">
+                <Sparkles className="size-3.5" />
+                {orchestratedTitle || "AI 备考任务编排"}
+              </span>
+            ) : (
+              <>
+                词库：{deckName}
+                {tagName && " · 标签：" + tagName}
+              </>
+            )}
+          </span>
+        </div>
+
+        {/* AI 编排备考任务达成专属祝贺卡片 */}
+        {isOrchestrated && done > 0 && (
+          <Card className="border-primary/40 bg-gradient-to-br from-primary/10 via-background to-amber-500/10 shadow-md">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-xl font-bold">
+                  <Sparkles className="size-5 text-amber-500" />
+                  今日备考任务圆满达成
+                </CardTitle>
+                <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30">
+                  {orchestratedTitle || "AI 编排"}
+                </Badge>
+              </div>
+              <CardDescription>
+                恭喜！今日规划的全部生词与复习任务已顺利完成，备考底气又厚实了一层！
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* 鼓励语卡片 */}
+              <div className="relative rounded-xl border border-primary/20 bg-background/80 p-4 shadow-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="size-3" />
+                      专属备考鼓励语
+                    </p>
+                    {encouragementLoading ? (
+                      <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="size-3.5 animate-spin text-primary" />
+                        AI 备考导师正在根据今日战报为你生成专属鼓励语…
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium italic leading-relaxed text-foreground/95">
+                        “{encouragement || "乾坤未定，你我皆是黑马！今天的任务稳稳拿下，考场见证你的蜕变！"}”
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleRefreshEncouragement}
+                    disabled={encouragementLoading || encouragementRefreshing}
+                    className="shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-primary"
+                    title="换一句鼓励语"
+                  >
+                    <RefreshCw className={encouragementRefreshing ? "size-3 animate-spin" : "size-3"} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* 达成统计小结 */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-primary">{stats.newDone}</div>
+                  <div className="text-[11px] text-muted-foreground">今日新学词汇</div>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                    {Math.max(0, stats.reviewed - stats.newDone)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">复习巩固词汇</div>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-2.5">
+                  <div className="text-lg font-bold text-foreground">
+                    {Math.round(
+                      (done / Math.max(1, orchestratedTarget || done)) * 100
+                    )}%
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">任务达成率</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 标签学习完成：建议立即进行该标签集的选择/填空测试 */}
+        {finished && done > 0 && tagName && deckId !== null && deckId > 0 && onStartTagQuiz && (
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="size-5 text-primary" />
+                标签巩固测试
+              </CardTitle>
+              <CardDescription>
+                你已完成「{tagName}」标签的全部学习内容，建议用 10 道选择/填空题立即检验记忆（掌握度回填 FSRS）。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-4">
+              <Badge variant="secondary" className="text-xs">
+                <Tag className="mr-1 inline size-3" />
+                {tagName}
+              </Badge>
+              <Button onClick={() => onStartTagQuiz(deckId, tagName)}>
+                <ClipboardList className="size-4" />
+                开始标签测试
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+            {done > 0 ? (
+              <CheckCircle2 className="size-10 text-green-500" />
+            ) : (
+              <BookOpen className="size-10 text-muted-foreground" />
+            )}
+            <CardTitle>{done > 0 ? (isOrchestrated ? "本次学习已完成" : "本轮完成") : "今日没有需要学习的卡片"}</CardTitle>
+            <CardDescription className="max-w-md">
+              {done > 0 ? (
+                <>
+                  复习 {Math.max(0, stats.reviewed - stats.newDone)} 张 · 新卡 {stats.newDone} 张 · 忘记 {stats.again} 张
+                  {stats.hard > 0 ? ` · 模糊 ${stats.hard} 张` : ""}
+                </>
+              ) : (
+                isOrchestrated
+                  ? "选定词库与标签范围内，今日已无可学卡片或已达成今日配额。"
+                  : "「" + deckName + (tagName ? " · " + tagName : "") + "」当前没有到期的卡片或可用新卡配额。"
+              )}
+            </CardDescription>
+            {restLabel && (
+              <p className="text-sm font-medium text-amber-600">{restLabel}</p>
+            )}
+            {done > 0 && (
+              <p className="text-xs text-muted-foreground">本次学习时长：{sessionDuration}</p>
+            )}
+            {syncNotice && (
+              <p className="text-xs text-muted-foreground">{syncNotice}</p>
+            )}
+            {done > 0 && stats.weakWords.length > 0 && (
+              <div className="w-full max-w-md rounded-lg bg-muted/50 p-3 text-left">
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">需要关注的生词</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...new Set(stats.weakWords)].slice(0, 8).map((w) => (
+                    <Badge key={w} variant="destructive">{w}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {remainingNew !== null && remainingNew > 0 && !isOrchestrated && deckId !== null && deckId > 0 && (
+              <div className="w-full max-w-md rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
+                <p className="text-sm font-medium">
+                  该范围还有 <span className="font-bold text-primary">{remainingNew >= 100 ? "100+" : remainingNew}</span> 张未学习的新词
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  已达今日计划配额？可自主加学新词继续背诵：
+                </p>
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => void loadQueue(deckId, tagName || undefined, keyOnly, 20)}
+                  >
+                    加学 20 张新词
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void loadQueue(deckId, tagName || undefined, keyOnly, 10)}
+                  >
+                    加学 10 张
+                  </Button>
+                </div>
+              </div>
+            )}
+            {remainingNew !== null && remainingNew > 0 && isOrchestrated && (
+              <div className="w-full max-w-md rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
+                <p className="text-xs text-muted-foreground">
+                  编排词库中还有 <span className="font-semibold text-primary">{remainingNew}</span> 张未学新词，已为你平均分摊到后续备考日常。
+                </p>
+              </div>
+            )}
+            <div className="flex gap-3 pt-2">
+              <Button onClick={() => reset()}>{isOrchestrated ? "返回仪表盘" : "返回词库选择"}</Button>
+              <Button asChild variant="outline">
+                <Link to="/decks">管理词库</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!item) {
+    return (
+      <div className="flex items-center justify-center py-24 text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  const renderAI = (embedded: boolean) => (
+    <AIChatPanel
+      embedded={embedded}
+      front={item.row.front}
+      back={getCardMeaning(item.row)}
+      cardState={rowToState(item.row)}
+      strategyOverride={modeConfig?.aiStrategy ?? undefined}
+      defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
+      onGradeDecided={(grade, question, answer) =>
+        handleAIComplete(grade, question ?? "", answer ?? "")
+      }
+    />
+  );
+
+  return (
+    <div className="mx-auto w-full max-w-7xl space-y-2.5 sm:space-y-6">
+      <div className="flex items-center justify-between gap-2 pt-0.5 sm:pt-0">
+        <Button variant="ghost" size="sm" onClick={() => setExitOpen(true)} className="h-8 px-2 text-xs sm:text-sm">
+          <ArrowLeft className="size-4 mr-1" />
+          退出
+        </Button>
+        <div className="flex items-center gap-1.5 text-xs sm:text-sm min-w-0">
+          <span className="font-medium truncate max-w-[130px] sm:max-w-none">{deckName}</span>
+          {tagName && (
+            <Badge variant="secondary" className="text-[10px] truncate max-w-[80px]">
+              <Tag className="size-2.5 mr-0.5" />
+              {tagName}
+            </Badge>
+          )}
+          {keyOnly && (
+            <Badge className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-500">
+              <Star className="size-2.5 mr-0.5" />
+              重点
+            </Badge>
+          )}
+        </div>
+        <div className="text-xs text-muted-foreground shrink-0 font-medium">
+          {Math.min(total, index + 1)} / {total}
+        </div>
+      </div>
+
+      {/* 进度条 */}
+      <div className="h-1 sm:h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-300"
+          style={{ width: total > 0 ? (((index + 1) / total) * 100).toFixed(1) + "%" : "0%" }}
+        />
+      </div>
+
+      {/* 快捷操作：加入弱词本 / 跳过 / 忽略 */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground font-mono">
+          卡片 {index + 1}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {weakNotice && (
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 animate-in fade-in duration-200">
+              {weakNotice}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant={isCurrentWeak ? "secondary" : "ghost"}
+            onClick={handleToggleWeak}
+            className={`h-7 px-2 text-xs gap-1 transition-all ${
+              isCurrentWeak
+                ? "border border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                : "text-muted-foreground hover:text-amber-600"
+            }`}
+            title={isCurrentWeak ? "已在弱词本，点击移出" : "快速将该单词加入弱词本以重点攻克"}
+          >
+            {isCurrentWeak ? (
+              <Check className="size-3.5 text-amber-600 dark:text-amber-400" />
+            ) : (
+              <AlertTriangle className="size-3.5 text-amber-500" />
+            )}
+            <span className="hidden sm:inline">{isCurrentWeak ? "已在弱词本" : "加入弱词本"}</span>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => skip()} className="h-7 px-2 text-xs">
+            跳过
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void ignore()} className="h-7 px-2 text-xs text-muted-foreground">
+            忽略
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-4">
+        {/* 左侧主学习区 */}
+        <div className="min-w-0 flex-1">
+          <div className="mx-auto w-full max-w-3xl space-y-4">
+            {/* 迷你小结：每 N 张插入一次，替换卡片区 */}
+            {showMiniSummary ? (
+              <SessionMiniSummary
+                stats={stats}
+                onContinue={handleContinue}
+                onAIReview={handleAIReviewFromSummary}
+              />
+            ) : (
+              modeConfig && (
+                <StudyCard
+                  key={item.row.card_id}
+                  row={item.row}
+                  config={modeConfig}
+                  phonetic={phoneticText}
+                  ratingMode={ratingMode}
+                  preview={preview}
+                  retrievability={retrievability}
+                  busy={busy}
+                  distractors={effectiveDistractors}
+                  quickMs={quickMs}
+                  onReveal={() => void handleReveal()}
+                  onRate={(grade) => void handleRate(grade)}
+                  onRateReadyChange={setRateReady}
+                />
+              )
+            )}
+
+            <div className="hidden sm:flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+              <Keyboard className="size-3.5" />
+              {ratingMode === "3" ? "快捷键：1 不记得 · 2 模糊 · 3 已掌握" : "快捷键：1 忘了 · 2 困难 · 3 已掌握 · 4 简单"}
+            </div>
+          </div>
+        </div>
+
+        {/* 桌面端：右侧可折叠 AI 助手侧栏（300ms 宽度/透明度动画） */}
+        {!showMiniSummary && isDesktop && (
+          <>
+            <div
+              className="ai-side-panel shrink-0 overflow-hidden"
+              style={{ width: aiPanelOpen ? "22rem" : "0rem", opacity: aiPanelOpen ? 1 : 0 }}
+            >
+              {aiPanelMounted && (
+                <aside className="sticky top-4 w-full overflow-hidden rounded-xl border bg-card">
+                  <div className="flex items-center justify-between border-b px-3 py-2">
+                    <span className="flex items-center gap-1.5 text-[15px] font-medium">
+                      <Sparkles className="size-4 text-purple-500" />
+                      AI 学习助手
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      onClick={toggleAiPanel}
+                      title="收起 AI 助手"
+                    >
+                      <PanelRightClose className="size-4" />
+                    </Button>
+                  </div>
+                  {renderAI(true)}
+                </aside>
+              )}
+            </div>
+            {!aiPanelOpen && (
+              <button
+                type="button"
+                onClick={toggleAiPanel}
+                className="sticky top-4 flex shrink-0 flex-col items-center gap-1.5 rounded-xl border bg-card px-3 py-4 text-xs text-muted-foreground transition-colors hover:bg-accent"
+                title="展开 AI 助手"
+              >
+                <PanelRightOpen className="size-5 text-purple-500" />
+                <span>AI 助手</span>
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 窄屏：AI 助手退化为卡片下方的折叠面板 */}
+      {!showMiniSummary && !isDesktop && (
+        aiPanelOpen ? (
+          renderAI(false)
+        ) : (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={toggleAiPanel}>
+              <Sparkles className="size-4 text-purple-500" />
+              AI 学习助手
+            </Button>
+          </div>
+        )
+      )}
+
+      {/* 中途退出确认 */}
+      <ConfirmDialog
+        open={exitOpen}
+        onOpenChange={setExitOpen}
+        title="确认退出学习？"
+        description="退出后回到词库选择，当前未完成队列将清空。已评分记录不会丢失。"
+        confirmLabel="退出"
+        cancelLabel="继续学习"
+        onConfirm={() => {
+          setExitOpen(false);
+          const ratedCount = stats.reviewed + stats.newDone + stats.actions;
+          if (ratedCount > 0 && !hasPushedInSessionRef.current) {
+            hasPushedInSessionRef.current = true;
+            void autoPushIfConfigured().catch(() => {});
+          }
+          useStudyStore.getState().reset();
+          navigate("/study");
+        }}
+      />
+    </div>
+  );
+}

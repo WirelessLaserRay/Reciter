@@ -1,73 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Compass,
-  FileUp,
-  Loader2,
-  RefreshCw,
-  Sparkles,
-  Star,
-  Upload,
-} from "lucide-react";
+import { Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { db } from "@/lib/db";
 import { isTauri } from "@/lib/env";
 import { useDeckStore } from "@/stores/useDeckStore";
-import { parseImportFile, parseTextInput, parseApkgFile, type ImportFileResult, type ImportFormat } from "@/lib/importer";
+import {
+  parseImportFile,
+  parseTextInput,
+  parseApkgFile,
+  type ImportFileResult,
+  type ImportFormat,
+} from "@/lib/importer";
 import { generateCardsFromText, type AIMode } from "@/lib/ai-generate";
 import { useTaskStore } from "@/stores/useTaskStore";
-import { cn } from "@/lib/utils";
-
-interface PreviewRow {
-  key: string;
-  deckName: string;
-  folder: string;
-  front: string;
-  back: string;
-  phonetic: string;
-  markdown: string;
-  sourceType: "markdown" | "csv" | "json" | "manual" | "apkg";
-  tags: string[];
-  isKey: boolean;
-  meaningPrimary: string;
-  meaningSecondary: string;
-  status: "new" | "exists" | "duplicate";
-  checked: boolean;
-}
-
-type Stage = "idle" | "preview" | "importing" | "done";
-
-interface ImportResult {
-  created: number;
-  updated: number;
-  skipped: number;
-  decks: number;
-}
-
-const ACCEPT = ".md,.markdown,.csv,.json,.txt,.apkg";
+import {
+  type PreviewRow,
+  type Stage,
+  type ImportResult,
+  type DeckTarget,
+  type DeckTargetOption,
+  ImportUploadDropzone,
+  ImportManualSection,
+  ImportAiSection,
+  ImportFormatDocs,
+  ImportConflictSection,
+  ImportPreviewTable,
+  ImportProgressModal,
+  ImportDoneCard,
+} from "./import-flow";
 
 export default function Import() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,20 +48,13 @@ export default function Import() {
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [deckTargets, setDeckTargets] = useState<
-    Record<
-      string,
-      {
-        deckId: number | null;
-        label: string;
-        folder: string;
-        name: string;
-        options: { deckId: number | null; label: string; folder: string; name: string }[];
-      }
-    >
-  >({});
+  const [deckTargets, setDeckTargets] = useState<Record<string, DeckTarget>>({});
   const refreshDecks = useDeckStore((s) => s.refresh);
-  const [importProgress, setImportProgress] = useState({ phase: "" as "" | "phonetic" | "db", done: 0, total: 0 });
+  const [importProgress, setImportProgress] = useState({
+    phase: "" as "" | "phonetic" | "db",
+    done: 0,
+    total: 0,
+  });
   const [autoPhonetic, setAutoPhonetic] = useState(false);
   const [backgroundPhonetic, setBackgroundPhonetic] = useState(false);
 
@@ -156,19 +112,10 @@ export default function Import() {
         });
       }
     }
-    const targets: Record<
-      string,
-      {
-        deckId: number | null;
-        label: string;
-        folder: string;
-        name: string;
-        options: { deckId: number | null; label: string; folder: string; name: string }[];
-      }
-    > = {};
+    const targets: Record<string, DeckTarget> = {};
     for (const deckName of deckGroups.keys()) {
       const matches = await db.getDecksByName(deckName);
-      const options: { deckId: number | null; label: string; folder: string; name: string }[] = matches.map((m) => ({
+      const options: DeckTargetOption[] = matches.map((m) => ({
         deckId: m.id,
         label: `${m.folder || "根目录"}/${m.name}`,
         folder: m.folder,
@@ -240,39 +187,41 @@ export default function Import() {
     if (!isTauri()) return;
     let unlistenFn: (() => void) | undefined;
     let isMounted = true;
-    getCurrentWebview().onDragDropEvent((event) => {
-      const payload = event.payload;
-      if (payload.type === "over") {
-        setDragOver(true);
-      } else if (payload.type === "leave") {
-        setDragOver(false);
-      } else if (payload.type === "drop") {
-        setDragOver(false);
-        const path = payload.paths?.[0];
-        if (path) {
-          const name = path.split(/[\\/]/).pop() ?? path;
-          if (name.toLowerCase().endsWith(".apkg")) {
-            invoke<number[]>("read_binary_file", { path })
-              .then((bytes) => parseApkgFile(name, new Uint8Array(bytes)))
-              .then((res) => handleParsed(name, res))
-              .catch((e) => {
-                setStage("idle");
-                setWarnings([String(e)]);
-              });
-          } else {
-            invoke<string>("read_text_file", { path })
-              .then((text) => handleText(name, text))
-              .catch((e) => {
-                setStage("idle");
-                setWarnings([String(e)]);
-              });
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === "over") {
+          setDragOver(true);
+        } else if (payload.type === "leave") {
+          setDragOver(false);
+        } else if (payload.type === "drop") {
+          setDragOver(false);
+          const path = payload.paths?.[0];
+          if (path) {
+            const name = path.split(/[\\/]/).pop() ?? path;
+            if (name.toLowerCase().endsWith(".apkg")) {
+              invoke<number[]>("read_binary_file", { path })
+                .then((bytes) => parseApkgFile(name, new Uint8Array(bytes)))
+                .then((res) => handleParsed(name, res))
+                .catch((e) => {
+                  setStage("idle");
+                  setWarnings([String(e)]);
+                });
+            } else {
+              invoke<string>("read_text_file", { path })
+                .then((text) => handleText(name, text))
+                .catch((e) => {
+                  setStage("idle");
+                  setWarnings([String(e)]);
+                });
+            }
           }
         }
-      }
-    }).then((unlisten) => {
-      if (!isMounted) unlisten();
-      else unlistenFn = unlisten;
-    });
+      })
+      .then((unlisten) => {
+        if (!isMounted) unlisten();
+        else unlistenFn = unlisten;
+      });
     return () => {
       isMounted = false;
       unlistenFn?.();
@@ -281,31 +230,48 @@ export default function Import() {
   }, []);
 
   const toggleRow = (key: string) => {
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, checked: !r.checked } : r)));
+    setRows((rs) =>
+      rs.map((r) => (r.key === key ? { ...r, checked: !r.checked } : r))
+    );
   };
 
   const toggleAll = () => {
     const selectable = rows.filter((r) => r.status !== "duplicate");
-    const allChecked = selectable.length > 0 && selectable.every((r) => r.checked);
-    setRows((rs) => rs.map((r) => (r.status === "duplicate" ? r : { ...r, checked: !allChecked })));
+    const allChecked =
+      selectable.length > 0 && selectable.every((r) => r.checked);
+    setRows((rs) =>
+      rs.map((r) =>
+        r.status === "duplicate" ? r : { ...r, checked: !allChecked }
+      )
+    );
   };
 
   const selectDeckTarget = (deckName: string, value: string) => {
     setDeckTargets((prev) => {
       const t = prev[deckName];
       if (!t) return prev;
-      const opt = t.options.find((o) =>
-        (o.deckId !== null ? `id:${o.deckId}` : `new:${o.name}`) === value
-      ) ?? t.options[0];
+      const opt =
+        t.options.find(
+          (o) =>
+            (o.deckId !== null ? `id:${o.deckId}` : `new:${o.name}`) === value
+        ) ?? t.options[0];
       if (!opt) return prev;
-      return { ...prev, [deckName]: { ...t, deckId: opt.deckId, label: opt.label, folder: opt.folder, name: opt.name } };
+      return {
+        ...prev,
+        [deckName]: {
+          ...t,
+          deckId: opt.deckId,
+          label: opt.label,
+          folder: opt.folder,
+          name: opt.name,
+        },
+      };
     });
   };
 
   const confirmImport = async () => {
     setStage("importing");
     const selected = rows.filter((r) => r.checked);
-
     const imported: { row: PreviewRow; deckId: number }[] = [];
 
     // Phase: 写入数据库（带进度）
@@ -323,8 +289,12 @@ export default function Import() {
         label: r.deckName,
         folder: "",
         name: r.deckName,
+        options: [],
       };
-      const targetKey = target.deckId !== null ? String(target.deckId) : `new:${target.folder}\u0000${target.name}`;
+      const targetKey =
+        target.deckId !== null
+          ? String(target.deckId)
+          : `new:${target.folder}\u0000${target.name}`;
       let existing = knownExistingByDeck.get(targetKey);
       if (!existing) {
         existing = new Set<string>();
@@ -342,7 +312,10 @@ export default function Import() {
         if (cachedDeckId) {
           deckId = cachedDeckId;
         } else {
-          const uniqueName = await db.getUniqueDeckName(target.name, target.folder);
+          const uniqueName = await db.getUniqueDeckName(
+            target.name,
+            target.folder
+          );
           deckId = await db.createDeck(uniqueName, "", undefined, target.folder);
           createdDeckIds.set(targetKey, deckId);
         }
@@ -368,11 +341,17 @@ export default function Import() {
       if (res.created) created++;
       else updated++;
       if ((idx + 1) % 10 === 0 || idx === selected.length - 1) {
-        setImportProgress({ phase: "db", done: idx + 1, total: selected.length });
+        setImportProgress({
+          phase: "db",
+          done: idx + 1,
+          total: selected.length,
+        });
       }
     }
     // 后台补齐音标：使用全局任务中心，切换页面绝不中断
-    const needPhonetic = imported.filter((x) => !x.row.phonetic).map((x) => x.row.front);
+    const needPhonetic = imported
+      .filter((x) => !x.row.phonetic)
+      .map((x) => x.row.front);
     if (autoPhonetic && needPhonetic.length > 0) {
       setBackgroundPhonetic(true);
       const deckMap = new Map<number, string>();
@@ -398,12 +377,6 @@ export default function Import() {
     setDeckTargets({});
   };
 
-  const selectableCount = rows.filter((r) => r.status !== "duplicate").length;
-  const checkedCount = rows.filter((r) => r.checked).length;
-  const newCount = rows.filter((r) => r.status === "new").length;
-  const existsCount = rows.filter((r) => r.status === "exists").length;
-  const dupCount = rows.filter((r) => r.status === "duplicate").length;
-
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -414,7 +387,11 @@ export default function Import() {
           </p>
         </div>
         <Link to="/deck-hub">
-          <Button variant="outline" size="sm" className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+          >
             <Compass className="size-4" />
             前往词库广场 (现成词库一键下载)
           </Button>
@@ -423,506 +400,70 @@ export default function Import() {
 
       {stage === "idle" && (
         <>
-          <div
-            className={cn(
-              "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-16 text-center transition-colors",
-              dragOver ? "border-primary bg-primary/5" : "hover:border-primary/50"
-            )}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const f = e.dataTransfer.files?.[0];
-              if (f) handleFile(f);
-            }}
-          >
-            <Upload className="size-10 text-muted-foreground" />
-            <div className="font-medium">拖拽文件到这里，或点击选择文件</div>
-            <p className="text-sm text-muted-foreground">.md / .csv / .json / .txt / .apkg (Anki)</p>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPT}
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-              e.target.value = "";
-            }}
+          <ImportUploadDropzone
+            dragOver={dragOver}
+            setDragOver={setDragOver}
+            fileInputRef={fileInputRef}
+            onFile={handleFile}
           />
 
-          <Card>
-            <CardHeader>
-              <CardTitle>手动输入</CardTitle>
-              <CardDescription>粘贴 Markdown / CSV / JSON / TXT 内容，支持自定义分隔符与例句解析</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Label className="shrink-0 text-xs text-muted-foreground">格式</Label>
-                  <Select
-                    value={manualFormat}
-                    onValueChange={(v) => setManualFormat(v as ImportFormat | "auto")}
-                  >
-                    <SelectTrigger className="w-36">
-                      <SelectValue placeholder="选择解析格式">
-                        {manualFormat === "auto"
-                          ? "自动识别 (推荐)"
-                          : manualFormat === "markdown"
-                            ? "Markdown 格式"
-                            : manualFormat === "csv"
-                              ? "CSV 表格"
-                              : manualFormat === "json"
-                                ? "JSON 数据"
-                                : "TXT 纯文本"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="w-44">
-                      <SelectItem value="auto" className="py-2">
-                        <span className="font-medium text-sm">自动识别</span>
-                        <span className="text-xs text-muted-foreground ml-1.5">(推荐)</span>
-                      </SelectItem>
-                      <SelectItem value="markdown" className="py-2">
-                        <span className="font-medium text-sm">Markdown (.md)</span>
-                      </SelectItem>
-                      <SelectItem value="csv" className="py-2">
-                        <span className="font-medium text-sm">CSV 表格 (.csv)</span>
-                      </SelectItem>
-                      <SelectItem value="json" className="py-2">
-                        <span className="font-medium text-sm">JSON 数据 (.json)</span>
-                      </SelectItem>
-                      <SelectItem value="txt" className="py-2">
-                        <span className="font-medium text-sm">TXT 纯文本 (.txt)</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+          <ImportManualSection
+            manualFormat={manualFormat}
+            setManualFormat={setManualFormat}
+            delimiterType={delimiterType}
+            setDelimiterType={setDelimiterType}
+            customDelimiter={customDelimiter}
+            setCustomDelimiter={setCustomDelimiter}
+            manualText={manualText}
+            setManualText={setManualText}
+            onParse={handleManualText}
+          />
 
-                <div className="flex items-center gap-2">
-                  <Label className="shrink-0 text-xs text-muted-foreground">分隔符</Label>
-                  <Select
-                    value={delimiterType}
-                    onValueChange={setDelimiterType}
-                  >
-                    <SelectTrigger className="w-40">
-                      <SelectValue placeholder="分隔符">
-                        {delimiterType === "auto"
-                          ? "自动检测"
-                          : delimiterType === "tab"
-                            ? "Tab 制表符 (\\t)"
-                            : delimiterType === "comma"
-                              ? "逗号 (,)"
-                              : delimiterType === "pipe"
-                                ? "竖线 (|)"
-                                : delimiterType === "dash"
-                                  ? "破折号 ( - )"
-                                  : delimiterType === "colon"
-                                    ? "冒号 (:)"
-                                    : delimiterType === "semicolon"
-                                      ? "分号 (;)"
-                                      : delimiterType === "space"
-                                        ? "空格"
-                                        : "自定义..."}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="w-48">
-                      <SelectItem value="auto" className="py-2">
-                        <span className="font-medium text-sm">自动检测</span>
-                        <span className="text-xs text-muted-foreground ml-1.5">(默认)</span>
-                      </SelectItem>
-                      <SelectItem value="tab" className="py-2">
-                        <span className="font-medium text-sm">Tab 制表符 (\t)</span>
-                      </SelectItem>
-                      <SelectItem value="comma" className="py-2">
-                        <span className="font-medium text-sm">逗号 (, / ，)</span>
-                      </SelectItem>
-                      <SelectItem value="pipe" className="py-2">
-                        <span className="font-medium text-sm">竖线 (|)</span>
-                      </SelectItem>
-                      <SelectItem value="dash" className="py-2">
-                        <span className="font-medium text-sm">破折号 ( - )</span>
-                      </SelectItem>
-                      <SelectItem value="colon" className="py-2">
-                        <span className="font-medium text-sm">冒号 (: / ：)</span>
-                      </SelectItem>
-                      <SelectItem value="semicolon" className="py-2">
-                        <span className="font-medium text-sm">分号 (;)</span>
-                      </SelectItem>
-                      <SelectItem value="space" className="py-2">
-                        <span className="font-medium text-sm">空格</span>
-                      </SelectItem>
-                      <SelectItem value="custom" className="py-2">
-                        <span className="font-medium text-sm">自定义分隔符...</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+          <ImportAiSection
+            aiMode={aiMode}
+            setAiMode={setAiMode}
+            aiText={aiText}
+            setAiText={setAiText}
+            aiBusy={aiBusy}
+            aiError={aiError}
+            onAiGenerate={handleAIGenerate}
+          />
 
-                {delimiterType === "custom" && (
-                  <input
-                    type="text"
-                    placeholder="如 ::: 或 ---"
-                    className="h-9 w-32 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    value={customDelimiter}
-                    onChange={(e) => setCustomDelimiter(e.target.value)}
-                  />
-                )}
-
-                <Button onClick={handleManualText} disabled={!manualText.trim()}>
-                  解析预览
-                </Button>
-              </div>
-
-              <Textarea
-                rows={6}
-                placeholder={
-                  delimiterType === "custom" && customDelimiter
-                    ? `每行一个词条（支持第3列写入例句），例如：\nabandon ${customDelimiter} vt. 放弃 ${customDelimiter} He abandoned the plan.\nsubtle ${customDelimiter} adj. 微妙的`
-                    : delimiterType === "comma"
-                      ? "每行一个词条，例如：\nabandon, vt. 放弃, He abandoned the plan.\n# 核心词库\nsubtle, adj. 微妙的"
-                      : delimiterType === "pipe"
-                        ? "每行一个词条，例如：\nabandon | vt. 放弃 | He abandoned the plan.\nsubtle | adj. 微妙的"
-                        : "每行一个词条（支持第3列写例句），例如：\nabandon\tvt. 放弃\tHe abandoned the plan.\n# 四级词汇\nabandon, 放弃"
-                }
-                value={manualText}
-                onChange={(e) => setManualText(e.target.value)}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="size-4 text-primary" />
-                    {aiMode === "study_material" ? "AI 识别：学习资料解析" : "AI 识别：语料生成闪卡"}
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    {aiMode === "study_material"
-                      ? "精准解析学习资料中的单词/短语、词性、词义，并提取原文例句（或补齐例句）完整写入词库"
-                      : "粘贴整篇英文文章或外刊阅读材料，AI 根据词汇水平提炼最具学习价值的生词与短语生成闪卡"}
-                  </CardDescription>
-                </div>
-
-                <div className="inline-flex rounded-lg border bg-muted/50 p-1 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setAiMode("study_material")}
-                    className={cn(
-                      "rounded-md px-3 py-1 font-medium transition-all",
-                      aiMode === "study_material"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    学习资料解析
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiMode("corpus")}
-                    className={cn(
-                      "rounded-md px-3 py-1 font-medium transition-all",
-                      aiMode === "corpus"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    语料生成闪卡
-                  </button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Textarea
-                rows={7}
-                placeholder={
-                  aiMode === "study_material"
-                    ? "粘贴学习资料、生词笔记或教材讲义，例如：\n1. subtle adj. 微妙的，不易察觉的\n   He noticed a subtle change in her attitude. 他注意到她态度的微妙变化。\n2. take into account 考虑到，体谅\n3. reluctant adj. 不情愿的，勉强的"
-                    : "粘贴整篇英文文章、外刊报道或阅读材料段落，AI 将自动筛选提炼生词生成闪卡…"
-                }
-                value={aiText}
-                onChange={(e) => setAiText(e.target.value)}
-              />
-              {aiError && <p className="text-xs text-red-600">{aiError}</p>}
-              <Button onClick={handleAIGenerate} disabled={aiBusy || !aiText.trim()}>
-                {aiBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                {aiMode === "study_material" ? "解析学习资料并生成卡片" : "提炼语料并生成闪卡"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>支持的格式</CardTitle>
-              <CardDescription>解析规则（对齐 templates 样式与 PLAN 规范）</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div>
-                <div className="mb-1 font-medium">Markdown（templates 样式）</div>
-                <pre className="rounded-md bg-muted p-3 text-xs leading-relaxed">
-{["# 考研英语复习", "", "## Unit 1", "", "### 1.1 熟词生义", "", "- **radiate vt./vi. (from) 发散；流露出**", "- plain_word n. 次要词条", "", "## Unit 2"].join("\n")}
-                </pre>
-                <p className="mt-1 text-muted-foreground">
-                  <code>#</code> 书名 · <code>##</code> 词库 · <code>###</code> 分组(标签) ·{" "}
-                  <code>- word: 释义</code> 或 <code>- word n. 释义</code> 成卡 ·{" "}
-                  <code>&gt;</code> 引用块作例句 · <code>==高亮==</code> 挖空素材
-                </p>
-              </div>
-              <Separator />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <div className="mb-1 font-medium">CSV</div>
-                  <pre className="rounded-md bg-muted p-3 text-xs">
-{["word,meaning,deck", "abandon,放弃,四级"].join("\n")}
-                  </pre>
-                  <p className="mt-1 text-muted-foreground">表头可识别 front/word/back/meaning/deck/tags</p>
-                </div>
-                <div>
-                  <div className="mb-1 font-medium">JSON</div>
-                  <pre className="rounded-md bg-muted p-3 text-xs">
-{['[{"front":"abandon","back":"放弃"}]'].join("\n")}
-                  </pre>
-                  <p className="mt-1 text-muted-foreground">数组或 {"{ \"cards\": [...] }"} 对象</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <ImportFormatDocs />
         </>
       )}
 
       {stage === "preview" && (
-        <div className="space-y-4">
-          {Object.values(deckTargets).some((t) => t.options.length > 1) && (
-            <Card>
-              <CardHeader>
-                <CardTitle>词库冲突处理</CardTitle>
-                <CardDescription>检测到重名词库，请选择导入目标；选择「新建」会生成 *_1 词库</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {Object.entries(deckTargets)
-                  .filter(([, t]) => t.options.length > 1)
-                  .map(([deckName, t]) => (
-                    <div key={deckName} className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{deckName}</span>
-                      <Select
-                        value={t.deckId !== null ? `id:${t.deckId}` : `new:${t.name}`}
-                        onValueChange={(v) => selectDeckTarget(deckName, v)}
-                      >
-                        <SelectTrigger className="w-64 sm:w-72">
-                          <SelectValue>
-                            {t.options.find(
-                              (opt) =>
-                                (opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`) ===
-                                (t.deckId !== null ? `id:${t.deckId}` : `new:${t.name}`)
-                            )?.label ?? "选择导入目标"}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="w-64 sm:w-72 max-h-60">
-                          {t.options.map((opt) => (
-                            <SelectItem
-                              key={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
-                              value={opt.deckId !== null ? `id:${opt.deckId}` : `new:${opt.name}`}
-                              className="py-2"
-                            >
-                              <span className="text-sm font-medium">{opt.label}</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
-          )}
+        <>
+          <ImportConflictSection
+            deckTargets={deckTargets}
+            onSelectDeckTarget={selectDeckTarget}
+          />
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FileUp className="size-4" />
-                  {fileName}
-                </CardTitle>
-                <CardDescription>
-                  {rows.length} 张卡片 · 新建 {newCount} · 已存在 {existsCount} · 重复 {dupCount}
-                  {warnings.length > 0 && " · 警告 " + warnings.length}
-                </CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={reset}>
-                <RefreshCw className="size-3.5" />
-                重新选择
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {warnings.length > 0 && (
-                <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-600">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <ul className="space-y-0.5">
-                    {warnings.slice(0, 8).map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                    {warnings.length > 8 && <li>… 共 {warnings.length} 条警告</li>}
-                  </ul>
-                </div>
-              )}
-
-              <div className="mb-2 flex items-center gap-3 text-xs text-muted-foreground">
-                <label className="flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={selectableCount > 0 && checkedCount === selectableCount}
-                    onChange={toggleAll}
-                  />
-                  全选（排除重复）
-                </label>
-                <span>已选 {checkedCount} / {selectableCount}</span>
-              </div>
-
-              <ScrollArea className="h-[26rem] rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                    <tr className="text-left text-xs text-muted-foreground">
-                      <th className="w-8 px-2 py-2"></th>
-                      <th className="px-2 py-2">词库</th>
-                      <th className="px-2 py-2">单词/短语</th>
-                      <th className="px-2 py-2">释义</th>
-                      <th className="px-2 py-2">例句</th>
-                      <th className="px-2 py-2">标签</th>
-                      <th className="px-2 py-2">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr
-                        key={r.key}
-                        className={cn(
-                          "border-t",
-                          r.status === "duplicate" && "opacity-60",
-                          r.checked && "bg-primary/5"
-                        )}
-                      >
-                        <td className="px-2 py-1.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={r.checked}
-                            disabled={r.status === "duplicate"}
-                            onChange={() => toggleRow(r.key)}
-                          />
-                        </td>
-                        <td className="max-w-28 truncate px-2 py-1.5 font-medium" title={r.deckName}>
-                          {r.deckName}
-                        </td>
-                        <td className="max-w-36 truncate px-2 py-1.5" title={r.front}>
-                          {r.isKey && <Star className="mr-1 inline size-3 text-amber-500" />}
-                          {r.front}
-                        </td>
-                        <td className="max-w-56 truncate px-2 py-1.5 text-muted-foreground" title={r.back}>
-                          {r.back}
-                        </td>
-                        <td className="max-w-52 truncate px-2 py-1.5 text-xs text-muted-foreground" title={r.markdown || "无例句"}>
-                          {r.markdown ? r.markdown.split(/\r?\n/)[0] : <span className="text-muted-foreground/40">-</span>}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          {r.tags.length > 0 ? (
-                            <Badge variant="secondary" className="text-[10px]">
-                              {r.tags[0]}
-                            </Badge>
-                          ) : null}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          {r.status === "new" && <Badge className="text-[10px]">新建</Badge>}
-                          {r.status === "exists" && (
-                            <Badge variant="outline" className="text-[10px]">更新</Badge>
-                          )}
-                          {r.status === "duplicate" && (
-                            <Badge variant="destructive" className="text-[10px]">重复</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          <div className="flex items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={autoPhonetic}
-                onChange={(e) => setAutoPhonetic(e.target.checked)}
-                className="size-4 accent-primary"
-              />
-              导入时自动获取缺失音标（默认关闭）
-            </label>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={reset}>取消</Button>
-              <Button onClick={confirmImport} disabled={checkedCount === 0}>
-                确认导入（{checkedCount} 张）
-              </Button>
-            </div>
-          </div>
-        </div>
+          <ImportPreviewTable
+            fileName={fileName}
+            rows={rows}
+            warnings={warnings}
+            autoPhonetic={autoPhonetic}
+            setAutoPhonetic={setAutoPhonetic}
+            onToggleRow={toggleRow}
+            onToggleAll={toggleAll}
+            onReset={reset}
+            onConfirmImport={confirmImport}
+          />
+        </>
       )}
 
       {stage === "importing" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md">
-            <CardContent className="flex flex-col items-center gap-4 py-10">
-              <Loader2 className="size-10 animate-spin text-primary" />
-              <p className="text-sm font-medium">正在导入，可能需要较长时间</p>
-              <p className="text-xs text-muted-foreground">请勿切换页面或关闭窗口</p>
-              <p className="text-sm text-muted-foreground">
-                {importProgress.phase === "phonetic"
-                  ? `正在获取音标… ${importProgress.done} / ${importProgress.total}`
-                  : importProgress.phase === "db"
-                    ? `正在写入数据库… ${importProgress.done} / ${importProgress.total}`
-                    : "准备中…"}
-              </p>
-              {importProgress.total > 0 && (
-                <div className="w-64">
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-[width] duration-200"
-                      style={{ width: `${Math.round((importProgress.done / importProgress.total) * 100)}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-center text-xs text-muted-foreground">
-                    {Math.round((importProgress.done / importProgress.total) * 100)}%
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <ImportProgressModal importProgress={importProgress} />
       )}
 
       {stage === "done" && result && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-            <CheckCircle2 className="size-10 text-green-500" />
-            <CardTitle>导入完成</CardTitle>
-            <CardDescription className="max-w-md">
-              新建 <span className="font-semibold text-foreground">{result.created}</span> 张 ·
-              更新 <span className="font-semibold text-foreground">{result.updated}</span> 张 ·
-              跳过 <span className="font-semibold text-foreground">{result.skipped}</span> 张
-              · 涉及 {result.decks} 个词库
-            </CardDescription>
-            {backgroundPhonetic && (
-              <p className="text-xs text-amber-600">音标补齐正在后台进行，可先离开此页面。</p>
-            )}
-            <div className="flex gap-3">
-              <Button onClick={reset}>继续导入</Button>
-              <Button asChild variant="outline">
-                <Link to="/decks">查看词库</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <ImportDoneCard
+          result={result}
+          backgroundPhonetic={backgroundPhonetic}
+          onReset={reset}
+        />
       )}
     </div>
   );

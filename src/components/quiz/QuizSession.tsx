@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -309,16 +309,16 @@ export default function QuizSession({
   };
 
   /** 提交答案并揭示 */
-  const submitAnswer = (answer: string) => {
+  const submitAnswer = useCallback((answer: string) => {
     if (!item) return;
     const next = [...items];
     next[index] = { ...item, userAnswer: answer };
     setItems(next);
     setRevealed(true);
-  };
+  }, [item, items, index]);
 
   /** 设置掌握度并推进 */
-  const confirmMastery = async (mastery: Mastery) => {
+  const confirmMastery = useCallback(async (mastery: Mastery) => {
     if (!item || busy) return;
     setBusy(true);
     try {
@@ -353,7 +353,7 @@ export default function QuizSession({
     } finally {
       setBusy(false);
     }
-  };
+  }, [item, busy, items, index, onTestComplete]);
 
   // 键盘快捷键：测试中 1-4 选 ABCD；揭示后 Enter/Y = 确定（掌握），N = 不确定（忘记）；填空 Enter 已由输入框处理
   useEffect(() => {
