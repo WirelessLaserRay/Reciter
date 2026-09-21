@@ -61,30 +61,30 @@
 
 ### 2.5 信息安全与隐私泄露检查（提交/发布前必做）
 
-> 仓库、源码与打包产物中**不得包含**本机工作区路径（如 `F:\AI\Reciter`）、本机用户名（如 `C:\Users\<用户名>`）、邮箱、API Key/Token 等个人信息。
+> 仓库、源码与打包产物中**不得包含**本机工作区路径（如 `<项目根目录>`）、本机用户名（如 `C:\Users\<用户名>`）、邮箱、API Key/Token 等个人信息。
 
 1. **扫描仓库跟踪文件**（提交前）：
    ```powershell
-   git grep -n -I -E 'F:[\\/]AI[\\/]Reciter|C:[\\/]Users[\\/][^\\]+|your_email@example\.com|sk-[A-Za-z0-9]{12,}|gho_[A-Za-z0-9]{12,}' -- .
+   git grep -n -I -E '[A-Za-z]:[\\/]Users[\\/][^\\]+|your_email@example\.com|sk-[A-Za-z0-9]{12,}|gho_[A-Za-z0-9]{12,}' -- .
    ```
    - 若有命中：将本机路径替换为占位符（`<项目根目录>`、`%USERPROFILE%`、`%ProgramFiles%`），或删除敏感值
 2. **扫描源码/文档中的 file:// 绝对路径**：
    ```powershell
    git grep -n -I -E 'file:///' -- .
    ```
-   - 报告中常见的 `file:///F:/AI/Reciter/...` 应改为仓库相对链接（如 `src/lib/fsrs.ts`）
+   - 报告中常见的 `file:///path/to/project/...` 应改为仓库相对链接（如 `src/lib/fsrs.ts`）
 3. **扫描打包产物（dist/、release exe、安装包）**：
    ```powershell
    # 对每个产物读取字节并检索 ASCII 特征串
    $b=[IO.File]::ReadAllBytes('<文件>'); $s=[Text.Encoding]::ASCII.GetString($b)
-   $s.Contains('C:\Users\') ; $s.Contains('F:\AI\Reciter') ; $s.Contains('<用户名>')
+   $s.Contains('C:\Users\') ; $s.Contains('<用户名>') ; $s.Contains('<项目绝对路径>')
    ```
 4. **Windows 发布版必须用路径重映射编译**，避免 Rust/Cargo 依赖源码路径内嵌进二进制：
    ```powershell
-   $env:RUSTFLAGS = '--remap-path-prefix=C:\Users\<用户名>=C:\Users\anonymous --remap-path-prefix=F:\AI\Reciter=F:\project'
+   $env:RUSTFLAGS = '--remap-path-prefix=C:\Users\<用户名>=C:\Users\anonymous --remap-path-prefix=<项目根目录>=F:\project'
    npm run tauri build
    ```
-   构建后再次扫描 `src-tauri\target\release\reciter.exe`，确认不含 `ukcwx`/`C:\Users\<用户名>` 等特征
+   构建后再次扫描 `src-tauri\target\release\reciter.exe`，确认不含 `<用户名>`/`C:\Users\<用户名>` 等特征
 5. **Release 资产上传前**：确认 tag 指向已净化提交，且安装包/二进制均通过上述扫描
 
 ---
