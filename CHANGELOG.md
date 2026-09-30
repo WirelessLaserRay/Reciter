@@ -16,7 +16,24 @@
 
 ## [Unreleased]
 
-### Infrastructure
+### Added
+
+- **AI 备考规划深度集成 Easy Days 减负日机制**：
+  - 在 `src/lib/exam-planner.ts` 中引入 `getEasyDaysConfig` 与 `getEasyDaysFactor`，消除此前备考计划每天全额强压的痛点；
+  - 动态按减负系数折减今日复习上限 `targetReview`，在系数为 0 时进入“专属休整日”，新词自动暂停且免除硬性复习指标；
+  - 启发式学情诊断与 AI 规划 Prompt 均感知减负日状态，向用户输出劳逸结合的舒适备考建议；
+  - 仪表盘 `DashboardOrchestratedCard` 显式呈现“今日减负日/休整日”状态徽章与指标自适应标注；
+  - **编排面板（`ExamPlanDialog`）内嵌 Easy Days 减负与休整日设置**：新增 `ExamEasyDaysSection`，提供周一至周日单日负荷循环切换（100% ➔ 50% ➔ 0% 休整）、快捷预设（周日休整、周末减半、周末双休、全勤等）与今日执行状态动态诊断；实时联动编排预览卡片 `ExamStatsPreview`，无需跳出至全局设置即可在调整备考规划时一站式排期。
+- **TTS 拼读发音与拼写跟打智能忽略括号（读写完整单词）**：
+  - 新增 `cleanTextForTTS` 发音文本清洗引擎，自动识别嵌入式构词括号（如 `recov(er)`、`theat(re)`、`colo(u)r`、`travel(l)er`、`(in)dependent` 等），自动忽略括号符号并无缝拼接为完整英文单词朗读；
+  - 智能净化括号变体与斜杠（如 `organi(s/z)e` 提取首选 `organise`，`theatre / theater` 仅读首项，避免 TTS 发出 "slash" 噪音）；
+  - 自动剥离词性标记（`[adj.]`、`(n.)`）、中文注释（`（飞机起飞）`）及语法占位符（`look after (sb.)`），避免中英混合杂音；
+  - 联动 `getCleanWordForDisplay` 与 `matchWordSpelling`，使弱词拼写测试与跟打框同步支持完整单词验证与首尾掩码。
+- **AI 形近词消歧“宁缺毋滥”门禁机制与弱词界面视觉优化**：
+  - 针对大模型过度匹配倾向，在 Prompt 注入“绝大多数常规词无形近词必须坚决返回空数组 `[]`”强约束，并在代码层（`isTrueConfusableCandidate`）增加编辑距离 $\le 1\sim 2$ 与正交形近度 $\ge 0.70$ 双重硬性门禁，彻底杜绝远距词强行凑数；
+  - 弱词回炉卡片底色还原为标准背景色 `bg-card`，保留醒目的红色警示描边；
+  - 全量清除所有学习反馈提示与调试文案中的 Emoji，保持自然专业的交互体验。
+
 
 - **引入 Vitest 自动化测试套件**：
   - 建立 `tests/` 目录并配置 `vitest.config.ts`，首期提供 7 个测试文件与 36 个测试用例，覆盖：
@@ -31,6 +48,16 @@
   - 新增 `.github/workflows/ci.yml`，在 PR 及代码推送时自动执行完整门禁链：`npm ci` -> `npm run lint` -> `npx tsc --noEmit` -> `npm test` -> `npm run build`。
 - **引入 ESLint 9 扁平配置（Flat Config）**：
   - 配置 `eslint.config.js`（结合 `@eslint/js`、`typescript-eslint`、`eslint-plugin-react-hooks`），修复全项目正则无用转义、未使用变量等代码异味，实现 0 错误门禁。
+
+### Fixed
+
+- **修复异常关闭应用导致设置与本地做题进度丢失的重大缺陷**：
+  - **云同步拉取防冲刷安全防护**：在 `autoPullIfRemoteNewer` 中加入 `hasReviewsSince` 冲突检查，若本地自上次同步后存在新的复习记录，绝不静默覆盖本地数据，暂停自动拉取并提示冲突保护；自动拉取时严格设置 `preserveSettings: true`，杜绝云端快照抹除本地个性化设置；
+  - **业务设置即时防抖云同步**：通过 `SettingsRepository.onSettingChange` 全局事件分发，当修改轻松日、每日新词/复习上限、保留率或备考计划时自动触发 2.5 秒防抖静默云同步，不再仅依赖手动“离开学习”；
+  - **学习会话阶段性持久化与备份**：学习会话中每满 10 次评分操作自动执行一次本地强刷与静默云推送，防范做题过程中突发闪退或断电；
+  - **全局生命周期落盘守护**：在 `App.tsx` 与 `StudySession.tsx` 接入 `beforeunload` 与 `visibilitychange`（切后台/最小化/窗口关闭）监听器，触发即时 `db.flush()`；
+  - **SQLite WAL 模式与桌面端稳健性强化**：`TauriBackend` 配置 `PRAGMA synchronous = NORMAL` 与更低的自动检查点阈值（`wal_autocheckpoint = 100`），并在 `flush()` 时主动执行 `PRAGMA wal_checkpoint(PASSIVE)`，确保 WAL 日志立即并入主库；
+  - **Web/PWA 端存储自愈保障**：`SqlJsBackend` 增强损坏二进制捕获自愈与主动 `flush` 机制，清空待定定时器防止重复写入或半途丢失。
 
 ### Refactor
 
