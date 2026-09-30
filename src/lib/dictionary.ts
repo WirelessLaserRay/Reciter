@@ -22,19 +22,19 @@ export function clearDictionaryMemoryCache() {
 }
 export const httpFetch = isTauri() ? tauriFetch : (...args: Parameters<typeof fetch>) => fetch(...args);
 
+import { getCleanWordForDisplay } from "@/lib/recall-match";
+
 /**
  * 规范化用于查音标的单词：
- * - 忽略括号及括号内容
+ * - 自动忽略括号拼接完整单词，剔除中文/词性注释
  * - 只要内容含空格就不解析音标
  * - 内容含斜杠时只取斜杠前内容
  */
 export function normalizeWordForPhonetic(raw: string): string {
-  const noParen = raw
-    .replace(/[（(][^（）()]*[）)]/g, "")
-    .trim();
-  if (!noParen || noParen.includes(" ")) return "";
-  const slash = noParen.indexOf("/");
-  return (slash >= 0 ? noParen.slice(0, slash) : noParen).trim().toLowerCase();
+  const clean = getCleanWordForDisplay(raw);
+  if (!clean || clean.includes(" ")) return "";
+  const slash = clean.indexOf("/");
+  return (slash >= 0 ? clean.slice(0, slash) : clean).trim().toLowerCase();
 }
 
 /** AI 生成音标兜底（仅单词） */

@@ -12,19 +12,90 @@ db.getSetting("tts_source")
   })
   .catch(() => {});
 
+export function isSentenceText(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 30 || trimmed.split(/\s+/).length > 3;
+}
+
+/**
+ * 规范化朗读文本（专为发音优化，忽略括号读完整单词）：
+ * 1. 自动忽略卡片中包含单词组成部分的括号（如 "recov(er)" -> "recover"、"theat(re)" -> "theatre"、"(in)dependent" -> "independent"），拼接为完整单词朗读
+ * 2. 括号内若含有斜杠变体（如 "organi(s/z)e"），优先提取首个有效拼写（"organise"）
+ * 3. 剔除卡片中纯词性标注（如 "(n.)"、"(adj.)"、"[v.]"）、中文释义（如 "(动词)"、"（飞机起飞）"）及占位符（如 "(sb.)"）
+ * 4. 若为带斜杠的多变体词（如 "theatre / theater"），仅取首个变体发音，避免 TTS 读出 "slash" 噪音
+ * 5. 保留完整连贯语流，清理多余标点与空白
+ */
+export function cleanTextForTTS(raw: string): string {
+  if (!raw) return "";
+  let text = raw.trim();
+
+  // 若不是完整句子，且包含独立的斜杠变体（如 "theatre / theater" 或 "programme/program"），取首个变体
+  if (!isSentenceText(text) && text.includes("/")) {
+    // 排除括号内部的斜杠（如 "organi(s/z)e"）
+    const matchSlashOutside = text.match(/^([^/()（）[\]【】]+)\s*\/\s*.+$/);
+    if (matchSlashOutside && matchSlashOutside[1]) {
+      text = matchSlashOutside[1].trim();
+    }
+  }
+
+  // 1. 处理括号内含 / 或 | 的形近变体字母，如 organi(s/z)e -> organise, colo(u|r) -> colour
+  text = text.replace(/[(（[【]([a-zA-Z]+)[/|][a-zA-Z]+[)）\]】]/g, "$1");
+
+  // 2. 识别并剥离无须发音的注释性括号内容（中文、词性标注、占位符），保留单词内拼写字母：
+  const POS_REGEX = /^(?:vt\.?&vi|vi\.?&vt|vt|vi|v|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|pl|sing|c|u|bre|ame|modal)\.?$/i;
+  const PLACEHOLDER_REGEX = /^(?:sb|sth|somebody|something|one's|oneself)\.?$/i;
+
+  text = text.replace(/(\s*)[(（[【]([^()（）[\]【】]*)[)）\]】]/g, (match, prefixSpace: string, inner: string, offset: number, fullStr: string) => {
+    const trimmedInner = inner.trim();
+    // 含有中文解释 -> 注释，直接移除
+    if (/[\u4e00-\u9fff]/.test(trimmedInner)) return "";
+
+    // 检查是否紧贴字母（单词内部嵌入式括号，如 "colo(u)r"、"recov(er)"、"travel(l)er"、"(in)dependent"）
+    const charBeforeParen = prefixSpace.length > 0 ? " " : (offset > 0 ? fullStr[offset - 1] : "");
+    const charAfterParen = offset + match.length < fullStr.length ? fullStr[offset + match.length] : "";
+    const isEmbeddedInWord = /[a-zA-Z]/.test(charBeforeParen) || /[a-zA-Z]/.test(charAfterParen);
+
+    // 如果前后紧贴字母，且内部纯为英文字母，必定是完整单词的拼写部分，保留拼写字母
+    if (isEmbeddedInWord && /^[a-zA-Z]+$/.test(trimmedInner)) {
+      return trimmedInner;
+    }
+
+    // 含有词性缩写标签或短语占位符 -> 语法注释，直接移除
+    if (
+      POS_REGEX.test(trimmedInner) ||
+      PLACEHOLDER_REGEX.test(trimmedInner) ||
+      /\b(?:vt|vi|v|n|adj|adv|prep|conj|pron)\./i.test(trimmedInner)
+    ) {
+      return "";
+    }
+
+    // 其它情况（如独立的 "(down)"、"(to)" 等）：保留其内容，保留原有空格
+    return prefixSpace ? " " + trimmedInner : trimmedInner;
+  });
+
+  // 3. 剥离残留的孤立括号字符
+  text = text.replace(/[()（）[\]【】{}]/g, "");
+
+  // 4. 清理多余空格
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
 export function googleTTSURL(text: string): string {
+  const clean = cleanTextForTTS(text);
   return (
     "https://translate.google.com/translate_tts?ie=UTF-8&q=" +
-    encodeURIComponent(text.trim()) +
+    encodeURIComponent(clean.trim()) +
     "&tl=en&client=tw-ob"
   );
 }
 
 /** Youdao TTS 备用源（国内可访问性更好） */
 export function youdaoTTSURL(text: string): string {
+  const clean = cleanTextForTTS(text);
   return (
     "https://dict.youdao.com/dictvoice?audio=" +
-    encodeURIComponent(text.trim()) +
+    encodeURIComponent(clean.trim()) +
     "&type=2"
   );
 }
@@ -42,11 +113,6 @@ export async function saveTTSSource(source: TTSSource): Promise<void> {
 
 export function isSystemTTSAvailable(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
-}
-
-export function isSentenceText(text: string): boolean {
-  const trimmed = text.trim();
-  return trimmed.length > 30 || trimmed.split(/\s+/).length > 3;
 }
 
 // 全局单例 Audio，避免每次 new Audio 丢失用户手势授权
@@ -112,7 +178,8 @@ function speakWithSystem(text: string, lang = "en-US", reqId?: number): boolean 
  * - 具备绝对互斥与请求锁：彻底杜绝系统 TTS 与在线 TTS 重叠发声的竞态 Bug。
  */
 export function speak(text: string, lang = "en-US"): Promise<void> {
-  const trimmed = text.trim();
+  const cleaned = cleanTextForTTS(text);
+  const trimmed = cleaned.trim();
   if (!trimmed) return Promise.resolve();
 
   // 递增当前请求令牌
@@ -238,7 +305,8 @@ export function speak(text: string, lang = "en-US"): Promise<void> {
 
 /** 预加载读音：仅对全局 Audio 对象发起低开销预加载（长句不进行预加载） */
 export async function preloadSpeech(text: string): Promise<void> {
-  const trimmed = text.trim();
+  const cleaned = cleanTextForTTS(text);
+  const trimmed = cleaned.trim();
   if (!trimmed || isSentenceText(trimmed)) return;
   const source = cachedTtsSource;
   if ((source === "system" || source === "auto") && isSystemTTSAvailable()) return;

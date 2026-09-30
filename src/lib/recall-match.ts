@@ -124,6 +124,26 @@ export function extractWordCandidates(rawWord: string): string[] {
     if (withoutBrackets && !candidates.includes(withoutBrackets)) {
       candidates.push(withoutBrackets);
     }
+
+    // 1.1 自动忽略卡片中包含单词组成部分的括号，保留完整单词（例如 "recov(er)" -> "recover"、"theat(re)" -> "theatre"、"(in)dependent" -> "independent"）
+    const fullWordWithoutBrackets = cleanVariant(
+      cleaned.replace(/[()（）[\]【】{}]/g, "")
+    );
+    if (fullWordWithoutBrackets && !candidates.includes(fullWordWithoutBrackets)) {
+      candidates.push(fullWordWithoutBrackets);
+    }
+
+    // 1.2 括号内含变体斜杠（如 "organi(s/z)e"），分别提取双向变体（"organise" 与 "organize"）
+    if (/[(（[【][a-zA-Z]+[/|][a-zA-Z]+[)）\]】]/.test(cleaned)) {
+      const slashFirst = cleanVariant(
+        cleaned.replace(/[(（[【]([a-zA-Z]+)[/|][a-zA-Z]+[)）\]】]/g, "$1").replace(/[()（）[\]【】{}]/g, "")
+      );
+      if (slashFirst && !candidates.includes(slashFirst)) candidates.push(slashFirst);
+      const slashSecond = cleanVariant(
+        cleaned.replace(/[(（[【][a-zA-Z]+[/|]([a-zA-Z]+)[)）\]】]/g, "$1").replace(/[()（）[\]【】{}]/g, "")
+      );
+      if (slashSecond && !candidates.includes(slashSecond)) candidates.push(slashSecond);
+    }
     // 2. 去除词性缩写前缀（例如 "vt. abandon" -> "abandon"、"n. apple" -> "apple"）
     const withoutPos = cleanVariant(
       withoutBrackets.replace(
@@ -179,11 +199,40 @@ export function extractWordCandidates(rawWord: string): string[] {
 }
 
 /**
- * 清理词语表面展示噪声（剥离中英文括号注释），用于获取最精准的提示掩码与词长统计
+ * 清理词语表面展示噪声（剥离中英文括号注释），用于获取最精准的提示掩码与词长统计：
+ * - 纯中文或词性注释予以剥离（如 "(n.)"、"（起飞）"）
+ * - 嵌入式单词括号保留内部字母拼接为完整单词（如 "recov(er)" -> "recover"、"theat(re)" -> "theatre"）
  */
 export function getCleanWordForDisplay(rawWord: string): string {
-  const stripped = rawWord.replace(/\s*[(（[【][^()（）[\]【】]*[)）\]】]/g, "").trim();
-  return stripped || rawWord.trim();
+  let text = rawWord.trim();
+  // 1. 变体斜杠取首选（如 organi(s/z)e -> organise）
+  text = text.replace(/[(（[【]([a-zA-Z]+)[/|][a-zA-Z]+[)）\]】]/g, "$1");
+
+  // 2. 剥离含有中文、词性标注、占位符的注释括号，保留单词内拼写字母
+  const POS_REGEX = /^(?:vt\.?&vi|vi\.?&vt|vt|vi|v|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|pl|sing|c|u|bre|ame|modal)\.?$/i;
+  const PLACEHOLDER_REGEX = /^(?:sb|sth|somebody|something|one's|oneself)\.?$/i;
+
+  text = text.replace(/(\s*)[(（[【]([^()（）[\]【】]*)[)）\]】]/g, (match, prefixSpace: string, inner: string, offset: number, fullStr: string) => {
+    const trimmedInner = inner.trim();
+    if (/[\u4e00-\u9fff]/.test(trimmedInner)) return "";
+    const charBeforeParen = prefixSpace.length > 0 ? " " : (offset > 0 ? fullStr[offset - 1] : "");
+    const charAfterParen = offset + match.length < fullStr.length ? fullStr[offset + match.length] : "";
+    const isEmbeddedInWord = /[a-zA-Z]/.test(charBeforeParen) || /[a-zA-Z]/.test(charAfterParen);
+    if (isEmbeddedInWord && /^[a-zA-Z]+$/.test(trimmedInner)) {
+      return trimmedInner;
+    }
+    if (
+      POS_REGEX.test(trimmedInner) ||
+      PLACEHOLDER_REGEX.test(trimmedInner) ||
+      /\b(?:vt|vi|v|n|adj|adv|prep|conj|pron)\./i.test(trimmedInner)
+    ) {
+      return "";
+    }
+    return prefixSpace ? " " + trimmedInner : trimmedInner;
+  });
+
+  text = text.replace(/[()（）[\]【】{}]/g, "").trim();
+  return text || rawWord.trim();
 }
 
 /**
