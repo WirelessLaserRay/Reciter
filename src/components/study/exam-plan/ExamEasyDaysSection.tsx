@@ -84,14 +84,7 @@ export default function ExamEasyDaysSection({
 
   const cycleWeekday = (day: number) => {
     const current = config.weekdays[day] ?? 1;
-    let next = 1;
-    if (current >= 0.9) {
-      next = 0.5;
-    } else if (current >= 0.4) {
-      next = 0;
-    } else {
-      next = 1;
-    }
+    const next = current >= 0.9 ? 0.5 : current >= 0.4 ? 0 : 1;
 
     onChange({
       ...config,
