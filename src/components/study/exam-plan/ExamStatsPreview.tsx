@@ -1,4 +1,4 @@
-import { Sparkles, Loader2, Target, BookOpen, Tag } from "lucide-react";
+import { Sparkles, Loader2, Target, BookOpen, Tag, Coffee } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatCompactList } from "@/lib/exam-planner";
 import type { Deck } from "@/types";
@@ -116,20 +116,56 @@ export default function ExamStatsPreview({
         </div>
       )}
 
+      {/* 减负日 / 休整日专属提示条 */}
+      {previewStats?.isEasyDay && (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-2 text-xs flex items-center justify-between text-amber-800 dark:text-amber-300">
+          <div className="flex items-center gap-1.5 font-medium">
+            <Coffee className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              {previewStats.easyFactor === 0
+                ? "今日为休整日 (0% 负荷)：新词暂缓安排，复习免除，可尽情休息充电！"
+                : `今日为减负日 (${Math.round((previewStats.easyFactor ?? 0) * 100)}% 负荷)：今日配额已按减负系数自动削减！`}
+            </span>
+          </div>
+          <Badge
+            variant="outline"
+            className="text-[10px] border-amber-500/30 bg-amber-500/10 shrink-0"
+          >
+            {previewStats.easyFactor === 0 ? "休整日 (0%)" : `减负 (${Math.round((previewStats.easyFactor ?? 0) * 100)}%)`}
+          </Badge>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-2 pt-1 text-center">
         <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
           <div className="text-xl font-bold text-primary">
             {previewStats?.recommendedDailyNew ?? 0}
           </div>
           <div className="text-[11px] text-muted-foreground">
-            {previewStats?.inSprintPhase ? "新学 (冲刺暂停)" : "今日新学目标"}
+            {previewStats?.inSprintPhase
+              ? "新学 (冲刺暂停)"
+              : previewStats?.isEasyDay && previewStats?.easyFactor === 0
+                ? "新学 (休整暂缓)"
+                : previewStats?.isEasyDay && (previewStats?.easyFactor ?? 1) < 1
+                  ? `新学 (${Math.round((previewStats?.easyFactor ?? 1) * 100)}% 减负)`
+                  : "今日新学目标"}
           </div>
         </div>
         <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
           <div className="text-xl font-bold text-amber-600 dark:text-amber-400">
-            {previewStats?.dueToday ?? 0}
+            {previewStats?.isEasyDay && previewStats?.easyFactor === 0
+              ? 0
+              : previewStats?.isEasyDay && (previewStats?.easyFactor ?? 1) < 1
+                ? Math.round((previewStats?.dueToday ?? 0) * (previewStats?.easyFactor ?? 1))
+                : previewStats?.dueToday ?? 0}
           </div>
-          <div className="text-[11px] text-muted-foreground">今日到期复习</div>
+          <div className="text-[11px] text-muted-foreground">
+            {previewStats?.isEasyDay && previewStats?.easyFactor === 0
+              ? "复习 (休整免除)"
+              : previewStats?.isEasyDay && (previewStats?.easyFactor ?? 1) < 1
+                ? `复习 (${Math.round((previewStats?.easyFactor ?? 1) * 100)}% 减负)`
+                : "今日到期复习"}
+          </div>
         </div>
         <div className="rounded-md bg-background/80 p-2.5 shadow-xs">
           <div className="text-xl font-bold text-foreground">

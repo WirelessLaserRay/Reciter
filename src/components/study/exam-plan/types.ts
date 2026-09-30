@@ -26,4 +26,6 @@ export interface PreviewStats {
   total: number;
   inSprintPhase: boolean;
   sprintBufferDays: number;
+  isEasyDay?: boolean;
+  easyFactor?: number;
 }

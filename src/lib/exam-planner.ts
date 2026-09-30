@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { AIClient, getAIConfig } from "@/lib/ai-client";
 import { getDayStartDate, getDayEndDate, parseDayStartHour, todayKey } from "@/lib/day";
+import { getEasyDaysConfig, getEasyDaysFactor } from "@/lib/easy-days";
 import type { Deck } from "@/types";
 
 export interface ExamConfig {
@@ -42,6 +43,8 @@ export interface TodayOrchestratedPlan {
   totalCards: number; // 范围内总词数
   inSprintPhase: boolean; // 是否已进入考前熟练度冲刺阶段（新词自动暂停，聚焦复习与熟练度跨越）
   sprintBufferDays: number; // 预留的冲刺缓冲期（天）
+  isEasyDay: boolean; // 今日是否为减负日/休息日
+  easyFactor: number; // 今日减负系数（0~1，1=全额，0=完全休息）
 }
 
 export const LOCAL_ENCOURAGEMENTS = [
@@ -196,6 +199,7 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     savedEncouragement,
     savedAdvice,
     masteryStats,
+    easyConfig,
   ] = await Promise.all([
     db.getNewCountByDecks(cfg.deckIds, cfg.ignoredTags),
     db.getDueCountByDecks(cfg.deckIds, dayEnd.toISOString(), cfg.ignoredTags),
@@ -206,7 +210,11 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     db.getSetting("exam_last_encouragement"),
     db.getSetting(`exam_today_advice_${dateKey}`),
     db.getMultiDeckMasteryStats(cfg.deckIds, cfg.ignoredTags, targetStability),
+    getEasyDaysConfig(),
   ]);
+
+  const easyFactor = getEasyDaysFactor(now, easyConfig);
+  const isEasyDay = easyConfig.enabled && easyFactor < 1;
 
   // 熟练度沉淀缓冲期（若目标稳定性 > 0，考前预留冲刺期以多轮复习提纯稳定性达标）
   const sprintBufferDays = targetStability > 0 ? Math.min(targetStability, 21) : 0;
@@ -218,15 +226,20 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const totalUnlearned = remainingNew + learnedNewToday;
   let plannedNew = 0;
   if (totalUnlearned > 0) {
-    if (cfg.dailyNewOverride && cfg.dailyNewOverride > 0) {
-      plannedNew = Math.min(totalUnlearned, cfg.dailyNewOverride);
-    } else if (inSprintPhase) {
-      // 考前冲刺固化期：自动停止安排新词，集中精力巩固复习，使词汇达到目标熟练度
+    if (inSprintPhase || (isEasyDay && easyFactor === 0)) {
+      // 考前冲刺固化期或休整日：自动停止安排新词，集中精力巩固复习，使词汇达到目标熟练度
       plannedNew = 0;
+    } else if (cfg.dailyNewOverride && cfg.dailyNewOverride > 0) {
+      plannedNew = Math.min(totalUnlearned, cfg.dailyNewOverride);
     } else if (days > 0) {
       plannedNew = Math.min(totalUnlearned, Math.max(5, Math.ceil(totalUnlearned / effectiveDays)));
     } else {
       plannedNew = Math.min(totalUnlearned, 30);
+    }
+
+    // 若今日为减负日且系数在 (0, 1) 之间，按比例缩减今日新词目标
+    if (isEasyDay && easyFactor > 0 && easyFactor < 1) {
+      plannedNew = Math.max(0, Math.round(plannedNew * easyFactor));
     }
   }
 
@@ -234,19 +247,23 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
   const targetNew = Math.max(0, Math.min(remainingNew, plannedNew - learnedNewToday));
 
   const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
-  const remainingReviewLimit = Math.max(0, reviewLimit - reviewedToday);
+  const adjustedReviewLimit = Math.round(reviewLimit * easyFactor);
+  const remainingReviewLimit = Math.max(0, adjustedReviewLimit - reviewedToday);
   const targetReview = Math.min(dueToday, remainingReviewLimit);
 
   // 判定今日任务是否已达成：
-  // 1) 今日到期复习数已清零（今日截止日界前所有到期卡片均已复习完毕），或今日复习量已达到配置的每日上限；
-  // 2) 且今日新词指标已达成（或无剩余新词/冲刺期零新词）；
-  // 3) 且今日确实已有实际学习产出。
-  const isReviewQuotaMet = dueToday === 0 || (reviewLimit > 0 && reviewedToday >= reviewLimit);
+  // 1) 今日到期复习数已清零，或今日复习量已达到经 Easy Days 调整后的上限；
+  // 2) 且今日新词指标已达成（或无剩余新词/冲刺期零新词/休整日零新词）；
+  // 3) 且今日确实已有实际学习产出，或者今日属于 0 负荷休整日且无待办。
+  const isReviewQuotaMet =
+    dueToday === 0 ||
+    (adjustedReviewLimit === 0 && reviewedToday >= 0) ||
+    (adjustedReviewLimit > 0 && reviewedToday >= adjustedReviewLimit);
   const isNewQuotaMet = remainingNew === 0 || plannedNew === 0 || learnedNewToday >= plannedNew;
   const isGoalAchieved =
     isReviewQuotaMet &&
     isNewQuotaMet &&
-    (learnedNewToday > 0 || reviewedToday > 0);
+    (learnedNewToday > 0 || reviewedToday > 0 || (isEasyDay && easyFactor === 0 && dueToday === 0));
 
   const isCompleted = (completedDate === dateKey && isReviewQuotaMet) || isGoalAchieved;
 
@@ -289,6 +306,8 @@ export async function getTodayOrchestratedPlan(decks: Deck[]): Promise<TodayOrch
     totalCards: masteryStats.total,
     inSprintPhase,
     sprintBufferDays: effectiveBuffer,
+    isEasyDay,
+    easyFactor,
   };
 
   // 若今日尚未生成建议，则自动触发学情评估并生成今日规划（支持每日自动更新）
@@ -400,7 +419,15 @@ export function generateHeuristicStudyAdvice(
   // 1. 备考紧迫度与熟练度冲刺阶段诊断
   let stageTitle = "稳步筑基期";
   let stageAdvice = "当前备考时间充裕，保持每日平摊新词吸收，配合 FSRS 间隔复习稳扎稳打。";
-  if (inSprintPhase) {
+  if (plan.isEasyDay) {
+    if (plan.easyFactor === 0) {
+      stageTitle = "专属休整期";
+      stageAdvice = "今日已设为 Easy Day 专属休整日（负荷系数 0%）。今日备考配额已全部清零，建议放松身心或轻量浏览已学词汇，给神经元突触沉淀时间。";
+    } else {
+      stageTitle = "计划减负期";
+      stageAdvice = `今日为 Easy Day 计划减负日（负荷已调减至 ${Math.round(plan.easyFactor * 100)}%）。新学与复习配额已自动轻量化，建议轻松通读已学词汇，稳扎稳打即可。`;
+    }
+  } else if (inSprintPhase) {
     stageTitle = "考前冲刺固化期";
     stageAdvice = `考前冲刺期已至（预留 ${sprintBufferDays} 天冲刺缓冲）。已自动暂停新词，全量精力用于巩固复习，促使词汇记忆稳定性跨过 ${targetStability} 天目标门槛。`;
   } else if (daysUntilExam <= 7) {
@@ -483,6 +510,7 @@ export async function generateAIOrchestrationAdvice(
     `- 目标考试：${plan.examTitle}`,
     `- 考试日期：${plan.examDate}（倒计时剩余 ${plan.daysUntilExam} 天）`,
     `- 目标熟练度要求：${plan.targetStability > 0 ? `Stability >= ${plan.targetStability} 天（预留 ${plan.sprintBufferDays} 天冲刺期）` : "学完一遍即可"}`,
+    `- 今日减负状态：${plan.isEasyDay ? (plan.easyFactor === 0 ? "专属休整日（负荷调减为 0%，无新词，无硬性复习指标）" : `计划减负日（负荷下调至平时的 ${Math.round(plan.easyFactor * 100)}%）`) : "正常全量学习日"}`,
     `- 当前词库掌握度全景：达成率 ${plan.masteryRate}%（已掌握 ${plan.masteredCount} 词 / 学习中 ${plan.learningCount} 词 / 弱词 ${plan.weakCount} 词 / 待学生词 ${plan.remainingNew} 词）`,
     `- 词库已学词汇平均稳定性：${plan.avgStability} 天`,
     `- 当前备考阶段：${plan.inSprintPhase ? "考前冲刺固化期（新词已暂停，专攻熟练度达标）" : `新词稳步攻坚期（距冲刺缓冲期尚余 ${Math.max(0, plan.daysUntilExam - plan.sprintBufferDays)} 天）`}`,
@@ -501,7 +529,7 @@ export async function generateAIOrchestrationAdvice(
     "",
     "## 输出要求",
     "1. **必须严格使用结构清晰的 Markdown 格式输出**，包含以下三个小节：",
-    "   - `### 学情客观诊断`：客观评价当前学习节奏（如稳步推进/节奏滞后/冲刺高效）、熟练度达成情况、近期复习保持率与弱词风险，指出当前优势与潜在隐患；",
+    "   - `### 学情客观诊断`：客观评价当前学习节奏（如稳步推进/节奏滞后/冲刺高效）、熟练度达成情况、近期复习保持率与弱词风险，指出当前优势与潜在隐患；若今日为减负日或休整日，请给出温暖关怀与劳逸结合指导；",
     "   - `### 今日备考规划`：针对今日任务（复习与新学先后顺序、建议用时分配、重点应对策略）给出明确指令；",
     "   - `### 提分突破锦囊`：针对该考试类型与当前记忆阶段，给出 1~2 条提分记忆实用技巧（如语境串联、词根助记、错词自查）。",
     "2. 语言干练、亲切专业、充满行动力，拒绝泛泛而谈的废话套话，字数在 200~350 字之间。",
@@ -541,7 +569,7 @@ export async function generateCompletionEncouragement(context: {
         `距离考试：还有 ${context.daysUntil} 天`,
         `今日学习成果：新学 ${context.newDone} 词，复习 ${context.reviewedTotal} 张卡片`,
         "",
-        "请写一段 40~80 字真挚、振奋人心、充满正能量的专属鼓励语（包含 1~2 个 Emoji）。",
+        "请写一段 40~80 字真挚、振奋人心、充满正能量的专属鼓励语（注意：语言纯净自然，严禁包含任何 Emoji 表情）。",
         "要求：",
         "1. 表扬今日踏实的坚持与高效完成；",
         "2. 给予明天继续前行的信心和情绪价值；",
@@ -549,10 +577,13 @@ export async function generateCompletionEncouragement(context: {
         "4. 直接输出鼓励语正文，不要包含引号、前言或额外解释。",
       ].join("\n");
       const res = await client.chat([
-        { role: "system", content: "你是充满正能量与亲和力的英语备考教练，只输出真诚激励人心的鼓励语。" },
+        { role: "system", content: "你是充满正能量与亲和力的英语备考教练，只输出真诚激励人心的纯文本鼓励语，严禁使用任何 Emoji 表情。" },
         { role: "user", content: prompt },
       ]);
-      const clean = res.replace(/["“”]/g, "").trim();
+      const clean = res
+        .replace(/["“”]/g, "")
+        .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+        .trim();
       if (clean.length >= 15) return clean;
     }
   } catch {

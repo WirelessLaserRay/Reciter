@@ -84,6 +84,16 @@ export default function DashboardOrchestratedCard({
               平均稳定 {orchestratedPlan.avgStability} 天 · 掌握率{" "}
               {orchestratedPlan.masteryRate}%
             </Badge>
+            {orchestratedPlan.isEasyDay && (
+              <Badge
+                variant="secondary"
+                className="text-xs bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30"
+              >
+                {orchestratedPlan.easyFactor === 0
+                  ? "休整日 (0% 负荷)"
+                  : `减负日 (${Math.round(orchestratedPlan.easyFactor * 100)}% 负荷)`}
+              </Badge>
+            )}
             {orchestratedPlan.inSprintPhase && (
               <Badge
                 variant="secondary"
@@ -324,9 +334,11 @@ export default function DashboardOrchestratedCard({
             <div className="text-xs text-muted-foreground">
               {orchestratedPlan.inSprintPhase
                 ? "新学 (冲刺暂停)"
-                : orchestratedPlan.learnedNewToday > 0
-                  ? `待新学 (已学 ${orchestratedPlan.learnedNewToday})`
-                  : "今日新学目标"}
+                : orchestratedPlan.isEasyDay && orchestratedPlan.easyFactor === 0
+                  ? "新学 (休整暂停)"
+                  : orchestratedPlan.learnedNewToday > 0
+                    ? `待新学 (已学 ${orchestratedPlan.learnedNewToday})`
+                    : "今日新学目标"}
             </div>
           </div>
           <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">
@@ -336,7 +348,9 @@ export default function DashboardOrchestratedCard({
             <div className="text-xs text-muted-foreground">
               {orchestratedPlan.reviewedToday > 0
                 ? `待复习 (已复习 ${orchestratedPlan.reviewedToday})`
-                : "今日到期复习"}
+                : orchestratedPlan.isEasyDay && orchestratedPlan.easyFactor === 0
+                  ? "复习 (休整免除)"
+                  : "今日到期复习"}
             </div>
           </div>
           <div className="rounded-lg bg-background/80 border p-2.5 shadow-xs">

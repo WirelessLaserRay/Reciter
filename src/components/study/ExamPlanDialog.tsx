@@ -26,6 +26,12 @@ import {
   getSavedAIStudyPlan,
   type ExamConfig,
 } from "@/lib/exam-planner";
+import {
+  getEasyDaysConfig,
+  saveEasyDaysConfig,
+  getEasyDaysFactor,
+  type EasyDaysConfig,
+} from "@/lib/easy-days";
 import { useDeckStore } from "@/stores/useDeckStore";
 import {
   type ExamPlanDialogProps,
@@ -34,6 +40,7 @@ import {
   ExamDeckSelector,
   ExamIgnoredTags,
   ExamStabilitySettings,
+  ExamEasyDaysSection,
   ExamStatsPreview,
   ExamAiPlanSection,
 } from "./exam-plan";
@@ -62,6 +69,11 @@ export default function ExamPlanDialog({
   const [generatingAI, setGeneratingAI] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savedMacroPlan, setSavedMacroPlan] = useState<string>("");
+  const [easyDaysConfig, setEasyDaysConfig] = useState<EasyDaysConfig>({
+    enabled: false,
+    weekdays: { 0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1 },
+    specificDates: [],
+  });
 
   // 实时预览统计数据
   const [previewStats, setPreviewStats] = useState<PreviewStats | null>(null);
@@ -74,10 +86,11 @@ export default function ExamPlanDialog({
     setLoading(true);
     (async () => {
       try {
-        const [cfg, allTags, macroPlan] = await Promise.all([
+        const [cfg, allTags, macroPlan, easyCfg] = await Promise.all([
           getExamConfig(),
           db.getAllTags(),
           getSavedAIStudyPlan(),
+          getEasyDaysConfig(),
         ]);
         setTitle(cfg.title || "");
         setDate(cfg.date || "");
@@ -85,6 +98,7 @@ export default function ExamPlanDialog({
         setIgnoredTags(cfg.ignoredTags || []);
         setAvailableTags(allTags || []);
         setSavedMacroPlan(macroPlan || "");
+        setEasyDaysConfig(easyCfg);
 
         const stab = cfg.targetStability ?? 7;
         setTargetStability(stab);
@@ -148,16 +162,24 @@ export default function ExamPlanDialog({
         const inSprintPhase =
           targetStability > 0 && daysUntil > 0 && daysUntil <= effectiveBuffer;
 
+        const easyFactor = getEasyDaysFactor(now, easyDaysConfig);
+        const isEasyDay = easyDaysConfig.enabled && easyFactor < 1;
+
         let dailyNew = 0;
         if (fresh > 0) {
           if (useManualNew && overrideDailyNew) {
             dailyNew = Math.min(fresh, parseInt(overrideDailyNew, 10) || 0);
-          } else if (inSprintPhase) {
+          } else if (inSprintPhase || (isEasyDay && easyFactor === 0)) {
             dailyNew = 0;
           } else if (daysUntil > 0) {
             dailyNew = Math.min(fresh, Math.max(5, Math.ceil(fresh / effectiveDays)));
           } else {
             dailyNew = Math.min(fresh, 20);
+          }
+
+          // 若今日为减负日且系数在 (0, 1) 之间，按比例缩减今日新词目标
+          if (isEasyDay && easyFactor > 0 && easyFactor < 1) {
+            dailyNew = Math.max(0, Math.round(dailyNew * easyFactor));
           }
         }
 
@@ -173,6 +195,8 @@ export default function ExamPlanDialog({
           total: mastery.total,
           inSprintPhase,
           sprintBufferDays: effectiveBuffer,
+          isEasyDay,
+          easyFactor,
         });
       } catch {
         // 忽略即时计算错误
@@ -194,6 +218,7 @@ export default function ExamPlanDialog({
     useManualNew,
     overrideDailyNew,
     targetStability,
+    easyDaysConfig,
   ]);
 
   const toggleDeck = (id: number) => {
@@ -241,7 +266,10 @@ export default function ExamPlanDialog({
             : null,
         targetStability: targetStability >= 0 ? targetStability : 0,
       };
-      await saveExamConfig(config);
+      await Promise.all([
+        saveExamConfig(config),
+        saveEasyDaysConfig(easyDaysConfig),
+      ]);
       setMsg({ ok: true, text: "备考编排已成功保存！" });
       onSaved?.();
       setTimeout(() => {
@@ -275,7 +303,10 @@ export default function ExamPlanDialog({
             : null,
         targetStability: targetStability >= 0 ? targetStability : 0,
       };
-      await saveExamConfig(config);
+      await Promise.all([
+        saveExamConfig(config),
+        saveEasyDaysConfig(easyDaysConfig),
+      ]);
       const plan = await generateAIStudyPlan(config, decks);
       await saveAIStudyPlan(plan);
       setSavedMacroPlan(plan);
@@ -348,6 +379,11 @@ export default function ExamPlanDialog({
               overrideDailyNew={overrideDailyNew}
               setOverrideDailyNew={setOverrideDailyNew}
               daysUntil={daysUntil}
+            />
+
+            <ExamEasyDaysSection
+              config={easyDaysConfig}
+              onChange={setEasyDaysConfig}
             />
 
             <ExamStatsPreview
