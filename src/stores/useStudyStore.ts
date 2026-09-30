@@ -20,6 +20,8 @@ export interface QueueItem {
   row: StudyCardRow;
   /** 计时起点（本次显示时间，用于 response_time_ms） */
   shownAt: number;
+  /** 是否需要本轮延迟回炉反向测试（弱词攻克 P2） */
+  isRetest?: boolean;
 }
 
 /**
@@ -405,12 +407,26 @@ export const useStudyStore = create<StudyState>((set, get) => ({
 
     if (reinsert) {
       // 需要重插：复制一份插入到未来的队列中
+      const isWeakWord =
+        item.row.lapses >= 3 ||
+        (item.row as { weak_source?: string }).weak_source === "manual" ||
+        grade === Rating.Again;
       const futureItem: QueueItem = {
         ...item,
         row: { ...item.row, ...fsrsCardToDBState(newFsrs) },
         shownAt: Date.now(),
+        isRetest: isWeakWord,
       };
-      insertByOffset(queueNext, futureItem, index);
+      if (isWeakWord) {
+        // 弱词回炉至少推迟 4 张卡片（错位延迟），避免刚看完紧接着下一张就考
+        const now = Date.now();
+        const deltaSeconds = Math.max(0, (new Date(futureItem.row.due).getTime() - now) / 1000);
+        const cardOffset = Math.max(4, Math.ceil(deltaSeconds / SECONDS_PER_CARD));
+        const insertIndex = Math.min(queueNext.length, index + cardOffset);
+        queueNext.splice(insertIndex, 0, futureItem);
+      } else {
+        insertByOffset(queueNext, futureItem, index);
+      }
     }
 
     const nextIndex = index + 1;

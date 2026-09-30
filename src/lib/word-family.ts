@@ -12,7 +12,7 @@ const SUFFIXES = [
   "ation", "ition", "tion", "sion", "ment", "ness", "ity",
   "able", "ible", "ful", "less", "ous", "ious", "ive",
   "ing", "ed", "er", "est", "ly", "es", "s",
-  "al", "ic", "or", "ist", "ism", "ship", "hood",
+  "al", "ic", "or", "ist", "ism", "ship", "hood", "ion",
 ];
 
 /** 提取词干（循环剥离派生后缀）；词干过短（<3）不参与匹配 */

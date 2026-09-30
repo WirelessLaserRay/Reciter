@@ -46,10 +46,10 @@ export function resolveStudyMode(
     };
   }
 
-  if (isWeak && aiEnabled) {
+  if (isWeak) {
     return {
       mode: "ai_drill",
-      aiStrategy: "deep_drill",
+      aiStrategy: aiEnabled ? "deep_drill" : null,
       showMarkdown: true,
       autoRecall: false,
     };
@@ -77,6 +77,6 @@ export const STUDY_MODE_LABELS: Record<StudyMode, string> = {
   new_teach: "新卡教学",
   recall: "主动回忆",
   quick_test: "快速测试",
-  ai_drill: "AI 深度攻克",
+  ai_drill: "弱词靶向攻克",
   classic: "经典翻转",
 };

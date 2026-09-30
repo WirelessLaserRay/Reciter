@@ -92,12 +92,19 @@ export default function StudyCard(props: StudyCardProps) {
           variant="secondary"
           className={cn(
             "text-[10px]",
-            config.mode === "ai_drill" && "border-amber-500/40 bg-amber-500/10 text-amber-600",
-            config.mode === "new_teach" && "border-primary/30 bg-primary/5 text-primary"
+            props.isRetest && "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold",
+            !props.isRetest && config.mode === "ai_drill" && "border-amber-500/40 bg-amber-500/10 text-amber-600",
+            !props.isRetest && config.mode === "new_teach" && "border-primary/30 bg-primary/5 text-primary"
           )}
         >
-          {config.aiStrategy ? <Sparkles className="mr-1 inline size-2.5" /> : null}
-          {STUDY_MODE_LABELS[config.mode]}
+          {props.isRetest ? (
+            <span>弱词会话回炉</span>
+          ) : (
+            <>
+              {config.aiStrategy ? <Sparkles className="mr-1 inline size-2.5" /> : null}
+              {STUDY_MODE_LABELS[config.mode]}
+            </>
+          )}
         </Badge>
       </div>
       {view}

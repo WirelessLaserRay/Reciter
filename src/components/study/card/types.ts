@@ -68,6 +68,8 @@ export interface ModeViewProps {
   quickMs: number;
   /** 单词音标（优先外部词典获取，缺省用卡片字段） */
   phonetic?: string;
+  /** 是否为会话内延迟错位回炉测试（P2） */
+  isRetest?: boolean;
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;
   onRateReadyChange: (ready: boolean) => void;
@@ -86,6 +88,8 @@ export interface StudyCardProps {
   quickMs: number;
   /** 单词音标（外部词典获取后传入） */
   phonetic?: string;
+  /** 是否为会话内延迟错位回炉测试（P2） */
+  isRetest?: boolean;
   /** 揭示答案：父组件据此计算间隔预览与可检索度 */
   onReveal: () => void;
   onRate: (grade: 1 | 2 | 3 | 4) => void;

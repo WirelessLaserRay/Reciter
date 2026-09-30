@@ -7,7 +7,7 @@
  * - 辅以前缀重叠、后缀重叠、长度差加权，贴近母语者对形近词的直觉
  */
 
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
   if (m === 0) return n;
