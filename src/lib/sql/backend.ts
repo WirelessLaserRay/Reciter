@@ -7,4 +7,6 @@ export interface SQLBackend {
   select<T = unknown>(sql: string, params?: unknown[]): Promise<T>;
   /** 在单个事务中执行回调；异常自动回滚 */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+  /** 立即将脏数据或 WAL 日志刷入持久化介质 */
+  flush?(): Promise<void>;
 }

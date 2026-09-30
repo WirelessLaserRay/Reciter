@@ -15,6 +15,9 @@ import WeakWords from "@/pages/WeakWords";
 import DailyArticle from "@/pages/DailyArticle";
 import DeckHub from "@/pages/DeckHub";
 
+import { db } from "@/lib/db";
+import { initSyncHooks } from "@/lib/sync";
+
 function App() {
   const theme = useThemeStore((s) => s.theme);
 
@@ -27,9 +30,36 @@ function App() {
     root.style.colorScheme = dark ? "dark" : "light";
   }, [theme]);
 
-  // 应用启动时初始化本地数据库（tauri-plugin-sql）
+  // 应用启动时初始化本地数据库（tauri-plugin-sql 或 sql.js）
   useEffect(() => {
     useDbStore.getState().init();
+  }, []);
+
+  // 监听全局设置变更，防抖自动同步业务配置到云端
+  useEffect(() => {
+    const unsub = initSyncHooks();
+    return () => unsub();
+  }, []);
+
+  // 全局生命周期落盘守护：在窗口关闭、页面隐藏/切后台时立即强制 WAL 检查点或 IndexedDB 持久化
+  useEffect(() => {
+    const onFlush = () => {
+      void db.flush();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        onFlush();
+      }
+    };
+
+    window.addEventListener("beforeunload", onFlush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", onFlush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   return (

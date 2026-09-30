@@ -130,4 +130,49 @@ describe("db - 数据库迁移与核心 CRUD / 学习队列集成测试", () => 
     expect(stats[0].again_count).toBe(3);
     expect(stats[0].total_time_ms).toBe(100000);
   });
+
+  it("设置变更监听 (onSettingChange) 与生命周期刷盘 (flush)", async () => {
+    const changes: { key: string; value: string }[] = [];
+    const unsub = testDb.onSettingChange((key, value) => {
+      changes.push({ key, value });
+    });
+
+    await testDb.setSetting("easy_days_enabled", "1");
+    await testDb.setSetting("daily_review_limit", "300");
+
+    expect(changes).toEqual([
+      { key: "easy_days_enabled", value: "1" },
+      { key: "daily_review_limit", value: "300" },
+    ]);
+
+    unsub();
+    await testDb.setSetting("easy_days_enabled", "0");
+    expect(changes.length).toBe(2); // 取消订阅后不再触发
+
+    // 验证 flush 不抛错
+    await expect(testDb.flush()).resolves.not.toThrow();
+  });
+
+  it("自指定时间戳检查未同步复习 (hasReviewsSince) 冲突保护", async () => {
+    const beforeTime = new Date("2026-09-01T00:00:00.000Z").toISOString();
+    const afterTime = new Date("2099-01-01T00:00:00.000Z").toISOString();
+
+    const deckId = await testDb.createDeck("复习检测测试");
+    const { cardId } = await testDb.upsertCard({ deckId, front: "test_sync", back: "测试同步" });
+
+    // 添加一条复习记录
+    await testDb.addReviewLog({
+      card_id: cardId,
+      grade: 3,
+      response_time_ms: 1000,
+    });
+
+    // 早于复习时间，应当检测到存在未同步复习
+    const hasReviews = await testDb.hasReviewsSince(beforeTime);
+    expect(hasReviews).toBe(true);
+
+    // 晚于当前时间，应当检测为无未同步复习
+    const noReviews = await testDb.hasReviewsSince(afterTime);
+    expect(noReviews).toBe(false);
+  });
 });

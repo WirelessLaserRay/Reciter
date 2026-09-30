@@ -206,6 +206,15 @@ export class StudyRepository extends CardRepository {
     return rows.length > 0;
   }
 
+  /** 查询自指定时间戳之后是否有新的复习记录（用于同步冲突检测，防止覆盖本地做题进度） */
+  async hasReviewsSince(sinceIso: string): Promise<boolean> {
+    const rows = await this.requireDb().select<{ id: number }[]>(
+      "SELECT 1 AS id FROM review_logs WHERE reviewed_at > ? LIMIT 1",
+      [sinceIso]
+    );
+    return rows.length > 0;
+  }
+
   /** 全局今日待复习数（due < dayEnd 且已学过；可忽略标签，支持模糊/正则） */
   async getGlobalDueCount(before: string, ignoreTags: string[] = []): Promise<number> {
     const resolvedTags = await this.resolveMatchingTags(ignoreTags);

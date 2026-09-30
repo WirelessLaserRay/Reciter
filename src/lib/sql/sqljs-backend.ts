@@ -34,7 +34,16 @@ export class SqlJsBackend implements SQLBackend {
     } catch {
       saved = null; // 非浏览器环境（node 测试）无 IndexedDB
     }
-    this.db = saved && saved.length > 0 ? new SQL.Database(saved) : new SQL.Database();
+    if (saved && saved.length > 0) {
+      try {
+        this.db = new SQL.Database(saved);
+      } catch (e) {
+        console.error("加载 IndexedDB 数据库失败，可能由于异常关机损坏，已回退为新库:", e);
+        this.db = new SQL.Database();
+      }
+    } else {
+      this.db = new SQL.Database();
+    }
   }
 
   async execute(sql: string, params: unknown[] = []): Promise<void> {
@@ -123,8 +132,12 @@ export class SqlJsBackend implements SQLBackend {
     }
   }
 
-  /** 立即保存（供测试/退出前调用） */
+  /** 立即保存（供测试/退出前/页面切后台时调用） */
   async flush(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     if (!this.db) return;
     const bytes = this.db.export();
     try {

@@ -268,8 +268,12 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
   }
 }
 
+export interface PullSnapshotOptions {
+  preserveSettings?: boolean;
+}
+
 /** 从云端下载完整备份并覆盖本地数据（带安全快照保护与向下兼容清洗） */
-export async function pullSnapshot(): Promise<SyncResult> {
+export async function pullSnapshot(options?: PullSnapshotOptions): Promise<SyncResult> {
   const cfg = await getSyncConfig();
   if (!cfg.endpoint || !cfg.token) {
     return { ok: false, message: "请先填写同步地址和 Token" };
@@ -296,7 +300,7 @@ export async function pullSnapshot(): Promise<SyncResult> {
     // 执行恢复（内部自动生成覆盖前的本地安全快照与数据清洗，安全保留本地连接凭据与同步时间戳，同步业务配置）
     const restoreRes = await restoreBackupData(rawData, {
       reason: "pre_sync",
-      preserveSettings: false,
+      preserveSettings: options?.preserveSettings ?? false,
     });
     if (!restoreRes.ok) {
       return { ok: false, message: restoreRes.message };
@@ -362,7 +366,8 @@ export interface AutoPullResult {
 /**
  * 启动时静默检查并自动拉取云端新学习进度
  * - 只有当云端快照明确比本地记录更新时才自动拉取
- * - 严格只更新词库、卡片 FSRS 算法状态、复习记录，绝不覆盖本地独立设置
+ * - 严格保留本地独立业务与界面设置，绝不盲目覆盖本地配置
+ * - 若本地在上次同步后有新增做题记录，暂停自动覆盖并提示冲突，避免丢失本地进度
  */
 export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
   const autoEnabled = await getAutoSyncEnabled();
@@ -396,8 +401,19 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
       }
     }
 
+    // 冲突安全检查：检查本地自上次同步以来是否有新的复习记录，避免覆盖本地未上传的做题进度
+    const lastSyncTime = meta.localLastSyncTime || meta.localLastRemoteTime;
+    if (lastSyncTime) {
+      const hasLocalReviews = await db.hasReviewsSince(lastSyncTime);
+      if (hasLocalReviews) {
+        useSyncStore.getState().setConflict("本地有未同步的学习记录，云端亦有更新，已暂停自动覆盖，请在设置中查看");
+        return { synced: false };
+      }
+    }
+
     useSyncStore.getState().setSyncing("检测到云端有新进度，正在自动拉取...");
-    const res = await pullSnapshot();
+    // 自动拉取时严格保留本地设置（preserveSettings: true），仅同步词库卡片与算法状态
+    const res = await pullSnapshot({ preserveSettings: true });
     if (res.ok) {
       useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "已自动拉取云端最新学习进度");
       return {
@@ -413,6 +429,27 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
     useSyncStore.getState().setError(String(e));
     return { synced: false, error: String(e) };
   }
+}
+
+let settingsSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 设置项变更防抖同步到云端（2.5 秒防抖） */
+export function triggerSettingsSyncDebounced(delayMs = 2500): void {
+  if (settingsSyncTimer) clearTimeout(settingsSyncTimer);
+  settingsSyncTimer = setTimeout(() => {
+    settingsSyncTimer = null;
+    void autoPushIfConfigured().catch(() => {});
+  }, delayMs);
+}
+
+/** 监听数据库全局设置变更并自动触发云同步钩子 */
+export function initSyncHooks(): () => void {
+  return db.onSettingChange((key) => {
+    // 忽略无需同步的设备私有凭据与同步自身元数据
+    if (!isPreservedDeviceSetting(key) && !key.startsWith("sync_")) {
+      triggerSettingsSyncDebounced();
+    }
+  });
 }
 
 /**

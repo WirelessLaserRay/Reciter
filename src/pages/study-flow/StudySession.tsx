@@ -152,15 +152,28 @@ export function StudySession({
     }
   }, [finished, isOrchestrated, stats.reviewed, stats.newDone, orchestratedTitle]);
 
-  // 跟踪本轮会话是否已向云端提交推送，避免重复推送
+  // 跟踪本轮会话已向云端提交的评分操作次数，用于防重复与阶段性增量推送
   const hasPushedInSessionRef = useRef(false);
+  const lastPushedActionsRef = useRef(0);
+
+  // 阶段性自动备份与同步：每满 10 次评分操作自动执行一次本地强刷与静默云推送
+  useEffect(() => {
+    const unpushedCount = stats.actions - lastPushedActionsRef.current;
+    if (unpushedCount >= 10) {
+      lastPushedActionsRef.current = stats.actions;
+      void db.flush();
+      void autoPushIfConfigured().catch(() => {});
+    }
+  }, [stats.actions]);
 
   // 学习完成时自动同步进度至云端
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   useEffect(() => {
     if (finished && stats.reviewed + stats.newDone > 0) {
       hasPushedInSessionRef.current = true;
+      lastPushedActionsRef.current = stats.actions;
       setSyncNotice("正在自动同步云端进度...");
+      void db.flush();
       autoPushIfConfigured()
         .then((res) => {
           if (res.ok) {
@@ -176,15 +189,29 @@ export function StudySession({
           setSyncNotice(null);
         });
     }
-  }, [finished, stats.reviewed, stats.newDone]);
+  }, [finished, stats.reviewed, stats.newDone, stats.actions]);
 
-  // 页面离开/侧边栏切换/路由跳转/组件卸载时：若本轮有评分操作且未推送过，静默触发自动上传
+  // 页面离开/切换后台/侧边栏切换/路由跳转/组件卸载时：立即将本地脏数据落盘，若有未推送评分则静默上传
   useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void db.flush();
+        const store = useStudyStore.getState();
+        if (store.stats.actions > lastPushedActionsRef.current) {
+          lastPushedActionsRef.current = store.stats.actions;
+          void autoPushIfConfigured().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      void db.flush();
       const store = useStudyStore.getState();
       const ratedCount = store.stats.reviewed + store.stats.newDone + store.stats.actions;
-      if (ratedCount > 0 && !hasPushedInSessionRef.current) {
-        hasPushedInSessionRef.current = true;
+      if (ratedCount > 0 && store.stats.actions > lastPushedActionsRef.current) {
+        lastPushedActionsRef.current = store.stats.actions;
         void autoPushIfConfigured().catch(() => {});
       }
     };
@@ -813,7 +840,7 @@ export function StudySession({
             ) : (
               modeConfig && (
                 <StudyCard
-                  key={item.row.card_id}
+                  key={`${item.row.card_id}-${item.isRetest ? "retest" : "normal"}`}
                   row={item.row}
                   config={modeConfig}
                   phonetic={phoneticText}
@@ -823,6 +850,7 @@ export function StudySession({
                   busy={busy}
                   distractors={effectiveDistractors}
                   quickMs={quickMs}
+                  isRetest={item.isRetest}
                   onReveal={() => void handleReveal()}
                   onRate={(grade) => void handleRate(grade)}
                   onRateReadyChange={setRateReady}

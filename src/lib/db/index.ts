@@ -66,10 +66,10 @@ export class ReciterDB extends StatsRepository {
     }
   }
 
-  /** 立即持久化（sql.js 防抖保存的强刷；Tauri 端无操作） */
+  /** 立即持久化（sql.js 强刷至 IndexedDB；Tauri 端执行 WAL 检查点） */
   async flush(): Promise<void> {
-    if (this.backend?.kind === "sqljs") {
-      await (this.backend as import("@/lib/sql/sqljs-backend").SqlJsBackend).flush();
+    if (this.backend && typeof this.backend.flush === "function") {
+      await this.backend.flush();
     }
   }
 }
