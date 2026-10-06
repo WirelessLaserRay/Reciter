@@ -1,154 +1,116 @@
-# Reciter
+# Reciter 📖✨
 
-> 本地客制化英语学习与记忆客户端 · Local-first English Learning & Spaced Repetition Client
+> 现代化、本地优先（Local-first）英语学习与间隔重复记忆客户端 · Modern English Learning & Spaced Repetition Client
 >
 > [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+> [![Tauri: v2](https://img.shields.io/badge/Tauri-v2-blue.svg?logo=tauri)](https://tauri.app/)
+> [![React: 18](https://img.shields.io/badge/React-18-61dafb.svg?logo=react)](https://react.dev/)
+> [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6.svg?logo=typescript)](https://www.typescriptlang.org/)
+> [![Tailwind CSS: v4](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8.svg?logo=tailwindcss)](https://tailwindcss.com/)
+> [![Tests: Vitest](https://img.shields.io/badge/Tests-Vitest%20Passed-brightgreen.svg?logo=vitest)](https://vitest.dev/)
 
-Reciter 是一款对标 Anki 与墨墨背单词的开源本地优先（Local-first）英语学习工具。项目深度结合 **Markdown / 多格式自由导入**、**词库广场一键下载**、**FSRS-5 现代间隔重复算法**、**AI 智能语境与助记辅助**、**每日精读与新闻阅读** 以及 **跨端全量快照同步**。所有数据默认持久化于本地关系数据库，支持编译为 **Windows 桌面原生应用**（基于 Tauri 2）或离线可用的 **PWA 网页应用**。
+Reciter 是一款对标 Anki 与墨墨背单词的开源本地优先英语学习工具。项目深度融合了 **Markdown / 多格式自由导入**、**50+ 权威词库广场一键获取**、**FSRS-5 现代间隔重复算法**、**多源 TTS 真人发音与例句智能朗读**、**AI 智能语境与形近词门禁**、**Easy Days 减负日备考编排**、**每日外媒精读** 以及 **跨端全量快照同步**。
 
----
-
-## 功能特性
-
-| 功能模块 | 功能说明 |
-|---|---|
-| 词库广场 (Deck Hub) | 内置 50+ 权威开源词库目录（覆盖大学四六级、考研、专四专八、托福、雅思、GRE、GMAT、高考及程序员高频词），支持一键远程下载入库；支持任意符合规范的 GitHub / CDN Raw JSON 链接直接解析导入 |
-| 灵活多格式导入 | 原生支持 Markdown（基于 remark AST 解析）、CSV、JSON、TXT 及 Anki (.apkg) 牌组包导入；具备导入前预览、冲突检测、重名词库智能消歧、标签提取、原子级事务写入与失败回滚 |
-| 科学记忆引擎 | 完整集成 FSRS-5 现代神经网络间隔重复算法（ts-fsrs v5），支持 0.80~0.95 目标记忆保留率自定义，严密支持 Learning / Review / Relearning 状态流转与即时计算下一间隔 |
-| 统一自适应学习流 | 卡片教学模式、桌面主动回忆（首字母/全拼即时核对）、移动端拼写回忆、快速测试（中英双向形近词干扰）、AI 深度攻克与经典翻转五种学习形态自动融合；支持单轮上限与休息锁 |
-| 词库组织与管理 | 嵌套文件夹与路径分类、词库跨目录独立同名、全局模糊检索、按自然数大小智能自然排序、重点词标记、已掌握标签过滤与排除、学习乱序调度 |
-| AI 智能测评与助记 | OpenAI 兼容标准接口（原生适配 DeepSeek、Ollama 本地大模型、OpenAI 等）；支持 AI 语境完形填空出题、智能自动批改与申诉、助记侧边栏、分级词汇诊断与动态弱词攻克 |
-| 每日一文精读 | 内置 CGTN、CNN、The Guardian、NPR、BBC 等权威外媒源，支持自定义 RSS；支持 Jina Reader、Archive.today、Wayback 自动降级穿透防爬与付费墙；双语逐段对照、阅读中生词提取、划词查词及 AI 阅读理解出题 |
-| 每日一句名言 | 集成 ZenQuotes 英文名言与本地离线回退名句库，AI 智能翻译中文解析，支持一键切换并随系统日期自动滚动 |
-| 发音与音标自动补齐 | 卡片内置标准英美音标与 Web Speech TTS 离线/在线朗读发音；导入大批量词库时自动移交全局任务中心后台并发补齐音标，不阻塞任何前端交互 |
-| 释义智能拆分 | 导入或浏览时自动提取主要释义与次要释义，保持词性标注完整，为抗干扰测试与主动回忆提供准确的基础语义边界 |
-| 学习统计与记忆全景 | 复习量堆叠统计柱状图、记忆保留率平滑折线图、未来 7 天预期复习负荷、365 天动态强度提交热力图，以及全词库熟练度等级分布占比 |
-| 跨端全量快照同步 | 配套 Cloudflare Worker 云函数，基于 HMAC-SHA256 安全验证与 KV 存储实现 Windows 与 PWA 移动端双向全量快照同步，支持设备追踪与并发冲突检测 |
-| 备考日期与任务编排 | 设定考试目标日期（四六级、考研、雅思等），自动扣除冲刺缓冲期，根据剩余生词量动态平摊每日新学配额，支持一键生成 AI 分阶段宏观复习计划 |
-| 严谨工程架构与测试 | 模块化清晰解耦，具备 Vitest 自动化单元测试矩阵、ESLint 9 严格代码规范与 GitHub Actions 持续集成工作流，确保系统长效演进稳定性 |
+所有数据默认持久化于本地关系数据库（SQLite），既支持编译为轻量高效的 **Windows 桌面原生应用**（基于 Tauri 2），也支持作为纯静态、离线可用的 **PWA 网页应用** 部署运行。
 
 ---
 
-## 技术栈
+## 🌟 核心功能特性
 
-| 层次 | 选型与说明 |
-|---|---|
-| 桌面原生壳 | **Tauri 2**（Rust 语言驱动，轻量高效，系统内存占用极低），集成 tauri-plugin-sql / dialog / http |
-| 前端工程体系 | **React 18** + **TypeScript** + **Vite 7** 现代工具链 |
-| 样式与交互系统 | **Tailwind CSS v4** + **shadcn/ui**（深度定制，7 款多主题色与深浅模式自由切换） |
-| 状态与路由调度 | **Zustand 5** 响应式轻量状态库 + **React Router 7**（HashRouter 单页哈希路由） |
-| 记忆算法实现 | **ts-fsrs**（FSRS-5 算法规范） |
-| 数据持久层 | **双后端统一架构**：桌面端采用原生 SQLite 3（WAL 高性能模式）；Web / PWA 采用 sql.js WebAssembly 虚拟 SQLite 引擎结合 IndexedDB 离线持久化存储，共用同一套 Schema 迁移文件 |
-| 可视化图表 | **Recharts** 响应式数据图表库 + 自定义 SVG 强度热力图组件 |
-| 离线应用 (PWA) | **vite-plugin-pwa**（离线缓存、Manifest 声明与原生桌面/移动端添加到主屏幕支持） |
-| 云端基础设施 | **Cloudflare Worker**（边缘云函数，提供 RSS 抓取清洗、DeepL 代理与全量快照同步服务） |
+### 📚 1. 词库管理与自由导入
+- 🌐 **词库广场 (Deck Hub)**：内置 50+ 权威开源词库（覆盖大学四六级、考研、专四专八、托福、雅思、GRE、GMAT、高考及程序员高频词），支持一键远程下载入库；支持任意符合规范的 GitHub / CDN Raw JSON 链接直接导入。
+- 📥 **多格式通用导入**：原生支持 Markdown（基于 remark AST 语法树解析）、CSV、JSON、TXT 及 Anki (`.apkg`) 牌组包导入；具备导入前预览、冲突排查、重名词库智能消歧、标签提取与原子事务写入回滚机制。
+- 🗂️ **结构化分类整理**：支持嵌套文件夹与独立同名分类、多层级面包屑导航、全局模糊即时检索、自然数字智能排序、重点词标星与已掌握标签排除。
+
+### 🧠 2. 现代间隔重复记忆引擎 (FSRS-5)
+- 📈 **科学抗遗忘模型**：完整集成 FSRS-5 现代神经网络间隔重复算法（基于 `ts-fsrs v5`），全面替代传统 SM-2 算法。
+- 🎛️ **保留率自主调节**：支持 0.80 ~ 0.95 目标记忆保留率自定义，严密流转 New / Learning / Review / Relearning 状态机，根据历史复习轨迹即时推算下一次最佳复习间隔。
+- 🔄 **自适应复合学习流**：无缝融合卡片教学、桌面主动回忆（首字母/全拼即时核对）、移动端跟打回忆、快速测试（中英双向形近词抗干扰）、AI 深度攻克与经典翻转六大形态。
+
+### 🔊 3. 专业 TTS 发音矩阵与例句朗读
+- 🎙️ **多音源自由切换**：
+  - **网易有道词典 TTS**：国内直连极速发音（毫秒级响应，无需翻墙，高保真英美真人原声）；
+  - **Google 翻译 TTS**：纯正美式/英式真人发音，原生支持单词与完整例句长难句朗读（需网络代理）；
+  - **系统语音引擎 (Web Speech)**：完全离线可用，零网络依赖，支持无限长例句。
+- 🛡️ **严格固定音源 vs 智能优选**：支持“网络异常时自动回退系统语音”显式开关。用户选择固定音源时严格遵循设置，杜绝擅自回退机械音；智能优选模式下则自动真人优先、系统兜底。
+- 📖 **超长例句智能分片与连续队列朗读**：突破 Google TTS 单次 ~180 字符限制，独创 `splitTextForTTS` 按标点符号智能切分子句，并通过 `playAudioUrlList` 队列无缝连贯朗读长例句。
+- 🧼 **发音与拼写文本清洗引擎**：`cleanTextForTTS` 自动识别并忽略卡片中嵌入的构词括号（如 `recov(er)` 读写完整单词 `recover`），净化变体斜杠（`theatre / theater`），剥离词性标记（`[adj.]`、`(n.)`）与中文注释，消除 TTS 噪音。
+
+### 📅 4. 备考任务编排与 Easy Days 减负日
+- ⏱️ **倒计时智能均摊**：绑定四六级、考研、雅思等目标考试日期，自动扣除冲刺缓冲期，根据剩余生词量动态推演每日新学配额。
+- ☕ **Easy Days 减负与休整日机制**：支持周一至周日独立配置减负系数（100% 满额、50% 减半、0% 专属休整日），提供“周末双休”、“周日休整”、“周末减半”等一键预设；休整日自动免除新词压力并折减复习负荷，劳逸结合防止倦怠。
+- 🧭 **启发式学情诊断与 AI 规划**：动态感知减负日状态，向用户输出自适应的备考排期建议与阶段性复习指南。
+
+### 🤖 5. AI 智能测评与助记辅助
+- 🔌 **标准大模型接口**：OpenAI 兼容规范，开箱即用支持 DeepSeek、Ollama 本地离线大模型及 OpenAI 各类模型。
+- 📝 **语境填空与自动批改**：AI 结合单词释义实时生成语境例句与完形填空试题，支持智能评分、纠错解析与一键申诉重评。
+- 🎯 **形近词消歧“宁缺毋滥”门禁**：通过 Prompt 强约束结合代码层编辑距离 $\le 2$ 与形近度 $\ge 0.70$ 双重硬性正交门禁，杜绝生硬凑数，弱词回炉练习精准高效。
+
+### 📰 6. 每日一文精读与新闻阅读
+- 🌍 **权威外媒源聚合**：内置 CGTN、CNN、The Guardian、NPR、BBC 等优质新闻源，支持自定义 RSS 订阅。
+- 🛡️ **阅读防封穿透**：集成 Jina Reader、Archive.today、Wayback 自动降级穿透防爬虫与付费墙，基于 Mozilla Readability 提取纯净正文。
+- 💡 **精读辅助工具箱**：逐段双语对照、划词即时释义查询、文章生词一键加入复习词库、AI 智能生成阅读理解测试题。
+
+### 📊 7. 统计全景与数据安全
+- 📉 **多维数据可视化**：复习量堆叠统计柱状图、记忆保留率趋势平滑折线图、未来 7 天预期负荷预测、365 天提交热力图、全库熟练度等级分布。
+- 💾 **多层级数据落盘守护**：做题每满 10 次阶段性写盘、切后台与关闭窗口触发 `beforeunload` / `visibilitychange` 即时强制落盘；SQLite WAL 模式配置优化，确保日志即时并入主库。
+- ☁️ **跨端快照同步与冲突防护**：配套 Cloudflare Worker 云函数与 KV 存储，支持 Windows 桌面端与手机 PWA 双向全量快照同步；具备防冲刷检测机制，绝不静默覆盖本地最新复习数据，设备独立设置（`DEVICE_PRESERVED_SETTINGS`）隔离保存。
 
 ---
 
-## 架构设计
+## 🛠️ 技术架构
 
 ```
-+-------------------------------------------------------------+
-| Tauri 2 Native Shell (Rust, 安全隔离)                       |
-|  * tauri-plugin-sql     -> 本地 SQLite 文件 (reciter.db)    |
-|  * tauri-plugin-dialog  -> 本地文件系统对话框                |
-|  * tauri-plugin-http    -> 原生网络请求 (避开浏览器跨域限制)|
-+-------------------------------------------------------------+
-| React 18 + TypeScript + Vite (前端展示与交互层)             |
-|  * 页面与流程组件解耦: dashboard-view / study-flow /        |
-|    article / import-flow / exam-plan / settings-tabs        |
-|  * 状态流转: useDeckStore / useStudyStore / useDbStore      |
-|  * 领域仓储层: lib/db/ (card-repo, deck-repo, stats-repo)   |
-|  * 调度与算法: ts-fsrs / recall-match / exam-planner         |
-|  * 词库广场: lib/deck-hub/ ( catalogue 数据与远程解析器 )   |
-+-------------------------------------------------------------+
-          |                          |
-          v                          v
-   SQLite 3 单文件             Cloudflare Worker
-   (reciter.db, WAL)          * /api/sync/*    全量快照同步
-                              * /api/news/*    RSS 抓取与 Readability
-                              * /api/deepl/*   翻译跨域反向代理
+┌─────────────────────────────────────────────────────────────┐
+│ Tauri 2 Native Shell (Rust 驱动，极低资源占用)               │
+│  ├── tauri-plugin-sql     ──▶ 本地原生 SQLite 3 (WAL 模式)  │
+│  ├── tauri-plugin-dialog  ──▶ 本地原生文件对话框            │
+│  └── tauri-plugin-http    ──▶ 原生网络栈 (绕过 WebView 限制)│
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────┐
+│ React 18 + TypeScript + Vite 7 (前端展示与交互层)           │
+│  ├── 视图与组件: Dashboard / StudyFlow / Reading / DeckHub │
+│  ├── 状态管理: Zustand 5 (useDeckStore / useStudyStore)     │
+│  ├── 领域仓储层: lib/db/ (CardRepo / DeckRepo / StatsRepo) │
+│  ├── 算法与引擎: ts-fsrs / tts / exam-planner / recall-match│
+│  └── 视觉系统: Tailwind CSS v4 + shadcn/ui (7 款主题自由选) │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                ▼                             ▼
+       本地关系数据库 (SQLite)        Cloudflare Worker (边缘云)
+       %APPDATA%/.../reciter.db      ├── /api/sync/*   全量快照同步
+       (或 Web 端 sql.js WASM)       ├── /api/news/*   RSS 抓取解析
+                                     └── /api/deepl/*  翻译跨域代理
 ```
 
-### 数据库设计要点
+### 数据库核心实体设计
 
-数据库迁移脚本位于 `src-tauri/migrations/*.sql`（Web 端镜像见 `src/lib/migrations.ts`）。核心表结构如下：
+数据库迁移脚本位于 `src-tauri/migrations/*.sql`（Web 端镜像对应 `src/lib/migrations.ts`）：
 
-| 表名 | 用途描述 | 关键字段与约束 |
-|---|---|---|
-| `decks` | 词库实体 | `id`, `folder`, `name`（`folder + name` 联合唯一），`new_cards_per_day` |
-| `cards` | 单词与卡片 | `id`, `deck_id`, `front`（`(deck_id, front)` 联合唯一，重导时保留记忆历史）；包含 `is_key`, `phonetic`, `meaning_primary`, `meaning_secondary`, `ignored` |
-| `card_states` | FSRS 记忆状态（与卡片 1:1） | `card_id`, `state` (0-New, 1-Learning, 2-Review, 3-Relearning), `stability`, `difficulty`, `due`, `learning_steps` |
-| `review_logs` | 历史复习日志 | `card_id`, `grade` (1-Again, 2-Hard, 3-Good, 4-Easy), `review_time`, `source` |
-| `settings` | 全局持久化键值配置 | `key` (主键), `value` |
-| `daily_stats` | 日常学习量汇总日报 | `date` (主键), `new_count`, `review_count`, `again_count`, `retention_rate` |
+| 实体表 | 用途描述 | 核心字段与设计要点 |
+|:---|:---|:---|
+| `decks` | 词库分类实体 | `id`, `folder`, `name`（`folder + name` 联合唯一约束），`new_cards_per_day` 配额控制 |
+| `cards` | 单词与卡片 | `id`, `deck_id`, `front`（`(deck_id, front)` 联合唯一，重导时保留历史），音标与主次释义 |
+| `card_states` | FSRS 算法状态 | `card_id`, `state` (0-新学/1-学习/2-复习/3-重学), `stability`, `difficulty`, `due`, `learning_steps` |
+| `review_logs` | 历史复习流水 | `card_id`, `grade` (1-Again/2-Hard/3-Good/4-Easy), `review_time`, `source` |
+| `settings` | 全局持久化配置 | `key` (主键), `value`；包含 TTS 音源、日界时间、考试规划、减负日设置等 |
+| `daily_stats` | 每日学情统计日报 | `date` (主键), `new_count`, `review_count`, `again_count`, `retention_rate` |
 
 ---
 
-## 项目代码结构
+## 💻 本地开发与调试
 
-```
-Reciter/
-├── src/                        # 前端源代码
-│   ├── components/             # 通用与功能组件
-│   │   ├── ai/                 # AI 对话助手与提示词模板
-│   │   ├── common/             # MarkdownView、HeatmapGrid、WordDetailModal
-│   │   ├── deck/               # 词库卡片与列表展示组件
-│   │   ├── layout/             # 侧边导航栏与应用外壳
-│   │   ├── quiz/               # 测试与拼写练习组件 (QuizSession)
-│   │   ├── study/              # 学习卡片与子模式 (card/、exam-plan/)
-│   │   └── ui/                 # 原子化基础 UI 部件 (shadcn/ui)
-│   ├── lib/                    # 核心领域逻辑与库
-│   │   ├── db/                 # 领域数据库仓库 (card-repo, deck-repo, stats-repo)
-│   │   ├── deck-hub/           # 词库广场静态目录与远程解析导入器
-│   │   ├── ai-client.ts        # 统一 OpenAI / DeepSeek / 本地大模型客户端
-│   │   ├── day.ts              # 日期与日界计算工具函数
-│   │   ├── exam-planner.ts     # 备考任务动态均摊与计划推演
-│   │   ├── fsrs.ts             # FSRS-5 算法适配封装
-│   │   └── recall-match.ts     # 主动拼写回忆匹配算法
-│   ├── pages/                  # 业务路由页面及其子模块
-│   │   ├── article/            # 每日一文精读业务组件 (Reader, Feed, WordSidebar)
-│   │   ├── dashboard-view/     # 仪表盘业务组件 (StatsGrid, QuoteArticle, OrchestratedCard)
-│   │   ├── import-flow/        # 导入流组件 (Dropzone, Manual, Ai, PreviewTable)
-│   │   ├── settings/tabs/      # 系统设置选项卡 (General, Learning, AI, Backup, Data, Sync)
-│   │   ├── study-flow/         # 学习流程组件 (DeckPicker, StudySession, TagScopeDialog)
-│   │   ├── DailyArticle.tsx    # 每日一文页面入口
-│   │   ├── Dashboard.tsx       # 仪表盘页面入口
-│   │   ├── DeckHub.tsx         # 词库广场页面
-│   │   ├── Import.tsx          # 导入页面入口
-│   │   ├── Settings.tsx        # 设置页面入口
-│   │   └── Study.tsx           # 学习主流程入口
-│   ├── stores/                 # Zustand 全局状态流 (useDeckStore, useStudyStore 等)
-│   └── types/                  # 全局 TypeScript 接口定义
-├── src-tauri/                  # Tauri 2 原生桌面端 (Rust)
-│   ├── src/                    # Rust 入口与命令注册
-│   ├── migrations/             # SQLite 数据库升级脚本
-│   ├── icons/                  # 桌面端应用图标
-│   └── tauri.conf.json         # Tauri 配置文件
-├── tests/                      # Vitest 自动化单元测试套件
-│   ├── db/                     # 数据库与 CRUD 回归测试
-│   └── lib/                    # 算法、导入解析、拼写判定测试
-├── worker/                     # Cloudflare Worker 代理与快照同步服务
-│   ├── src/index.ts            # Worker 核心处理逻辑 (安全防护、限流、KV 同步)
-│   └── wrangler.jsonc          # Cloudflare Worker 配置文件
-├── public/                     # 静态资源与 PWA Service Worker 资源
-└── .github/workflows/          # GitHub CI/CD 工作流 (ci.yml, deploy-pages.yml)
-```
+### 前置环境需求
+- **Node.js**：`>= 18.0.0`（推荐 LTS 22.x）
+- **npm**：`>= 10.0.0`
+- **Rust**：Stable 工具链（用于编译构建 Tauri 桌面端）
+- **C++ 生成工具**：Visual Studio 2022 C++ 生成工具（MSVC 工具集与 Windows SDK）
 
----
+> 💡 **提示**：本地 Vite 开发服务器默认端口配置为 **`14210`**，专为避开 Windows 系统 Hyper-V / WSL 保留端口段设计。
 
-## 开发与调试环境
-
-### 前置环境依赖
-
-- **Node.js**：>= 18.0.0（推荐使用 LTS 22.x）
-- **npm**：>= 10.0.0
-- **Rust**：Stable 工具链（`rustup` 安装，用于构建 Windows 原生桌面端）
-- **Visual Studio 2022 C++ 生成工具**：包含 MSVC 工具集与 Windows SDK（供 Rust 链接器 `link.exe` 调用）
-
-> 注意：本地 Vite 开发服务器配置端口为 **14210**，避开 Windows 系统 Hyper-V / WSL 常用的保留端口段。
-
-### 常用命令指令表
+### 常用开发命令
 
 ```bash
 # 1. 安装项目依赖
@@ -157,14 +119,14 @@ npm install
 # 2. 启动前端本地开发热重载 (http://127.0.0.1:14210)
 npm run dev
 
-# 3. 运行自动化单元测试套件 (基于 Vitest)
+# 3. 运行自动化单元测试套件 (Vitest 覆盖 66+ 项用例)
 npm test
 
-# 4. 执行全项目代码规范与类型检查
+# 4. 执行代码规范与 TypeScript 类型检查
 npm run lint
 npx tsc --noEmit
 
-# 5. 前端全量生产打包 (构建输出至 dist/)
+# 5. 前端全量生产构建 (产物输出至 dist/)
 npm run build
 
 # 6. 构建 PWA 网页独立包 (配置 GitHub Pages base 路径)
@@ -173,78 +135,63 @@ npm run build:web
 # 7. 启动桌面端原生联合调试 (Tauri Dev, 需 Rust 环境)
 npm run tauri dev
 
-# 8. 打包 Windows 桌面正式安装包 (.msi 与 -setup.exe)
+# 8. 构建 Windows 桌面正式安装包与可执行程序
 npm run tauri build
 ```
 
 ---
 
-## 软件打包与分发
+## 📦 打包与部署分发
 
-### Windows 原生客户端构建
-
-在项目根目录下执行以下构建命令即可生成原生二进制产物：
-
+### 🪟 Windows 桌面端构建
+在项目根目录运行以下命令：
 ```powershell
-# 编译并打包为 Windows 独立执行程序及安装包
 npm run tauri build
 ```
 
-构建成功后，输出文件位于：
-- **独立可执行程序**：`src-tauri/target/release/reciter.exe`
-- **Windows 标准安装包**：`src-tauri/target/release/bundle/msi/Reciter_<版本>_x64_en-US.msi`
+打包成功后产物位于：
+- **绿色免安装单文件**：`src-tauri/target/release/reciter.exe`（已内嵌路径脱敏重映射）
 - **轻量 NSIS 安装程序**：`src-tauri/target/release/bundle/nsis/Reciter_<版本>_x64-setup.exe`
+- **Windows MSI 安装包**：`src-tauri/target/release/bundle/msi/Reciter_<版本>_x64_en-US.msi`
 
-本地用户数据持久化保存在系统应用数据目录：`%APPDATA%\com.reciter.app\reciter.db`。
+本地用户数据默认安全存储于：`%APPDATA%\com.reciter.app\reciter.db`。
 
-### PWA 网页版部署
-
+### 📱 PWA 网页版部署
 ```bash
 npm run build:web
 ```
+- 构建生成的静态资源位于 `dist/`，可直接托管至 GitHub Pages、Cloudflare Pages、Vercel 或私有服务器。
+- 在手机或平板浏览器中访问，点击浏览器菜单的「添加到主屏幕」即可作为独立 App 运行，离线环境下亦可正常复习背词。
 
-- 编译生成的静态文件可直接托管至 GitHub Pages、Cloudflare Pages、Vercel 或任意静态 Web 服务器。
-- 手机、平板或浏览器直接访问部署地址，点击浏览器菜单中的「添加到主屏幕」或「安装应用」，即可享受全屏独立、离线可用的本地化学习体验。
-
----
-
-## Cloudflare Worker 部署（可选）
-
-配套的 Worker 位于 `worker/` 目录，负责支持跨端全量快照同步、新闻聚合与翻译跨域代理。
-
-1. 进入 worker 目录并安装依赖：
-   ```bash
-   cd worker
-   npm install
-   ```
-2. 绑定 KV 存储并设置访问密钥：
-   ```bash
-   # 配置同步密钥（用于保护个人快照不被匿名读取/覆盖）
-   npx wrangler secret put SYNC_TOKEN
-   ```
-3. 部署上线：
-   ```bash
-   npm run deploy
-   ```
-4. 在客户端「设置 -> 数据同步」中填写 Worker 部署的公开域名与密钥，即可开启跨端快照多向备份。
+### ☁️ Cloudflare Worker 部署（可选同步服务）
+配套的云端 Worker 位于 `worker/` 目录：
+```bash
+cd worker
+npm install
+# 配置个人专属同步令牌密钥
+npx wrangler secret put SYNC_TOKEN
+# 部署至 Cloudflare 边缘节点
+npm run deploy
+```
+在客户端「设置 ➔ 数据同步」填入部署好的 Worker 域名与 Secret，即可体验多端秒级备份与快照漫游。
 
 ---
 
-## 鸣谢与开源参考
+## 🤝 鸣谢与开源致敬
 
-Reciter 的构建得益于全球开源社区与语言学习研究团队的宝贵成果：
+Reciter 的诞生离不开全球开源社区与记忆科学研究者的杰出成果：
 
-- **[Anki](https://github.com/ankitects/anki)**：间隔重复学习与数字化闪卡生态的先驱，启发了 Reciter 的闪卡结构、复习流程与卡片状态流转设计。
-- **[FSRS (Free Spaced Repetition Scheduler)](https://github.com/open-spaced-repetition/fsrs4anki)** 与 **[ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs)**：Jarrett Ye 与 Open Spaced Repetition 团队开发的现代间隔重复算法，为 Reciter 提供了抗遗忘曲线与记忆稳定性建模核心。
-- **[Qwerty Learner](https://github.com/RealKai42/qwerty-learner)**：优秀开源英语打字学习项目，为 Reciter 词库广场提供了权威结构化词汇大纲与 CDN 镜像标准支持。
-- **[ECDICT](https://github.com/skywind3000/ECDICT)**：Skywind3000 主导维护的 77 万词条大型英汉词典，为词库词形还原、柯林斯星级与音标规范提供了权威基准。
-- **[Tauri](https://github.com/tauri-apps/tauri)**：跨平台 Rust 桌面框架，赋予 Reciter 极小的运行内存占用与极佳的本地执行性能。
-- **[sql.js](https://github.com/sql-js/sql.js)**：SQLite WebAssembly 移植项目，使得 PWA 网页端能够完全无缝复用原生 SQLite 架构与迁移语句。
-- **[Mozilla Readability](https://github.com/mozilla/readability)**：Firefox 阅读模式核心开源库，驱动每日一文纯净正文提取与排版解析。
-- **[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss)** 与 **[shadcn/ui](https://github.com/shadcn-ui/ui)**：为 Reciter 提供了现代、精细、高可访问性的设计语言与组件库支撑。
+- **[Anki](https://github.com/ankitects/anki)**：数字化闪卡记忆软件先驱，启发了 Reciter 的闪卡结构与复习流转设计。
+- **[FSRS (Free Spaced Repetition Scheduler)](https://github.com/open-spaced-repetition/fsrs4anki)** 与 **[ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs)**：Jarrett Ye 与 Open Spaced Repetition 团队打造的现代间隔重复算法，为 Reciter 提供了精准的记忆建模基石。
+- **[Qwerty Learner](https://github.com/RealKai42/qwerty-learner)**：优秀的打字背词项目，为 Reciter 词库广场提供了高质量的词汇大纲与 CDN 镜像标准。
+- **[ECDICT](https://github.com/skywind3000/ECDICT)**：Skywind3000 维护的 77 万词条大型英汉词典，为词库词形还原与音标规范提供了权威支持。
+- **[Tauri](https://github.com/tauri-apps/tauri)**：跨平台 Rust 原生应用框架，赋予 Reciter 极低的内存占用与卓越性能。
+- **[sql.js](https://github.com/sql-js/sql.js)**：SQLite WebAssembly 移植版本，使 Web/PWA 端能够 100% 复用原生 SQLite Schema 架构。
+- **[Mozilla Readability](https://github.com/mozilla/readability)**：Firefox 阅读模式核心开源库，驱动每日一文纯净正文提取。
+- **[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss)** 与 **[shadcn/ui](https://github.com/shadcn-ui/ui)**：为 Reciter 提供了现代、精细、高可访问性的设计语言。
 
 ---
 
-## 许可证
+## 📄 开源许可证
 
-本项目遵循 [MIT 许可证](LICENSE) 开源。
+本项目基于 [MIT License](LICENSE) 开源。欢迎 Star、Fork 与提交 Pull Request！
