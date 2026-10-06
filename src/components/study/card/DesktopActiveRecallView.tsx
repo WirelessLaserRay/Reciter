@@ -40,7 +40,9 @@ export function DesktopActiveRecallView(props: ModeViewProps) {
     setRecallPhase("result");
     setRecallResult(null);
     setLimitedRatings(true);
-    speak(row.front);
+    setTimeout(() => {
+      void speak(row.front);
+    }, 250);
     onReveal();
   }, [row.front, onReveal]);
 
@@ -48,7 +50,9 @@ export function DesktopActiveRecallView(props: ModeViewProps) {
     setRecallPhase("result");
     setRecallResult(null);
     setLimitedRatings(false);
-    speak(row.front);
+    setTimeout(() => {
+      void speak(row.front);
+    }, 250);
     onReveal();
   }, [row.front, onReveal]);
 

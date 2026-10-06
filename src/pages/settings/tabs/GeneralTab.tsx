@@ -45,14 +45,14 @@ const TTS_SOURCE_OPTIONS: {
   },
   {
     value: "youdao",
-    label: "网易有道词典 TTS (固定)",
+    label: "网易有道词典 TTS",
     tag: "国内直连",
     desc: "高保真真人词典发音，国内秒开（注：有道接口仅收录单词与短语，例句由 Google/系统语音承接）",
     badgeClass: "border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-400",
   },
   {
     value: "google",
-    label: "Google 翻译 TTS (固定)",
+    label: "Google 翻译 TTS",
     tag: "国际权威",
     desc: "纯正美式/英式真人发音，原生支持单词与完整例句朗读（需开启代理）",
     badgeClass: "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",

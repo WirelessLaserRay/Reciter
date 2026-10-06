@@ -176,31 +176,43 @@ export function QuickTestView(props: ModeViewProps) {
 
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     if (!choice.useFront && !spokenPromptRef.current) {
       spokenPromptRef.current = true;
       getAutoPronounceEnabled()
         .then((enabled) => {
-          if (active && enabled) speak(row.front);
+          if (active && enabled) {
+            timer = setTimeout(() => {
+              if (active) void speak(row.front);
+            }, 250);
+          }
         })
         .catch(() => {});
     }
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, [choice.useFront, row.front]);
 
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     if (checked !== null && choice.useFront && !spokenCheckedRef.current) {
       spokenCheckedRef.current = true;
       getAutoPronounceEnabled()
         .then((enabled) => {
-          if (active && enabled) speak(row.front);
+          if (active && enabled) {
+            timer = setTimeout(() => {
+              if (active) void speak(row.front);
+            }, 250);
+          }
         })
         .catch(() => {});
     }
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, [checked, choice.useFront, row.front]);
 

@@ -40,6 +40,7 @@ export default function StudyCard(props: StudyCardProps) {
 
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const cardId = row.card_id;
     if (spokenCardIdRef.current === cardId) {
       return;
@@ -56,7 +57,12 @@ export default function StudyCard(props: StudyCardProps) {
       getAutoPronounceEnabled()
         .then((enabled) => {
           if (active && enabled) {
-            speak(row.front);
+            // 词卡展示与朗读间预留 300ms 视觉缓冲，避免切卡瞬间声音突兀
+            timer = setTimeout(() => {
+              if (active) {
+                void speak(row.front);
+              }
+            }, 300);
           }
         })
         .catch(() => {});
@@ -64,6 +70,9 @@ export default function StudyCard(props: StudyCardProps) {
 
     return () => {
       active = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
   }, [row.card_id, row.front, config.mode, isMobile]);
 
