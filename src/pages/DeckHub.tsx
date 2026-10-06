@@ -45,7 +45,8 @@ import {
   type HubDeckMeta,
   type OpenPlatformResource,
 } from "@/lib/deck-hub";
-import { openExternalLink, showNativeAlert } from "@/lib/native-ui";
+import { openExternalLink } from "@/lib/native-ui";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +84,16 @@ export default function DeckHub() {
     [deckId: string]: { deckId: number; name: string; count: number };
   }>({});
 
+  // 统一软件风格提示框
+  const [notice, setNotice] = useState<{
+    title: string;
+    description: string;
+    destructive?: boolean;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    onConfirm?: () => void;
+  } | null>(null);
+
   // 筛选词库
   const filteredDecks = useMemo(() => {
     return HUB_DECKS.filter((deck) => {
@@ -114,15 +125,20 @@ export default function DeckHub() {
     try {
       const res = await importHubDeck(meta, (msg) => setProgressMsg(msg));
       setImportSuccess((prev) => ({ ...prev, [meta.id]: res }));
-      await showNativeAlert(
-        `词库【${res.name}】已成功导入！\n\n共写入 ${res.count.toLocaleString()} 张卡片，已就绪可随时开始学习。`,
-        { title: "词库导入成功", kind: "info" }
-      );
+      setNotice({
+        title: "词库导入成功",
+        description: `词库「${res.name}」已成功导入！共写入 ${res.count.toLocaleString()} 张卡片，已就绪可随时开始学习。`,
+        confirmLabel: "立即查看",
+        cancelLabel: "留在广场",
+        onConfirm: () => navigate(`/decks/${res.deckId}`),
+      });
     } catch (err) {
-      await showNativeAlert(
-        `导入词库【${meta.name}】失败。\n\n原因: ${(err as Error).message}`,
-        { title: "词库导入失败", kind: "error" }
-      );
+      setNotice({
+        title: "词库导入失败",
+        description: `导入词库「${meta.name}」失败：${(err as Error).message}`,
+        destructive: true,
+        confirmLabel: "知道了",
+      });
     } finally {
       setImportingId(null);
       setProgressMsg("");
@@ -141,16 +157,20 @@ export default function DeckHub() {
       setShowCustomUrlDialog(false);
       setCustomUrl("");
       setCustomDeckName("");
-      await showNativeAlert(
-        `网络词库【${res.name}】导入成功！\n\n共写入 ${res.count.toLocaleString()} 张卡片。`,
-        { title: "网络导入成功", kind: "info" }
-      );
-      navigate(`/decks/${res.deckId}`);
+      setNotice({
+        title: "网络导入成功",
+        description: `网络词库「${res.name}」导入成功！共写入 ${res.count.toLocaleString()} 张卡片。`,
+        confirmLabel: "立即查看",
+        cancelLabel: "留在广场",
+        onConfirm: () => navigate(`/decks/${res.deckId}`),
+      });
     } catch (err) {
-      await showNativeAlert(
-        `网络导入失败。\n\n原因: ${(err as Error).message}`,
-        { title: "网络导入失败", kind: "error" }
-      );
+      setNotice({
+        title: "网络导入失败",
+        description: `网络导入失败：${(err as Error).message}`,
+        destructive: true,
+        confirmLabel: "知道了",
+      });
     } finally {
       setCustomImporting(false);
       setCustomProgress("");
@@ -347,8 +367,11 @@ export default function DeckHub() {
                     </div>
                   </div>
 
-                  <div>
-                    <CardTitle className="text-base font-semibold leading-snug">
+                  <div className="min-w-0">
+                    <CardTitle
+                      className="text-base font-semibold leading-snug break-words [overflow-wrap:anywhere]"
+                      title={deck.name}
+                    >
                       {deck.name}
                     </CardTitle>
                     <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -368,7 +391,10 @@ export default function DeckHub() {
                     </div>
                   </div>
 
-                  <CardDescription className="line-clamp-2 text-xs leading-relaxed">
+                  <CardDescription
+                    className="line-clamp-2 text-xs leading-relaxed break-words [overflow-wrap:anywhere]"
+                    title={deck.description}
+                  >
                     {deck.description}
                   </CardDescription>
                 </CardHeader>
@@ -480,7 +506,10 @@ export default function DeckHub() {
           </DialogHeader>
 
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p
+              className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-h-36 overflow-y-auto rounded-md bg-muted/30 p-2.5"
+              title={previewDeck?.description}
+            >
               {previewDeck?.description}
             </p>
 
@@ -627,6 +656,23 @@ export default function DeckHub() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 统一软件样式导入结果提示框 */}
+      <ConfirmDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        title={notice?.title ?? ""}
+        description={notice?.description}
+        destructive={notice?.destructive}
+        confirmLabel={notice?.confirmLabel ?? "确定"}
+        cancelLabel={notice?.cancelLabel}
+        onConfirm={() => {
+          const action = notice?.onConfirm;
+          setNotice(null);
+          action?.();
+        }}
+        onCancel={() => setNotice(null)}
+      />
     </div>
   );
 }

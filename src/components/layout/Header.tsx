@@ -17,6 +17,8 @@ const TITLES: Record<string, string> = {
   "/study": "学习",
   "/weak-words": "弱词本",
   "/daily-article": "每日一文",
+  "/deck-hub": "词库广场",
+  "/about": "关于",
 };
 
 function formatSyncTime(iso: string | null): string {

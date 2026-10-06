@@ -26,6 +26,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -83,6 +84,16 @@ export default function DeckList() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"decks" | "search">("decks");
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedDescIds, setExpandedDescIds] = useState<Set<number>>(new Set());
+
+  const toggleExpandDesc = (id: number) => {
+    setExpandedDescIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (dbReady) refresh();
@@ -310,12 +321,13 @@ export default function DeckList() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="deck-desc">描述（可选）</Label>
-                <Input
+                <Textarea
                   id="deck-desc"
-                  placeholder="词库说明"
+                  placeholder="词库说明与简介"
+                  rows={2}
+                  className="resize-none"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && createDeck()}
                 />
               </div>
             </div>
@@ -391,14 +403,16 @@ export default function DeckList() {
                     .map((d) => (
                       <Card key={d.id} className="group relative transition-all hover:border-primary/40 hover:shadow-xs">
                         <CardHeader className="pb-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <CardTitle className="truncate">{d.name}</CardTitle>
-                            <div className="flex shrink-0 gap-0.5">
+                          <div className="flex items-start justify-between gap-2 min-w-0">
+                            <CardTitle className="min-w-0 flex-1 truncate" title={d.name}>
+                              {d.name}
+                            </CardTitle>
+                            <div className="flex shrink-0 items-center gap-0.5">
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className={cn(
-                                  "size-7",
+                                  "size-7 shrink-0",
                                   selectedDeckIds.has(d.id)
                                     ? "text-primary"
                                     : "text-muted-foreground"
@@ -415,7 +429,7 @@ export default function DeckList() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7 text-muted-foreground"
+                                className="size-7 shrink-0 text-muted-foreground"
                                 onClick={() => openRename(d.id, d.name, d.description, d.new_cards_per_day, d.folder)}
                                 title="重命名词库"
                               >
@@ -424,7 +438,7 @@ export default function DeckList() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7 text-muted-foreground hover:text-destructive"
+                                className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
                                 onClick={() => setDeleteTarget({ id: d.id, name: d.name, cards: cardCounts[d.id] ?? 0 })}
                                 title="删除词库"
                               >
@@ -432,9 +446,39 @@ export default function DeckList() {
                               </Button>
                             </div>
                           </div>
-                          <CardDescription className="line-clamp-2 min-h-8">
-                            {d.description || "暂无描述"}
-                          </CardDescription>
+                          {(() => {
+                            const isExpanded = expandedDescIds.has(d.id);
+                            const descText = d.description?.trim() || "";
+                            const isLongDesc = descText.length > 55 || descText.includes("\n");
+
+                            return (
+                              <div className="space-y-1 min-w-0">
+                                <CardDescription
+                                  className={cn(
+                                    "text-xs leading-relaxed break-words [overflow-wrap:anywhere] transition-all",
+                                    isExpanded
+                                      ? "whitespace-pre-wrap max-h-48 overflow-y-auto"
+                                      : "line-clamp-2 min-h-8"
+                                  )}
+                                  title={descText || "暂无描述"}
+                                >
+                                  {descText || "暂无描述"}
+                                </CardDescription>
+                                {isLongDesc && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpandDesc(d.id);
+                                    }}
+                                    className="text-[11px] font-medium text-primary hover:underline cursor-pointer select-none"
+                                  >
+                                    {isExpanded ? "收起简介" : "展开简介"}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </CardHeader>
                         <CardContent>
                           <div className="flex items-center justify-between text-sm">
@@ -524,11 +568,12 @@ export default function DeckList() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rename-desc">描述（可选）</Label>
-              <Input
+              <Textarea
                 id="rename-desc"
                 value={renameDesc}
+                rows={2}
+                className="resize-none"
                 onChange={(e) => setRenameDesc(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && saveRename()}
               />
             </div>
             <div className="space-y-1.5">

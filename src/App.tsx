@@ -14,6 +14,7 @@ import Settings from "@/pages/Settings";
 import WeakWords from "@/pages/WeakWords";
 import DailyArticle from "@/pages/DailyArticle";
 import DeckHub from "@/pages/DeckHub";
+import About from "@/pages/About";
 
 import { db } from "@/lib/db";
 import { initSyncHooks } from "@/lib/sync";
@@ -80,6 +81,7 @@ function App() {
           <Route path="/weak-words" element={<WeakWords />} />
           <Route path="/daily-article" element={<DailyArticle />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/about" element={<About />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

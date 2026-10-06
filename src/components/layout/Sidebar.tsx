@@ -9,6 +9,7 @@ import {
   Compass,
   FileUp,
   GraduationCap,
+  Info,
   LayoutDashboard,
   Newspaper,
   Search,
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { to: "/import", label: "导入", icon: FileUp },
   { to: "/stats", label: "统计", icon: BarChart3 },
   { to: "/settings", label: "设置", icon: Settings },
+  { to: "/about", label: "关于", icon: Info },
 ];
 
 /** 可折叠文本：CSS grid-template-columns 0fr/1fr 平滑过渡（见 index.css） */
@@ -154,10 +156,14 @@ export default function Sidebar({
           {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
           <CollapseText>折叠侧栏</CollapseText>
         </Button>
-        <div className="sidebar-collapse-text mt-2 justify-center">
-          <div className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground">
-            Reciter v0.16.7 · Phase 7
-          </div>
+        <div className="sidebar-collapse-text mt-2 justify-center w-full text-center">
+          <NavLink
+            to="/about"
+            className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground font-mono hover:text-primary transition-colors block"
+            title="点击前往关于与检查更新"
+          >
+            v0.16.8
+          </NavLink>
         </div>
       </div>
     </aside>

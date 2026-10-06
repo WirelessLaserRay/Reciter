@@ -6,6 +6,7 @@ import {
   Compass,
   FileUp,
   GraduationCap,
+  Info,
   LayoutDashboard,
   Moon,
   MoreHorizontal,
@@ -38,6 +39,7 @@ const MORE_TABS = [
   { to: "/stats", label: "统计看板", icon: BarChart3 },
   { to: "/import", label: "导入词库", icon: FileUp },
   { to: "/settings", label: "系统设置", icon: Settings },
+  { to: "/about", label: "关于软件", icon: Info },
 ];
 
 export default function BottomNav() {

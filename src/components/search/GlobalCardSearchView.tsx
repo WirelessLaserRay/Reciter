@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -6,6 +6,7 @@ import {
   Volume2,
   Star,
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   Edit2,
   Check,
@@ -76,6 +77,7 @@ export default function GlobalCardSearchView({
     if (controlledQuery === undefined) {
       setInternalInput(v);
     }
+    setMobileDetailOpen(false);
     onQueryChange?.(v);
   };
 
@@ -90,6 +92,7 @@ export default function GlobalCardSearchView({
   const [totalCount, setTotalCount] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeItem, setActiveItem] = useState<GlobalSearchResult | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   // 编辑模态状态
   const [editingItem, setEditingItem] = useState<GlobalSearchResult | null>(null);
@@ -302,9 +305,9 @@ export default function GlobalCardSearchView({
         )}
 
         {/* 快捷过滤工具条 */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 text-xs">
           {/* 范围过滤 Tabs */}
-          <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border border-border/50">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-muted/60 p-0.5 rounded-lg border border-border/50 shrink-0">
             {(
               [
                 { id: "all", label: "全部" },
@@ -316,9 +319,12 @@ export default function GlobalCardSearchView({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setScope(tab.id)}
+                onClick={() => {
+                  setScope(tab.id);
+                  setMobileDetailOpen(false);
+                }}
                 className={cn(
-                  "px-2.5 py-1 rounded-md font-medium transition-colors",
+                  "px-2 sm:px-2.5 py-1 rounded-md font-medium transition-colors text-xs",
                   scope === tab.id
                     ? "bg-background text-foreground shadow-xs"
                     : "text-muted-foreground hover:text-foreground"
@@ -333,8 +339,11 @@ export default function GlobalCardSearchView({
           <div className="flex items-center gap-1.5 ml-auto">
             <select
               value={selectedDeckId}
-              onChange={(e) => setSelectedDeckId(Number(e.target.value))}
-              className="h-7 rounded-md border border-border/60 bg-background px-2 text-xs text-foreground outline-none focus:border-primary max-w-40 truncate"
+              onChange={(e) => {
+                setSelectedDeckId(Number(e.target.value));
+                setMobileDetailOpen(false);
+              }}
+              className="h-7 rounded-md border border-border/60 bg-background px-1.5 sm:px-2 text-xs text-foreground outline-none focus:border-primary max-w-28 sm:max-w-40 truncate"
             >
               <option value={0}>全词库 ({decks.length} 个)</option>
               {decks.map((d) => (
@@ -346,7 +355,10 @@ export default function GlobalCardSearchView({
 
             <button
               type="button"
-              onClick={() => setIsKeyOnly((v) => !v)}
+              onClick={() => {
+                setIsKeyOnly((v) => !v);
+                setMobileDetailOpen(false);
+              }}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 rounded-md border text-xs transition-colors",
                 isKeyOnly
@@ -360,7 +372,10 @@ export default function GlobalCardSearchView({
 
             <button
               type="button"
-              onClick={() => setIsWeakOnly((v) => !v)}
+              onClick={() => {
+                setIsWeakOnly((v) => !v);
+                setMobileDetailOpen(false);
+              }}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 rounded-md border text-xs transition-colors",
                 isWeakOnly
@@ -375,12 +390,15 @@ export default function GlobalCardSearchView({
         </div>
       </div>
 
-      {/* 结果区域（桌面端分栏，移动端上下堆叠） */}
+      {/* 结果区域（桌面端左右分栏，移动端主从切换） */}
       <div className="flex-1 min-h-0 flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x overflow-hidden">
         {/* 左侧：搜索结果列表 */}
         <div
           ref={listContainerRef}
-          className="flex-1 overflow-y-auto p-2 sm:p-2.5 space-y-1.5 focus:outline-none"
+          className={cn(
+            "flex-1 overflow-y-auto p-2 sm:p-2.5 space-y-1.5 focus:outline-none",
+            mobileDetailOpen && "hidden md:block"
+          )}
           tabIndex={0}
         >
           {loading ? (
@@ -410,29 +428,30 @@ export default function GlobalCardSearchView({
                   onClick={() => {
                     setSelectedIndex(idx);
                     setActiveItem(item);
+                    setMobileDetailOpen(true);
                   }}
                   onDoubleClick={() => handleJumpToDeck(item)}
                   className={cn(
-                    "group flex flex-col gap-1 rounded-lg border p-2.5 text-left transition-all cursor-pointer select-none",
+                    "group flex flex-col gap-1.5 rounded-lg border p-2.5 text-left transition-all cursor-pointer select-none",
                     isSelected
-                      ? "border-primary/50 bg-primary/5 shadow-xs"
-                      : "border-transparent bg-card/40 hover:border-border hover:bg-card"
+                      ? "border-primary/60 bg-primary/5 shadow-xs"
+                      : "border-border/50 bg-card/60 hover:border-border hover:bg-card"
                   )}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-base font-semibold text-foreground truncate">
+                  <div className="flex items-center justify-between gap-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-foreground truncate min-w-0 block" title={item.front}>
                         {item.front}
                       </span>
                       {item.phonetic && (
-                        <span className="text-xs text-muted-foreground font-sans truncate">
+                        <span className="text-xs text-muted-foreground font-sans truncate shrink-0 max-w-20 sm:max-w-28" title={item.phonetic}>
                           {item.phonetic}
                         </span>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="size-5 shrink-0 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                         onClick={(e) => {
                           e.stopPropagation();
                           speak(item.front);
@@ -443,39 +462,55 @@ export default function GlobalCardSearchView({
                       </Button>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                       {item.is_key === 1 && (
-                        <Badge variant="secondary" className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px] px-1.5 py-0 h-4">
+                        <Badge variant="secondary" className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px] px-1 sm:px-1.5 py-0 h-4 shrink-0">
                           重点
                         </Badge>
                       )}
                       {isWeak && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
-                          弱词 ({item.lapses})
+                        <Badge variant="destructive" className="text-[10px] px-1 sm:px-1.5 py-0 h-4 shrink-0">
+                          弱词
                         </Badge>
                       )}
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-muted-foreground border-border/60">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1 sm:px-1.5 py-0 h-4 text-muted-foreground border-border/60 max-w-20 sm:max-w-28 truncate shrink-0"
+                        title={item.deck_name}
+                      >
                         {item.deck_name}
                       </Badge>
                     </div>
                   </div>
 
-                  <p className="text-xs text-foreground/80 line-clamp-1 leading-relaxed">
-                    {item.back}
-                  </p>
+                  <div className="text-xs leading-relaxed text-muted-foreground line-clamp-2 break-words [overflow-wrap:anywhere]">
+                    {item.meaning_primary ? (
+                      <>
+                        <span className="font-medium text-foreground">{item.meaning_primary.replace(/\*\*/g, "")}</span>
+                        {item.meaning_secondary && (
+                          <span className="text-muted-foreground/80 ml-1.5">
+                            {item.meaning_secondary.replace(/\*\*/g, "")}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span>{(item.back || "").replace(/\*\*/g, "").replace(/\n+/g, "  •  ").trim()}</span>
+                    )}
+                  </div>
 
                   {pureTags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
                       {pureTags.slice(0, 3).map((t) => (
                         <span
                           key={t}
-                          className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground max-w-24 truncate"
+                          title={t}
                         >
                           #{t}
                         </span>
                       ))}
                       {pureTags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground/60">
+                        <span className="text-[10px] text-muted-foreground/60 shrink-0 self-center">
                           +{pureTags.length - 3}
                         </span>
                       )}
@@ -488,23 +523,44 @@ export default function GlobalCardSearchView({
         </div>
 
         {/* 右侧：卡片详情与快速操作 */}
-        <div className="w-full md:w-80 lg:w-96 shrink-0 bg-muted/15 p-4 overflow-y-auto flex flex-col justify-between">
+        <div
+          className={cn(
+            "w-full md:w-80 lg:w-96 shrink-0 bg-muted/15 p-3 sm:p-4 overflow-y-auto flex flex-col justify-between",
+            !mobileDetailOpen && "hidden md:flex"
+          )}
+        >
           {activeItem ? (
             <div className="space-y-4">
+              {/* 移动端返回搜索列表导航栏 */}
+              <div className="flex md:hidden items-center justify-between pb-2 border-b border-border/60">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMobileDetailOpen(false)}
+                  className="gap-1.5 text-xs h-7 px-2 -ml-1 text-primary hover:text-primary font-medium"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  <span>返回搜索结果</span>
+                </Button>
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  {selectedIndex + 1} / {results.length}
+                </span>
+              </div>
+
               {/* 词头与发音 */}
               <div className="space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5">
-                    <h2 className="text-xl font-bold tracking-tight text-foreground">
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <h2 className="text-xl font-bold tracking-tight text-foreground break-words [overflow-wrap:anywhere]">
                       {activeItem.front}
                     </h2>
                     {activeItem.phonetic && (
-                      <p className="text-xs text-muted-foreground font-mono">
+                      <p className="text-xs text-muted-foreground font-mono break-words">
                         {activeItem.phonetic}
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -536,7 +592,7 @@ export default function GlobalCardSearchView({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1 pt-1">
-                  <Badge variant="outline" className="text-xs font-normal">
+                  <Badge variant="outline" className="text-xs font-normal max-w-full truncate" title={activeItem.deck_name}>
                     词库：{activeItem.deck_name}
                   </Badge>
                   {activeItem.state !== null && (
@@ -552,9 +608,22 @@ export default function GlobalCardSearchView({
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   标准释义
                 </div>
-                <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap">
-                  {activeItem.back}
-                </div>
+                {activeItem.meaning_primary ? (
+                  <div className="space-y-1.5 text-sm leading-relaxed">
+                    <div className="font-medium text-foreground break-words [overflow-wrap:anywhere]">
+                      {activeItem.meaning_primary.replace(/\*\*/g, "")}
+                    </div>
+                    {activeItem.meaning_secondary && (
+                      <div className="text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs">
+                        {activeItem.meaning_secondary.replace(/\*\*/g, "")}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {(activeItem.back || "").replace(/\*\*/g, "")}
+                  </div>
+                )}
               </div>
 
               {/* 标签 */}
@@ -639,16 +708,24 @@ export default function GlobalCardSearchView({
       </div>
 
       {/* 底部快捷键提示 */}
-      <div className="border-t bg-card/80 px-4 py-2 text-[11px] text-muted-foreground flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="border-t bg-card/80 px-3 sm:px-4 py-2 text-[11px] text-muted-foreground flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3">
           <span>找到 {totalCount} 张卡片</span>
           <span className="hidden sm:inline">·</span>
           <span className="hidden sm:inline font-mono">↑ / ↓ 选择卡片</span>
           <span className="hidden sm:inline font-mono">Ctrl+Enter 直达词库</span>
         </div>
         {onClose && (
-          <div>
-            <span className="font-mono">Esc 关闭</span>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline font-mono">Esc 关闭</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="sm:hidden h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              关闭
+            </Button>
           </div>
         )}
       </div>

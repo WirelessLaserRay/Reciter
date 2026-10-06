@@ -378,9 +378,11 @@ export default function DeckDetail() {
         </p>
       )}
 
-      <div>
-        <h2 className="text-2xl font-bold">{deck.name}</h2>
-        <p className="text-sm text-muted-foreground">{deck.description || "暂无描述"}</p>
+      <div className="space-y-1 min-w-0">
+        <h2 className="text-2xl font-bold break-words [overflow-wrap:anywhere]">{deck.name}</h2>
+        <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">
+          {deck.description || "暂无描述"}
+        </p>
       </div>
 
       {/* Phase 6C：词库掌握度全景 */}
