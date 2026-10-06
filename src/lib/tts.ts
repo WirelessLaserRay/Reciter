@@ -1,20 +1,74 @@
 import { db } from "@/lib/db";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isTauri } from "@/lib/env";
 
 export type TTSSource = "auto" | "system" | "google" | "youdao";
 
-// 缓存的音源配置，用于确保 speak 的同步执行
-let cachedTtsSource: TTSSource = "auto";
+export const TTS_SOURCE_KEY = "reciter-tts-source";
+export const TTS_FALLBACK_KEY = "reciter-tts-fallback-enabled";
 
-// 初始化时拉取一次并监听更改（也可由外部在修改设置时同步更新）
-db.getSetting("tts_source")
-  .then((raw) => {
-    cachedTtsSource = (raw === "system" || raw === "google" || raw === "youdao" ? raw : "auto") as TTSSource;
-  })
-  .catch(() => {});
+function getStoredSource(): TTSSource {
+  if (typeof window !== "undefined") {
+    try {
+      const v = localStorage.getItem(TTS_SOURCE_KEY);
+      if (v === "system" || v === "google" || v === "youdao" || v === "auto") {
+        return v as TTSSource;
+      }
+    } catch {}
+  }
+  return "auto";
+}
+
+function getStoredFallback(): boolean {
+  if (typeof window !== "undefined") {
+    try {
+      const v = localStorage.getItem(TTS_FALLBACK_KEY);
+      if (v !== null) return v === "1" || v === "true";
+    } catch {}
+  }
+  // 默认关闭强行回退系统音，尊重用户音源选择；auto 模式下内部始终支持智能回退
+  return false;
+}
+
+// 同步内存缓存，保证 speak 零延迟同步执行（初始化时从 localStorage 优先同步读取）
+let cachedTtsSource: TTSSource = getStoredSource();
+let cachedTtsFallback: boolean = getStoredFallback();
+
+/** 数据库就绪后异步同步最新设置（由 App.tsx 在 db.init() 成功后调用） */
+export async function initTTSSettings(): Promise<void> {
+  try {
+    const [rawSource, rawFallback] = await Promise.all([
+      db.getSetting("tts_source"),
+      db.getSetting("tts_fallback_enabled"),
+    ]);
+
+    if (rawSource === "system" || rawSource === "google" || rawSource === "youdao" || rawSource === "auto") {
+      cachedTtsSource = rawSource as TTSSource;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TTS_SOURCE_KEY, rawSource);
+      }
+    } else if (cachedTtsSource !== "auto") {
+      // 数据库无记录时将 localStorage 的已配置项写回
+      await db.setSetting("tts_source", cachedTtsSource);
+    }
+
+    if (rawFallback !== null) {
+      cachedTtsFallback = rawFallback === "1" || rawFallback === "true";
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TTS_FALLBACK_KEY, cachedTtsFallback ? "1" : "0");
+      }
+    }
+  } catch (e) {
+    console.warn("initTTSSettings sync failed:", e);
+  }
+}
 
 export function isSentenceText(text: string): boolean {
   const trimmed = text.trim();
-  return trimmed.length > 30 || trimmed.split(/\s+/).length > 3;
+  // 长度超过 80 字符，或包含句号/问号/感叹号的完整句子，或单词数超过 10 的长文本才视为句子
+  if (trimmed.length > 80) return true;
+  if (/[.!?]$/.test(trimmed) && trimmed.split(/\s+/).length > 3) return true;
+  return trimmed.split(/\s+/).length > 10;
 }
 
 /**
@@ -31,7 +85,6 @@ export function cleanTextForTTS(raw: string): string {
 
   // 若不是完整句子，且包含独立的斜杠变体（如 "theatre / theater" 或 "programme/program"），取首个变体
   if (!isSentenceText(text) && text.includes("/")) {
-    // 排除括号内部的斜杠（如 "organi(s/z)e"）
     const matchSlashOutside = text.match(/^([^/()（）[\]【】]+)\s*\/\s*.+$/);
     if (matchSlashOutside && matchSlashOutside[1]) {
       text = matchSlashOutside[1].trim();
@@ -43,7 +96,8 @@ export function cleanTextForTTS(raw: string): string {
 
   // 2. 识别并剥离无须发音的注释性括号内容（中文、词性标注、占位符），保留单词内拼写字母：
   const POS_REGEX = /^(?:vt\.?&vi|vi\.?&vt|vt|vi|v|n|adj|adv|pron|conj|prep|num|int|art|aux|abbr|phr|part|pl|sing|c|u|bre|ame|modal)\.?$/i;
-  const PLACEHOLDER_REGEX = /^(?:sb|sth|somebody|something|one's|oneself)\.?$/i;
+  const PLACEHOLDER_ITEM = "(?:sb|sth|somebody|something|one's|oneself)\\.?";
+  const PLACEHOLDER_REGEX = new RegExp(`^(?:(?:doing|having)\\s+)?(?:${PLACEHOLDER_ITEM}(?:\\s*[/|]\\s*${PLACEHOLDER_ITEM})?)$`, "i");
 
   text = text.replace(/(\s*)[(（[【]([^()（）[\]【】]*)[)）\]】]/g, (match, prefixSpace: string, inner: string, offset: number, fullStr: string) => {
     const trimmedInner = inner.trim();
@@ -102,13 +156,40 @@ export function youdaoTTSURL(text: string): string {
 
 export async function getTTSSource(): Promise<TTSSource> {
   const raw = await db.getSetting("tts_source");
-  cachedTtsSource = (raw === "system" || raw === "google" || raw === "youdao" ? raw : "auto") as TTSSource;
+  if (raw === "system" || raw === "google" || raw === "youdao" || raw === "auto") {
+    cachedTtsSource = raw as TTSSource;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(TTS_SOURCE_KEY, raw);
+    }
+  }
   return cachedTtsSource;
 }
 
 export async function saveTTSSource(source: TTSSource): Promise<void> {
   cachedTtsSource = source;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TTS_SOURCE_KEY, source);
+  }
   await db.setSetting("tts_source", source);
+}
+
+export async function getTTSFallbackEnabled(): Promise<boolean> {
+  const raw = await db.getSetting("tts_fallback_enabled");
+  if (raw !== null) {
+    cachedTtsFallback = raw === "1" || raw === "true";
+    if (typeof window !== "undefined") {
+      localStorage.setItem(TTS_FALLBACK_KEY, cachedTtsFallback ? "1" : "0");
+    }
+  }
+  return cachedTtsFallback;
+}
+
+export async function saveTTSFallbackEnabled(enabled: boolean): Promise<void> {
+  cachedTtsFallback = enabled;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TTS_FALLBACK_KEY, enabled ? "1" : "0");
+  }
+  await db.setSetting("tts_fallback_enabled", enabled ? "1" : "0");
 }
 
 export function isSystemTTSAvailable(): boolean {
@@ -117,6 +198,57 @@ export function isSystemTTSAvailable(): boolean {
 
 // 全局单例 Audio，避免每次 new Audio 丢失用户手势授权
 const globalAudio = typeof window !== "undefined" ? new Audio() : null;
+if (globalAudio) {
+  try {
+    (globalAudio as unknown as { referrerPolicy?: string }).referrerPolicy = "no-referrer";
+  } catch {}
+}
+
+// 内存音频 Blob 缓存（针对 Google TTS 在桌面端的跨域/Referer 拦截与秒开预加载）
+const audioBlobCache = new Map<string, string>();
+const MAX_AUDIO_CACHE = 100;
+
+export async function fetchAudioBlobUrl(url: string, timeoutMs = 8000): Promise<string> {
+  const cached = audioBlobCache.get(url);
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const isGoogle = url.includes("translate.google.com");
+    const headers: Record<string, string> = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    };
+    if (isGoogle) {
+      headers["Referer"] = "https://translate.google.com/";
+    }
+    const res = await (isTauri() ? tauriFetch : fetch)(url, {
+      signal: controller.signal,
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`TTS audio fetch status ${res.status}`);
+    }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    if (audioBlobCache.size >= MAX_AUDIO_CACHE) {
+      const firstKey = audioBlobCache.keys().next().value;
+      if (firstKey) {
+        const oldUrl = audioBlobCache.get(firstKey);
+        if (oldUrl && oldUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(oldUrl);
+        }
+        audioBlobCache.delete(firstKey);
+      }
+    }
+    audioBlobCache.set(url, blobUrl);
+    return blobUrl;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // 全局递增请求序号，用于排查并发与废弃过期请求回调
 let activeTtsRequestId = 0;
@@ -149,7 +281,6 @@ function speakWithSystem(text: string, lang = "en-US", reqId?: number): boolean 
   if (reqId !== undefined && reqId !== activeTtsRequestId) return false;
 
   try {
-    // 严格互斥：停止任何可能残留的在线音频
     if (globalAudio) {
       try {
         globalAudio.pause();
@@ -172,134 +303,231 @@ function speakWithSystem(text: string, lang = "en-US", reqId?: number): boolean 
 }
 
 /**
+ * 将长句或段落按照自然标点及长度限制进行切分（适配 Google TTS ~180 字符单次请求上限）
+ */
+export function splitTextForTTS(text: string, maxLen = 160): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.length <= maxLen) return [trimmed];
+
+  const chunks: string[] = [];
+  // 按照标点符号优先切分（逗号、句号、分号、问号、感叹号、换行）
+  const parts = trimmed.match(/[^,.;:!?\n]+[,.;:!?\n]*|\S+/g) || [trimmed];
+  let cur = "";
+
+  for (const part of parts) {
+    const candidate = cur ? cur + " " + part.trim() : part.trim();
+    if (candidate.length <= maxLen) {
+      cur = candidate;
+    } else {
+      if (cur) chunks.push(cur);
+      // 如果单部分本身超长（如无标点的长句），按词切分
+      if (part.trim().length > maxLen) {
+        const words = part.trim().split(/\s+/);
+        let sub = "";
+        for (const w of words) {
+          const subCandidate = sub ? sub + " " + w : w;
+          if (subCandidate.length <= maxLen) {
+            sub = subCandidate;
+          } else {
+            if (sub) chunks.push(sub);
+            sub = w;
+          }
+        }
+        cur = sub;
+      } else {
+        cur = part.trim();
+      }
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks.length > 0 ? chunks : [trimmed];
+}
+
+/** 依次播放音频 URL 队列（支持分句连续朗读与中断保护） */
+function playAudioUrlList(
+  urls: string[],
+  reqId: number,
+  onFinished: () => void,
+  onError: () => void
+): void {
+  if (urls.length === 0 || !globalAudio) {
+    onFinished();
+    return;
+  }
+
+  let index = 0;
+  const playNext = async () => {
+    if (reqId !== activeTtsRequestId) {
+      onFinished();
+      return;
+    }
+    if (index >= urls.length) {
+      onFinished();
+      return;
+    }
+
+    const currentUrl = urls[index++];
+    let src = currentUrl;
+    if (isTauri() && currentUrl.includes("translate.google.com")) {
+      try {
+        src = await fetchAudioBlobUrl(currentUrl);
+      } catch {
+        if (reqId === activeTtsRequestId) {
+          onError();
+        } else {
+          onFinished();
+        }
+        return;
+      }
+    }
+
+    if (reqId !== activeTtsRequestId) {
+      onFinished();
+      return;
+    }
+
+    globalAudio.src = src;
+    globalAudio.onended = () => {
+      if (reqId === activeTtsRequestId) {
+        void playNext();
+      } else {
+        onFinished();
+      }
+    };
+    globalAudio.onerror = () => {
+      if (reqId === activeTtsRequestId) {
+        onError();
+      } else {
+        onFinished();
+      }
+    };
+    globalAudio.play().catch((err) => {
+      if (reqId !== activeTtsRequestId) {
+        onFinished();
+        return;
+      }
+      if (err?.name === "AbortError" || err?.name === "NotAllowedError") {
+        onFinished();
+        return;
+      }
+      onError();
+    });
+  };
+
+  void playNext();
+}
+
+/**
  * 播放读音：必须同步执行（不能有 await 阻塞前置逻辑），以避免移动端浏览器拦截 Autoplay。
- * - 针对例句（长文本）：有道 dictvoice 仅支持词条预录音（句子必报 500），谷歌超过 100 字符报 400；例句优先使用系统原生语音合成。
- * - 针对单词：按配置源发音，若网络音频失败，自动触发备用源，并最终回退至系统 TTS 兜底。
+ * - 用户若选择“固定音源”（有道/谷歌/系统），严格执行用户选择并按配置拒绝回退至系统机械音。
+ * - 用户若选择“智能优选 (auto)”，优先在线真人发音，异常时无感回退系统语音兜底。
  * - 具备绝对互斥与请求锁：彻底杜绝系统 TTS 与在线 TTS 重叠发声的竞态 Bug。
+ * - 例句发音特化：Google TTS 支持长句智能切分连续朗读；有道公开接口因仅为单词库，例句由 Google TTS 或系统语音承接。
  */
 export function speak(text: string, lang = "en-US"): Promise<void> {
   const cleaned = cleanTextForTTS(text);
   const trimmed = cleaned.trim();
   if (!trimmed) return Promise.resolve();
 
+  // 停止上一轮朗读（取消既有播放并使过往请求失效）
+  stopAudio();
+
   // 递增当前请求令牌
   const reqId = ++activeTtsRequestId;
 
-  // 每次触发新朗读时，先全面停止上一轮未结束的任何朗读
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {}
-  }
-  if (globalAudio) {
-    try {
-      globalAudio.pause();
-      globalAudio.currentTime = 0;
-      globalAudio.onended = null;
-      globalAudio.onerror = null;
-      globalAudio.removeAttribute("src");
-    } catch {}
-  }
-
   const source = cachedTtsSource;
-  const isSentence = isSentenceText(trimmed);
+  // 是否允许回退：智能优选 (auto) 始终允许回退；固定源依据用户设置（默认拒绝回退）
+  const allowFallback = source === "auto" || cachedTtsFallback;
 
-  // 1. 系统原生 TTS 优先场景：
-  // - 用户显式指定 system
-  // - 处于 auto 自动模式
-  // - 朗读例句长句，且系统 TTS 可用（有道 dictvoice 不支持句子，谷歌超过 100 字符报 400）
-  const preferSystem =
-    source === "system" ||
-    source === "auto" ||
-    (isSentence && isSystemTTSAvailable() && (source === "youdao" || trimmed.length > 100));
-
-  if (preferSystem && speakWithSystem(trimmed, lang, reqId)) {
+  // 1. 用户显式指定仅使用系统发音
+  if (source === "system") {
+    speakWithSystem(trimmed, lang, reqId);
     return Promise.resolve();
   }
 
-  // 2. 网页 Audio 发音
+  // 2. 网页在线发音源 (youdao / google / auto)
   return new Promise((resolve) => {
     if (!globalAudio) {
-      if (speakWithSystem(trimmed, lang, reqId)) return resolve();
+      if (allowFallback) {
+        speakWithSystem(trimmed, lang, reqId);
+      }
       return resolve();
     }
 
-    // 构建主用与备用 URL（长句不把有道作为备用，避免返回 500 报废）
-    let primaryUrl: string;
-    let fallbackUrl: string | null = null;
+    const isSentence = isSentenceText(trimmed);
+
+    // 决定主用发音 URL 与备用 URL
+    let primaryUrls: string[];
+    let fallbackUrls: string[] | null = null;
 
     if (source === "google") {
-      primaryUrl = googleTTSURL(trimmed);
-      if (!isSentence) fallbackUrl = youdaoTTSURL(trimmed);
+      primaryUrls = splitTextForTTS(trimmed).map((c) => googleTTSURL(c));
+      // 仅当非句子且允许回退时，才设置有道备用源（有道不支持句子）
+      if (allowFallback && !isSentence) {
+        fallbackUrls = [youdaoTTSURL(trimmed)];
+      }
+    } else if (source === "youdao") {
+      if (isSentence) {
+        // 有道公开接口为单词词典库，对任意例句/句子返回 500。
+        // 例句自动路由至 Google TTS 在线朗读（支持长句切分），若网络不可用则兜底系统语音
+        primaryUrls = splitTextForTTS(trimmed).map((c) => googleTTSURL(c));
+        fallbackUrls = null;
+      } else {
+        primaryUrls = [youdaoTTSURL(trimmed)];
+        if (allowFallback) {
+          fallbackUrls = [googleTTSURL(trimmed)];
+        }
+      }
     } else {
-      primaryUrl = isSentence ? googleTTSURL(trimmed) : youdaoTTSURL(trimmed);
-      if (!isSentence) fallbackUrl = googleTTSURL(trimmed);
+      // auto 智能优选模式：单词走有道极速，句子走谷歌；两者皆失败时回退系统
+      if (isSentence) {
+        primaryUrls = splitTextForTTS(trimmed).map((c) => googleTTSURL(c));
+        fallbackUrls = null;
+      } else {
+        primaryUrls = [youdaoTTSURL(trimmed)];
+        fallbackUrls = [googleTTSURL(trimmed)];
+      }
     }
 
     let hasHandledFallback = false;
     const playFallbackOrSystem = () => {
       if (hasHandledFallback) return;
       hasHandledFallback = true;
-      if (reqId !== activeTtsRequestId) {
-        return resolve();
-      }
+      if (reqId !== activeTtsRequestId) return resolve();
 
-      if (fallbackUrl) {
-        globalAudio.src = fallbackUrl;
-        globalAudio.onended = () => {
-          if (reqId === activeTtsRequestId) resolve();
-        };
-        globalAudio.onerror = () => {
-          if (reqId === activeTtsRequestId) {
-            speakWithSystem(trimmed, lang, reqId);
-          }
-          resolve();
-        };
-        globalAudio
-          .play()
-          .then(() => resolve())
-          .catch((err) => {
-            if (reqId !== activeTtsRequestId) return resolve();
-            // 忽略被中止或未授权请求，决不误触发降级系统发音
-            if (err?.name === "AbortError" || err?.name === "NotAllowedError") {
-              return resolve();
+      // 如果备用源存在（例如单词发音的有道失败后回退谷歌）：
+      if (fallbackUrls && fallbackUrls.length > 0) {
+        playAudioUrlList(
+          fallbackUrls,
+          reqId,
+          () => resolve(),
+          () => {
+            if (reqId === activeTtsRequestId && (allowFallback || isSentence)) {
+              speakWithSystem(trimmed, lang, reqId);
             }
-            speakWithSystem(trimmed, lang, reqId);
             resolve();
-          });
-      } else {
+          }
+        );
+        return;
+      }
+
+      // 例句模式下，或者用户开启了回退开关：
+      // （对于例句，因有道本身无发音能力，Google 若受网络限制无法连接，自动调用系统语音发音，确保例句可听）
+      if (allowFallback || isSentence) {
         speakWithSystem(trimmed, lang, reqId);
-        resolve();
       }
+      resolve();
     };
 
-    globalAudio.src = primaryUrl;
-    globalAudio.onended = () => {
-      if (reqId === activeTtsRequestId) resolve();
-    };
-
-    globalAudio.onerror = () => {
-      if (reqId === activeTtsRequestId) {
+    playAudioUrlList(
+      primaryUrls,
+      reqId,
+      () => resolve(),
+      () => {
         playFallbackOrSystem();
-      } else {
-        resolve();
       }
-    };
-
-    // 必须在同步调用栈内 play
-    globalAudio
-      .play()
-      .then(() => resolve())
-      .catch((err) => {
-        if (reqId !== activeTtsRequestId) {
-          return resolve();
-        }
-        // 如果是因为 AbortError（被新请求打断）或 NotAllowedError（手势被拦截），决不触发降级系统 TTS
-        if (err?.name === "AbortError" || err?.name === "NotAllowedError") {
-          return resolve();
-        }
-        playFallbackOrSystem();
-      });
+    );
   });
 }
 
@@ -309,12 +537,25 @@ export async function preloadSpeech(text: string): Promise<void> {
   const trimmed = cleaned.trim();
   if (!trimmed || isSentenceText(trimmed)) return;
   const source = cachedTtsSource;
-  if ((source === "system" || source === "auto") && isSystemTTSAvailable()) return;
+  if (source === "system") return;
 
   try {
-    const tempAudio = new Audio(source === "google" ? googleTTSURL(trimmed) : youdaoTTSURL(trimmed));
-    tempAudio.preload = "auto";
-    tempAudio.load();
+    let url: string;
+    if (source === "google") {
+      url = googleTTSURL(trimmed);
+    } else {
+      url = youdaoTTSURL(trimmed);
+    }
+    if (isTauri() && url.includes("translate.google.com")) {
+      await fetchAudioBlobUrl(url);
+    } else if (typeof window !== "undefined") {
+      const tempAudio = new Audio(url);
+      try {
+        (tempAudio as unknown as { referrerPolicy?: string }).referrerPolicy = "no-referrer";
+      } catch {}
+      tempAudio.preload = "auto";
+      tempAudio.load();
+    }
   } catch {
     // 静默降级
   }

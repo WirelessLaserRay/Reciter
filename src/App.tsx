@@ -17,6 +17,7 @@ import DeckHub from "@/pages/DeckHub";
 
 import { db } from "@/lib/db";
 import { initSyncHooks } from "@/lib/sync";
+import { initTTSSettings } from "@/lib/tts";
 
 function App() {
   const theme = useThemeStore((s) => s.theme);
@@ -30,9 +31,11 @@ function App() {
     root.style.colorScheme = dark ? "dark" : "light";
   }, [theme]);
 
-  // 应用启动时初始化本地数据库（tauri-plugin-sql 或 sql.js）
+  // 应用启动时初始化本地数据库（tauri-plugin-sql 或 sql.js）并同步配置
   useEffect(() => {
-    useDbStore.getState().init();
+    useDbStore.getState().init().then(() => {
+      void initTTSSettings();
+    });
   }, []);
 
   // 监听全局设置变更，防抖自动同步业务配置到云端

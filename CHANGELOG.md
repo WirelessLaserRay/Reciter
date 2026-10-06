@@ -51,6 +51,13 @@
 
 ### Fixed
 
+- **TTS 模式重置、Google TTS 防盗链 404 拦截与例句朗读全链路修复**：
+  - **修复 Google TTS 跨域 Referer 404 拦截（支持桌面端与 Web 真人发音）**：Google Translate TTS 接口对跨域及 `tauri.localhost` Referer 会拦截并返回 HTTP 404；在 `index.html` 注入 `<meta name="referrer" content="no-referrer" />`，并在桌面端通过 Tauri 原生 HTTP 请求（`@tauri-apps/plugin-http`）注入受信 Referer 并转为本地内存 Blob URL，彻底解决软件内 Google TTS 播放无声的问题；
+  - **支持完整例句与长难句朗读（标点切分与连续队列播放）**：新增 `splitTextForTTS`，针对超过 160 字符的长句按逗号、分号、句号智能切分子句，并由 `playAudioUrlList` 实现连续队列发音；
+  - **厘清有道与谷歌发音能力边界**：网易有道公开接口（`dictvoice`）客观上仅为词库发音库，对任意例句必然返回 HTTP 500；系统明确将有道定位为极速单词发音，例句发音自动由 Google TTS 纯正美音（需代理）或本地系统语音引擎（Web Speech）承接兜底，彻底解决例句无法朗读的问题；
+  - **修复重开应用自动重置为系统 TTS 的竞态 Bug**：由于模块加载期执行 `db.getSetting` 时底层数据库尚未初始化抛错，导致内存音源静默重置为默认值 `"auto"`，且分支条件存在 `source === "system" || source === "auto"` 直接调用系统语音；改用 `localStorage` 同步冷启动结合 `initTTSSettings` 异步双层保障，并在 `App.tsx` 数据库就绪时第一时间同步恢复；
+  - **支持固定音源与拒绝回退系统音**：新增“网络异常时自动回退系统语音”控制项（`tts_fallback_enabled`），当用户选定“有道词典 TTS”或“Google TTS”固定音源时默认关闭回退，严格仅使用所选音源，杜绝被迫发出 Windows 系统机械音；
+  - **优化并发播放令牌排他机制**：纠正 `stopAudio()` 与 `activeTtsRequestId` 令牌分配时序，避免快速切词播放时的回调误判与重叠发音。
 - **修复异常关闭应用导致设置与本地做题进度丢失的重大缺陷**：
   - **云同步拉取防冲刷安全防护**：在 `autoPullIfRemoteNewer` 中加入 `hasReviewsSince` 冲突检查，若本地自上次同步后存在新的复习记录，绝不静默覆盖本地数据，暂停自动拉取并提示冲突保护；自动拉取时严格设置 `preserveSettings: true`，杜绝云端快照抹除本地个性化设置；
   - **业务设置即时防抖云同步**：通过 `SettingsRepository.onSettingChange` 全局事件分发，当修改轻松日、每日新词/复习上限、保留率或备考计划时自动触发 2.5 秒防抖静默云同步，不再仅依赖手动“离开学习”；

@@ -51,6 +51,7 @@ export const DEVICE_PRESERVED_SETTINGS = [
 
   // 4. 语音合成配置（各端运行平台与环境支持不同）
   "tts_source",
+  "tts_fallback_enabled",
 ];
 
 /** 判断是否为设备独立保留的私有/接口配置（不同步、不被云端覆盖、不上传到云端快照） */

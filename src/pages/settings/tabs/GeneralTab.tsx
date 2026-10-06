@@ -18,7 +18,13 @@ import {
 } from "@/components/ui/select";
 import { useThemeStore, THEME_PRESETS } from "@/stores/useThemeStore";
 import { useDbStore } from "@/stores/useDbStore";
-import { getTTSSource, saveTTSSource, type TTSSource } from "@/lib/tts";
+import {
+  getTTSSource,
+  saveTTSSource,
+  getTTSFallbackEnabled,
+  saveTTSFallbackEnabled,
+  type TTSSource,
+} from "@/lib/tts";
 import { getVocabStandard, saveVocabStandard, type VocabStandard } from "@/lib/vocab";
 import { getAutoPronounceEnabled, saveAutoPronounceEnabled } from "@/lib/study-prefs";
 import { cn } from "@/lib/utils";
@@ -32,31 +38,31 @@ const TTS_SOURCE_OPTIONS: {
 }[] = [
   {
     value: "auto",
-    label: "智能优选 (Auto)",
+    label: "智能优选 (自动回退)",
     tag: "推荐",
-    desc: "有道极速优先，网络异常时无感回退系统 TTS，兼顾速度与稳定性",
+    desc: "在线真人发音优先（国内有道极速），网络故障或长句时自动无感回退系统语音",
     badgeClass: "border-primary/20 bg-primary/10 text-primary",
+  },
+  {
+    value: "youdao",
+    label: "网易有道词典 TTS (固定)",
+    tag: "国内直连",
+    desc: "高保真真人词典发音，国内秒开（注：有道接口仅收录单词与短语，例句由 Google/系统语音承接）",
+    badgeClass: "border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  },
+  {
+    value: "google",
+    label: "Google 翻译 TTS (固定)",
+    tag: "国际权威",
+    desc: "纯正美式/英式真人发音，原生支持单词与完整例句朗读（需开启代理）",
+    badgeClass: "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
   {
     value: "system",
     label: "系统语音引擎 (Web Speech)",
     tag: "离线可用",
-    desc: "调用 Windows / 浏览器内置语音库，完全离线运行且支持任意长句朗读",
+    desc: "直接调用操作系统内置离线语音库，完全离线运行且支持任意长句",
     badgeClass: "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  },
-  {
-    value: "youdao",
-    label: "网易有道词典 TTS",
-    tag: "国内直连",
-    desc: "针对四六级与考研单词优化的高保真英/美真人发音，国内网络响应极快",
-    badgeClass: "border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  },
-  {
-    value: "google",
-    label: "Google 翻译 TTS",
-    tag: "国际权威",
-    desc: "标准美式与英式发音，语调自然纯正（需能稳定访问谷歌网络服务）",
-    badgeClass: "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
 ];
 
@@ -103,19 +109,22 @@ export default function GeneralTab({ onSaved }: GeneralTabProps) {
 
   const [vocabStandard, setVocabStandard] = useState<VocabStandard>("考研");
   const [ttsSource, setTtsSource] = useState<TTSSource>("auto");
+  const [ttsFallbackEnabled, setTtsFallbackEnabled] = useState(false);
   const [autoPronounceEnabled, setAutoPronounceEnabled] = useState(true);
 
   useEffect(() => {
     if (!dbReady) return;
     (async () => {
-      const [vs, tts, ape] = await Promise.all([
+      const [vs, tts, ape, tfb] = await Promise.all([
         getVocabStandard(),
         getTTSSource(),
         getAutoPronounceEnabled(),
+        getTTSFallbackEnabled(),
       ]);
       setVocabStandard(vs);
       setTtsSource(tts);
       setAutoPronounceEnabled(ape);
+      setTtsFallbackEnabled(tfb);
     })().catch(() => {});
   }, [dbReady]);
 
@@ -130,6 +139,13 @@ export default function GeneralTab({ onSaved }: GeneralTabProps) {
     setTtsSource(v);
     if (!dbReady) return;
     await saveTTSSource(v);
+    onSaved?.();
+  };
+
+  const handleTTSFallbackChange = async (v: boolean) => {
+    setTtsFallbackEnabled(v);
+    if (!dbReady) return;
+    await saveTTSFallbackEnabled(v);
     onSaved?.();
   };
 
@@ -290,8 +306,27 @@ export default function GeneralTab({ onSaved }: GeneralTabProps) {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              系统 TTS 离线可用且支持无限长例句（推荐）；有道 TTS 适合国内单词极速发音；Google TTS 适合单词发音。
+              有道 TTS 适合国内单词极速发音；Google TTS 原生支持单词与完整例句朗读（需代理）；系统 TTS 离线可用且支持任意长句。
             </p>
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="tts-fallback">网络异常时自动回退系统语音</Label>
+              <p className="text-xs text-muted-foreground">
+                {ttsSource === "auto"
+                  ? "智能优选模式下默认启用自动回退保障"
+                  : ttsFallbackEnabled
+                    ? "已开启：当前选定音源网络异常或失败时，将自动调用系统语音兜底"
+                    : "已关闭（拒绝回退）：严格仅使用所选音源，音源不可用时绝不发出系统机械音"}
+              </p>
+            </div>
+            <Switch
+              id="tts-fallback"
+              disabled={ttsSource === "auto" || ttsSource === "system"}
+              checked={ttsSource === "auto" || ttsFallbackEnabled}
+              onCheckedChange={handleTTSFallbackChange}
+            />
           </div>
 
           <div className="flex items-center justify-between pt-3 border-t">
