@@ -9,6 +9,7 @@ export interface BackupData {
   version: number;
   exportedAt: string;
   appVersion?: string;
+  clientId?: string;
   deckCount?: number;
   cardCount?: number;
   reviewCount?: number;
@@ -30,6 +31,7 @@ export const DEVICE_PRESERVED_SETTINGS = [
   // 1. 同步服务私有凭据与时间戳
   "sync_endpoint",
   "sync_token",
+  "sync_client_id",
   "sync_last_remote_time",
   "sync_last_local_time",
   "sync_auto_enabled",
@@ -239,6 +241,7 @@ export function sanitizeBackupData(raw: unknown): BackupData {
     version: typeof obj.version === "number" ? obj.version : BACKUP_VERSION,
     exportedAt: typeof obj.exportedAt === "string" ? obj.exportedAt : now,
     appVersion: typeof obj.appVersion === "string" ? obj.appVersion : APP_VERSION,
+    clientId: typeof obj.clientId === "string" ? obj.clientId : undefined,
     deckCount: decks.length,
     cardCount: cards.length,
     reviewCount: reviewLogs.length,
@@ -250,7 +253,7 @@ export function sanitizeBackupData(raw: unknown): BackupData {
   };
 }
 
-export async function buildBackup(): Promise<BackupData> {
+export async function buildBackup(options?: { clientId?: string }): Promise<BackupData> {
   const [decks, cards, reviewLogs, settings, dailyStats] = await Promise.all([
     db.getDecks(),
     db.getAllCardsWithState(),
@@ -262,6 +265,7 @@ export async function buildBackup(): Promise<BackupData> {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
+    clientId: options?.clientId,
     deckCount: decks.length,
     cardCount: cards.length,
     reviewCount: reviewLogs.length,

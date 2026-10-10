@@ -155,13 +155,21 @@ export function StudySession({
   // 跟踪本轮会话已向云端提交的评分操作次数，用于防重复与阶段性增量推送
   const hasPushedInSessionRef = useRef(false);
   const lastPushedActionsRef = useRef(0);
+  const lastFlushedActionsRef = useRef(0);
 
-  // 阶段性自动备份与同步：每满 10 次评分操作自动执行一次本地强刷与静默云推送
+  // 阶段性本地落盘与静默云推送：
+  // 1. 每满 10 次评分操作立即执行一次本地 SQLite 强刷（确保本地数据毫秒级落盘）
+  // 2. 每满 30 次评分操作执行一次静默云推送（降低大快照全量传输对网络的持续压力）
   useEffect(() => {
-    const unpushedCount = stats.actions - lastPushedActionsRef.current;
-    if (unpushedCount >= 10) {
-      lastPushedActionsRef.current = stats.actions;
+    const unFlushedCount = stats.actions - lastFlushedActionsRef.current;
+    if (unFlushedCount >= 10) {
+      lastFlushedActionsRef.current = stats.actions;
       void db.flush();
+    }
+
+    const unpushedCount = stats.actions - lastPushedActionsRef.current;
+    if (unpushedCount >= 30) {
+      lastPushedActionsRef.current = stats.actions;
       void autoPushIfConfigured().catch(() => {});
     }
   }, [stats.actions]);

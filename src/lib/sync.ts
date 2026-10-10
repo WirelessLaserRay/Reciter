@@ -29,6 +29,8 @@ export interface SyncMetaInfo {
   ok: boolean;
   message?: string;
   remoteUpdatedAt: string | null;
+  remoteClientId?: string | null;
+  remoteDeviceId?: string | null;
   localLastRemoteTime: string | null;
   localLastSyncTime: string | null;
 }
@@ -40,12 +42,88 @@ export interface PushConflictCheck {
   localLastSync: string | null;
 }
 
-const httpFetch = isTauri()
+const rawFetch = isTauri()
   ? tauriFetch
   : (...args: Parameters<typeof fetch>) => fetch(...args);
 
+/** 带超时控制器与瞬态错误重试的安全网络请求函数 */
+async function safeHttpFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+  timeoutMs = 15000
+): Promise<Response> {
+  const execute = async (attempt: number): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    if (init?.signal) {
+      init.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+
+    try {
+      const res = await rawFetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+      // 对瞬态网关错误（502、503、504）进行一次重试
+      if (res.status >= 502 && res.status <= 504 && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 800));
+        return execute(attempt + 1);
+      }
+      return res;
+    } catch (err: unknown) {
+      const isAbort = controller.signal.aborted;
+      if (attempt === 0 && !init?.signal?.aborted) {
+        // 网络抖动断开或超时重试一次
+        await new Promise((r) => setTimeout(r, 800));
+        return execute(attempt + 1);
+      }
+      if (isAbort && !init?.signal?.aborted) {
+        throw new Error(`网络请求超时（${Math.round(timeoutMs / 1000)}秒未响应），请检查网络连接`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  return execute(0);
+}
+
 function syncBase(endpoint: string): string {
   return endpoint.trim().replace(/\/+$/, "");
+}
+
+let cachedClientId: string | null = null;
+let cachedDeviceId: string | null = null;
+
+/** 获取当前设备的唯一持久化客户端 ID，用于精准区分自身上传与跨端冲突 */
+export async function getClientId(): Promise<string> {
+  if (cachedClientId) return cachedClientId;
+  try {
+    let id = await db.getSetting("sync_client_id");
+    if (!id) {
+      id = `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      await db.setSetting("sync_client_id", id);
+    }
+    cachedClientId = id;
+    return id;
+  } catch {
+    if (!cachedClientId) {
+      cachedClientId = `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    }
+    return cachedClientId;
+  }
+}
+
+/** 获取当前设备的唯一持久化设备标识，兼顾新旧 Worker 存储与跨端识别 */
+export async function getDeviceId(): Promise<string> {
+  if (cachedDeviceId) return cachedDeviceId;
+  const clientId = await getClientId();
+  const shortId = clientId.replace(/^client_/, "").slice(-8);
+  const platform = isTauri() ? "desktop" : "web";
+  cachedDeviceId = `reciter-${platform}-${shortId}`;
+  return cachedDeviceId;
 }
 
 /** 把底层网络/HTTP 错误转成更易排查的提示 */
@@ -59,6 +137,9 @@ function syncErrorMessage(e: unknown): string {
   }
   if (/404|Not Found/i.test(msg)) {
     return "同步接口不存在（404），请确认 Worker 已部署最新代码";
+  }
+  if (/429|Too Many Requests/i.test(msg)) {
+    return "同步请求过于频繁（429 Too Many Requests），系统已自动降频，请稍候片刻";
   }
   return msg;
 }
@@ -98,24 +179,38 @@ export async function getSyncMetaInfo(): Promise<SyncMetaInfo> {
   }
 
   try {
-    const res = await httpFetch(`${syncBase(cfg.endpoint)}/api/sync/meta`, {
-      headers: { "X-Sync-Token": cfg.token },
-    });
+    const [clientId, deviceId] = await Promise.all([getClientId(), getDeviceId()]);
+    const res = await safeHttpFetch(`${syncBase(cfg.endpoint)}/api/sync/meta`, {
+      headers: {
+        "X-Sync-Token": cfg.token,
+        "X-Client-Id": clientId,
+        "X-Device-Id": deviceId,
+      },
+    }, 15000);
     if (!res.ok) {
       return {
         ok: false,
-        message: res.status === 401
-          ? "同步 Token 不正确或未填写（401 Unauthorized）"
-          : `连接失败（HTTP ${res.status}）`,
+        message:
+          res.status === 401
+            ? "同步 Token 不正确或未填写（401 Unauthorized）"
+            : res.status === 429
+              ? "同步请求过于频繁（HTTP 429），系统已自动降频，请稍候"
+              : `连接失败（HTTP ${res.status}）`,
         remoteUpdatedAt: null,
         localLastRemoteTime: localLastRemoteTime || null,
         localLastSyncTime: localLastSyncTime || null,
       };
     }
-    const data = (await res.json()) as { updatedAt?: string | null };
+    const data = (await res.json()) as {
+      updatedAt?: string | null;
+      clientId?: string | null;
+      deviceId?: string | null;
+    };
     return {
       ok: true,
       remoteUpdatedAt: data.updatedAt ?? null,
+      remoteClientId: data.clientId ?? null,
+      remoteDeviceId: data.deviceId ?? null,
       localLastRemoteTime: localLastRemoteTime || null,
       localLastSyncTime: localLastSyncTime || null,
     };
@@ -139,7 +234,7 @@ export async function testSyncConnection(): Promise<SyncResult> {
   return { ok: true, message: "连接成功", updatedAt: meta.remoteUpdatedAt };
 }
 
-/** 检查推送冲突（检测云端是否存在其他设备上传的更新快照） */
+/** 检查推送冲突（检测云端是否存在其他设备上传的更新快照，具备 Fast-Forward 智能自愈） */
 export async function checkPushConflict(): Promise<PushConflictCheck> {
   const meta = await getSyncMetaInfo();
   if (!meta.ok || !meta.remoteUpdatedAt) {
@@ -150,12 +245,106 @@ export async function checkPushConflict(): Promise<PushConflictCheck> {
     };
   }
 
+  const [myClientId, myDeviceId] = await Promise.all([getClientId(), getDeviceId()]);
+
+  // 1. 核心防自撞保护：若云端 clientId 或 deviceId 与当前设备一致，100% 确定是自身先前提交
+  if (
+    (meta.remoteClientId && meta.remoteClientId === myClientId) ||
+    (meta.remoteDeviceId && meta.remoteDeviceId === myDeviceId)
+  ) {
+    await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
+    return {
+      hasConflict: false,
+      remoteUpdatedAt: meta.remoteUpdatedAt,
+      localLastSync: meta.localLastSyncTime,
+    };
+  }
+
+  // 2. 旧版桌面端快照（desktop-win32）自愈：
+  // 若云端快照是旧版桌面端标记（未存具体 deviceId），且当前是桌面端：
+  // 若本地在云端快照时间点（remoteUpdatedAt）之后没有新的复习记录，直接自愈
+  if (isTauri() && (meta.remoteDeviceId === "desktop-win32" || !meta.remoteDeviceId)) {
+    const hasReviewsAfterRemote = await db.hasReviewsSince(meta.remoteUpdatedAt);
+    if (!hasReviewsAfterRemote) {
+      await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
+      return {
+        hasConflict: false,
+        remoteUpdatedAt: meta.remoteUpdatedAt,
+        localLastSync: meta.localLastSyncTime,
+      };
+    }
+  }
+
   const remoteTime = new Date(meta.remoteUpdatedAt).getTime();
 
   // 如果本地有记录上次同步时的远端时间
   if (meta.localLastRemoteTime) {
     const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
     if (remoteTime > localRemoteTime) {
+      // 3. 智能 Fast-Forward 探测（解决上传超时脱节或旧版本推进后的死锁假冲突）：
+      // 当 remoteTime > localRemoteTime 时，不盲目报错冲突，而是探测云端快照是否属于本机的历史祖先节点
+      try {
+        const cfg = await getSyncConfig();
+        const probeRes = await safeHttpFetch(
+          `${syncBase(cfg.endpoint)}/api/sync/snapshot`,
+          {
+            headers: {
+              "X-Sync-Token": cfg.token,
+              "X-Client-Id": myClientId,
+              "X-Device-Id": myDeviceId,
+            },
+          },
+          120000
+        );
+
+        if (probeRes.ok) {
+          const remoteData = (await probeRes.json()) as any;
+          // 3.1 若快照内包含 clientId 且与本机一致
+          if (remoteData?.clientId === myClientId) {
+            await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
+            return {
+              hasConflict: false,
+              remoteUpdatedAt: meta.remoteUpdatedAt,
+              localLastSync: meta.localLastSyncTime,
+            };
+          }
+          // 3.2 Fast-Forward 线性延续校验：
+          const remoteLogs = Array.isArray(remoteData?.reviewLogs) ? remoteData.reviewLogs : [];
+          const remoteCards = Array.isArray(remoteData?.cards) ? remoteData.cards : [];
+          const remoteLatestReview = remoteLogs[remoteLogs.length - 1]?.reviewed_at;
+
+          const localCardCount = await db.getTotalCardCount();
+          let isFastForward = false;
+          if (!remoteLatestReview && localCardCount >= remoteCards.length) {
+            isFastForward = true;
+          } else if (remoteLatestReview && localCardCount >= remoteCards.length) {
+            const hasRemoteLatestInLocal = await db.hasReviewsSince(
+              new Date(new Date(remoteLatestReview).getTime() - 1000).toISOString()
+            );
+            const localLatestReview = await db.getLatestReviewTime();
+            if (
+              hasRemoteLatestInLocal &&
+              localLatestReview &&
+              new Date(localLatestReview).getTime() >= new Date(remoteLatestReview).getTime()
+            ) {
+              isFastForward = true;
+            }
+          }
+
+          if (isFastForward) {
+            // 云端数据是本地的祖先节点，本地是 Fast-Forward 超集，安全自愈并放行！
+            await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
+            return {
+              hasConflict: false,
+              remoteUpdatedAt: meta.remoteUpdatedAt,
+              localLastSync: meta.localLastSyncTime,
+            };
+          }
+        }
+      } catch {
+        // 网络探针失败则走常规流程
+      }
+
       return {
         hasConflict: true,
         reason: "remote_newer",
@@ -179,7 +368,7 @@ export async function checkPushConflict(): Promise<PushConflictCheck> {
   };
 }
 
-/** 上传当前完整备份到云端（带冲突拦截与状态更新） */
+/** 上传当前完整备份到云端（带冲突拦截与状态更新，放宽至 120 秒超时） */
 export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncResult> {
   const cfg = await getSyncConfig();
   if (!cfg.endpoint || !cfg.token) {
@@ -204,14 +393,16 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
   }
 
   try {
-    const data = await buildBackup();
+    const [clientId, deviceId] = await Promise.all([getClientId(), getDeviceId()]);
+    const data = await buildBackup({ clientId });
     // 过滤设备本地独立配置、AI 配置与各服务接口密钥，绝不上传到云端快照
     data.settings = (data.settings ?? []).filter((s) => !isPreservedDeviceSetting(s.key));
     const body = JSON.stringify(data);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Sync-Token": cfg.token,
-      "X-Device-Id": isTauri() ? "desktop-win32" : "web-pwa",
+      "X-Client-Id": clientId,
+      "X-Device-Id": deviceId,
     };
     if (options?.force) {
       headers["X-Force"] = "true";
@@ -219,13 +410,17 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
       headers["X-Expected-Updated-At"] = check.remoteUpdatedAt;
     }
 
-    const res = await httpFetch(`${syncBase(cfg.endpoint)}/api/sync/snapshot`, {
-      method: "PUT",
-      headers,
-      body,
-    });
+    const res = await safeHttpFetch(
+      `${syncBase(cfg.endpoint)}/api/sync/snapshot`,
+      {
+        method: "PUT",
+        headers,
+        body,
+      },
+      120000 // 120 秒大体积快照专项超时
+    );
     if (res.status === 409) {
-      let errData: { message?: string; remoteUpdatedAt?: string | null } = {};
+      let errData: { message?: string; remoteUpdatedAt?: string | null; remoteDeviceId?: string | null } = {};
       try {
         errData = (await res.json()) as typeof errData;
       } catch {}
@@ -235,6 +430,12 @@ export async function pushSnapshot(options?: { force?: boolean }): Promise<SyncR
         remoteUpdatedAt: errData.remoteUpdatedAt ?? check?.remoteUpdatedAt ?? null,
         localLastSync: check?.localLastSync ?? null,
         message: errData.message ?? "云端检测到更新的快照，若继续将覆盖云端数据，请确认。",
+      };
+    }
+    if (res.status === 429) {
+      return {
+        ok: false,
+        message: "同步过于频繁（HTTP 429），系统已自动降频，请稍候片刻",
       };
     }
     if (!res.ok) {
@@ -272,18 +473,30 @@ export interface PullSnapshotOptions {
   preserveSettings?: boolean;
 }
 
-/** 从云端下载完整备份并覆盖本地数据（带安全快照保护与向下兼容清洗） */
+/** 从云端下载完整备份并覆盖本地数据（带安全快照保护与向下兼容清洗，放宽至 120 秒超时） */
 export async function pullSnapshot(options?: PullSnapshotOptions): Promise<SyncResult> {
   const cfg = await getSyncConfig();
   if (!cfg.endpoint || !cfg.token) {
     return { ok: false, message: "请先填写同步地址和 Token" };
   }
   try {
-    const res = await httpFetch(`${syncBase(cfg.endpoint)}/api/sync/snapshot`, {
-      headers: { "X-Sync-Token": cfg.token },
-    });
+    const [clientId, deviceId] = await Promise.all([getClientId(), getDeviceId()]);
+    const res = await safeHttpFetch(
+      `${syncBase(cfg.endpoint)}/api/sync/snapshot`,
+      {
+        headers: {
+          "X-Sync-Token": cfg.token,
+          "X-Client-Id": clientId,
+          "X-Device-Id": deviceId,
+        },
+      },
+      120000 // 120 秒大体积快照专项超时
+    );
     if (res.status === 404) {
       return { ok: false, message: "云端暂无快照" };
+    }
+    if (res.status === 429) {
+      return { ok: false, message: "请求过于频繁（HTTP 429），系统已自动降频，请稍候片刻" };
     }
     if (!res.ok) {
       return {
@@ -384,6 +597,21 @@ export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
     const meta = await getSyncMetaInfo();
     if (!meta.ok || !meta.remoteUpdatedAt) return { synced: false };
 
+    const [myClientId, myDeviceId] = await Promise.all([getClientId(), getDeviceId()]);
+    const isSelfSnapshot =
+      (meta.remoteClientId && meta.remoteClientId === myClientId) ||
+      (meta.remoteDeviceId && meta.remoteDeviceId === myDeviceId) ||
+      (isTauri() &&
+        (meta.remoteDeviceId === "desktop-win32" || !meta.remoteDeviceId) &&
+        !(await db.hasReviewsSince(meta.remoteUpdatedAt)));
+
+    if (isSelfSnapshot) {
+      // 云端最新快照是由本客户端推送或无新进度差，本地已是最新，无需重复拉取
+      await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
+      useSyncStore.getState().setSynced(meta.localLastSyncTime || meta.remoteUpdatedAt, "学习进度已是最新");
+      return { synced: false };
+    }
+
     const remoteTime = new Date(meta.remoteUpdatedAt).getTime();
     if (meta.localLastRemoteTime) {
       const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
@@ -452,9 +680,17 @@ export function initSyncHooks(): () => void {
   });
 }
 
+let inFlightPushPromise: Promise<SyncResult> | null = null;
+let pendingPushQueued = false;
+let lastPushCompletedAt = 0;
+const MIN_PUSH_INTERVAL_MS = 15000; // 冷却间隔 15 秒，避免背题期间连续上传 7MB 大包导致网络塞车
+
 /**
  * 学习完成或离开学习时自动静默推送到云端
- * - 若云端有更新快照，则暂缓推送，避免冲刷其他设备数据
+ * - 单飞互斥队列（Single-Flight Mutex）：并发调用自动合并，绝不并发打架碰撞
+ * - 智能冷却排队：若距离上次推送未满冷却期，排队防抖延迟推送
+ * - 尾随重推（Trailing Push）：执行期间产生的任何新变更在完成后自动重推一次，保证最新进度零丢失
+ * - 若云端有其他设备提交的更新快照，则暂缓推送，避免冲刷其他设备数据
  */
 export async function autoPushIfConfigured(): Promise<SyncResult> {
   const autoEnabled = await getAutoSyncEnabled();
@@ -467,31 +703,61 @@ export async function autoPushIfConfigured(): Promise<SyncResult> {
   }
   useSyncStore.getState().setIsConfigured(true);
 
-  useSyncStore.getState().setSyncing("正在自动同步学习进度到云端...");
-
-  const check = await checkPushConflict();
-  if (check.hasConflict) {
-    const msg =
-      check.reason === "first_push_remote_exists"
-        ? "云端存在历史快照，请前往设置页完成首次同步确认"
-        : "云端检测到更新的快照，已暂缓自动上传以防冲刷数据";
-    useSyncStore.getState().setConflict(msg);
-    return {
-      ok: false,
-      conflict: true,
-      remoteUpdatedAt: check.remoteUpdatedAt,
-      localLastSync: check.localLastSync,
-      message: msg,
-    };
+  if (inFlightPushPromise) {
+    // 已有正在进行的推送，标记待重推，复用当前 promise
+    pendingPushQueued = true;
+    return inFlightPushPromise;
   }
 
-  const res = await pushSnapshot({ force: false });
-  if (res.ok) {
-    useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "学习进度已成功上传至云端");
-  } else if (res.conflict) {
-    useSyncStore.getState().setConflict(res.message);
-  } else {
-    useSyncStore.getState().setError(res.message);
+  // 冷却保护：如果距离上一次全量上传成功未满冷却间隔，则排队延迟执行
+  const now = Date.now();
+  const timeSinceLast = now - lastPushCompletedAt;
+  if (lastPushCompletedAt > 0 && timeSinceLast < MIN_PUSH_INTERVAL_MS) {
+    if (!pendingPushQueued) {
+      pendingPushQueued = true;
+      const delay = MIN_PUSH_INTERVAL_MS - timeSinceLast;
+      setTimeout(() => {
+        pendingPushQueued = false;
+        void autoPushIfConfigured().catch(() => {});
+      }, delay);
+    }
+    return { ok: true, message: "推送已排队（冷却中）" };
   }
-  return res;
+
+  const runPush = async (): Promise<SyncResult> => {
+    useSyncStore.getState().setSyncing("正在自动同步学习进度到云端...");
+
+    // 确保本地脏数据落盘后再生成快照
+    try {
+      await db.flush();
+    } catch {}
+
+    const res = await pushSnapshot({ force: false });
+    lastPushCompletedAt = Date.now();
+    if (res.ok) {
+      useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "学习进度已成功上传至云端");
+    } else if (res.conflict) {
+      useSyncStore.getState().setConflict(res.message);
+    } else {
+      useSyncStore.getState().setError(res.message);
+    }
+    return res;
+  };
+
+  inFlightPushPromise = (async () => {
+    try {
+      return await runPush();
+    } finally {
+      inFlightPushPromise = null;
+      if (pendingPushQueued) {
+        pendingPushQueued = false;
+        // 延迟 600ms 触发尾随推送，避免高频无缝紧密重连
+        setTimeout(() => {
+          void autoPushIfConfigured().catch(() => {});
+        }, 600);
+      }
+    }
+  })();
+
+  return inFlightPushPromise;
 }

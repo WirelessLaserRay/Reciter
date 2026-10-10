@@ -39,8 +39,8 @@ function isOriginAllowed(origin: string | null): boolean {
 function corsHeaders(origin: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token, X-Device-Id, X-Expected-Updated-At, X-Force, If-Match",
-    "Access-Control-Expose-Headers": "X-Snapshot-Updated-At, X-Snapshot-Device-Id, Retry-After",
+    "Access-Control-Allow-Headers": "Content-Type, X-Sync-Token, X-Device-Id, X-Client-Id, X-Expected-Updated-At, X-Force, If-Match",
+    "Access-Control-Expose-Headers": "X-Snapshot-Updated-At, X-Snapshot-Device-Id, X-Snapshot-Client-Id, Retry-After",
     "Access-Control-Max-Age": "86400",
   };
   if (origin) {
@@ -115,21 +115,24 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
     const raw = await env.KV_BINDING.get(SNAPSHOT_KEY);
     let updatedAt: string | null = null;
     let deviceId: string | null = null;
+    let clientId: string | null = null;
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed.snapshot === "string") {
           updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
           deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId : null;
+          clientId = typeof parsed.clientId === "string" ? parsed.clientId : null;
         } else if (parsed && typeof parsed.updatedAt === "string") {
           updatedAt = parsed.updatedAt;
           deviceId = parsed.deviceId ?? null;
+          clientId = parsed.clientId ?? null;
         }
       } catch {
         updatedAt = null;
       }
     }
-    return json({ updatedAt, deviceId }, 200, cors);
+    return json({ updatedAt, deviceId, clientId }, 200, cors);
   }
 
   if (path === "/api/sync/snapshot") {
@@ -141,12 +144,14 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       let snapshot = raw;
       let updatedAt: string | null = null;
       let deviceId: string | null = null;
+      let clientId: string | null = null;
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed.snapshot === "string") {
           snapshot = parsed.snapshot;
           updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
           deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId : null;
+          clientId = typeof parsed.clientId === "string" ? parsed.clientId : null;
         }
       } catch {
         // raw 是旧版直接存储的备份 JSON
@@ -161,6 +166,9 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
       if (deviceId) {
         responseHeaders["X-Snapshot-Device-Id"] = deviceId;
       }
+      if (clientId) {
+        responseHeaders["X-Snapshot-Client-Id"] = clientId;
+      }
       return new Response(snapshot, {
         status: 200,
         headers: responseHeaders,
@@ -169,8 +177,8 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
 
     if (request.method === "PUT") {
       const raw = await request.text();
-      if (!raw || raw.length > 10 * 1024 * 1024) {
-        return json({ error: "Snapshot too large (max 10MB)" }, 413, cors);
+      if (!raw || raw.length > 25 * 1024 * 1024) {
+        return json({ error: "Snapshot too large (max 25MB)" }, 413, cors);
       }
 
       // 验证必须是合法的 JSON 对象
@@ -183,6 +191,9 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
         return json({ error: "Invalid JSON" }, 400, cors);
       }
 
+      const clientDeviceId = request.headers.get("X-Device-Id")?.trim().slice(0, 50) || "unknown";
+      const clientInstanceId = request.headers.get("X-Client-Id")?.trim().slice(0, 50) || clientDeviceId;
+
       // 乐观并发控制：客户端若提供预期时间戳且未声明 force，则检测云端并发更新
       const isForce = url.searchParams.get("force") === "true" || request.headers.get("X-Force") === "true";
       const expectedUpdatedAt = request.headers.get("X-Expected-Updated-At") || request.headers.get("If-Match");
@@ -194,16 +205,25 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
             const existing = JSON.parse(existingRaw);
             const currentUpdatedAt = typeof existing?.updatedAt === "string" ? existing.updatedAt : null;
             if (currentUpdatedAt && currentUpdatedAt !== expectedUpdatedAt) {
-              return json(
-                {
-                  error: "Conflict",
-                  message: "云端检测到更新的快照，若继续将覆盖云端数据",
-                  remoteUpdatedAt: currentUpdatedAt,
-                  remoteDeviceId: existing?.deviceId ?? null,
-                },
-                409,
-                cors
-              );
+              const existingClientId = typeof existing?.clientId === "string" ? existing.clientId : null;
+              const existingDeviceId = typeof existing?.deviceId === "string" ? existing.deviceId : null;
+              // 自身设备重试或覆盖不构成并发冲突
+              const isSameClient =
+                (existingClientId && existingClientId === clientInstanceId) ||
+                (existingDeviceId && existingDeviceId === clientDeviceId);
+              if (!isSameClient) {
+                return json(
+                  {
+                    error: "Conflict",
+                    message: "云端检测到更新的快照，若继续将覆盖云端数据",
+                    remoteUpdatedAt: currentUpdatedAt,
+                    remoteDeviceId: existingDeviceId,
+                    remoteClientId: existingClientId,
+                  },
+                  409,
+                  cors
+                );
+              }
             }
           } catch {
             // ignore
@@ -211,15 +231,15 @@ async function handleSync(request: Request, env: Env, cors: Record<string, strin
         }
       }
 
-      const clientDeviceId = request.headers.get("X-Device-Id")?.trim().slice(0, 50) || "unknown";
       const updatedAt = new Date().toISOString();
       const payload = JSON.stringify({
         updatedAt,
         deviceId: clientDeviceId,
+        clientId: clientInstanceId,
         snapshot: raw,
       });
       await env.KV_BINDING.put(SNAPSHOT_KEY, payload);
-      return json({ ok: true, updatedAt, deviceId: clientDeviceId }, 200, cors);
+      return json({ ok: true, updatedAt, deviceId: clientDeviceId, clientId: clientInstanceId }, 200, cors);
     }
 
     if (request.method === "DELETE") {
@@ -1315,13 +1335,27 @@ export default {
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
 
-    // 1. 同步接口限流：每分钟上限 30 次（防御暴力猜测与高频刷库）
+    // 1. 同步接口限流：区分未授权探测与已授权正常同步
     if (isSync) {
-      if (!checkRateLimit(`sync:${clientIp}`, 30, 60_000)) {
+      const authorized = isAuthorized(request, env);
+      if (!authorized) {
+        // 未授权请求严格限流（防暴力碰撞 Token）：每分钟 10 次
+        if (!checkRateLimit(`sync:unauth:${clientIp}`, 10, 60_000)) {
+          return json(
+            { error: "Too Many Requests", message: "请求过于频繁，请稍候再试" },
+            429,
+            { ...cors, "Retry-After": "60" }
+          );
+        }
+        return json({ error: "Unauthorized" }, 401, cors);
+      }
+
+      // 已授权请求：允许正常学习做题时的高频自动同步（放宽至 120 次/分钟）
+      if (!checkRateLimit(`sync:auth:${clientIp}`, 120, 60_000)) {
         return json(
           { error: "Too Many Requests", message: "同步请求过于频繁，请稍候再试" },
           429,
-          { ...cors, "Retry-After": "60" }
+          { ...cors, "Retry-After": "30" }
         );
       }
       return handleSync(request, env, cors);

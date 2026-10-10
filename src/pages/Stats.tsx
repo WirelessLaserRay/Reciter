@@ -22,6 +22,7 @@ import { HeatmapGrid } from "@/components/stats/HeatmapGrid";
 import { getFutureDue, getHeatmapData, getLastNDays, type DailyPoint } from "@/lib/stats";
 import { useDbStore } from "@/stores/useDbStore";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { cn } from "@/lib/utils";
 
 const DAYS = 30;
 
@@ -52,6 +53,12 @@ export default function Stats() {
   const [daily, setDaily] = useState<DailyPoint[]>([]);
   const [future, setFuture] = useState<{ date: string; count: number }[]>([]);
   const [heatmap, setHeatmap] = useState<Record<string, number>>({});
+  const [heatmapDays, setHeatmapDays] = useState<number>(() => {
+    const saved = localStorage.getItem("reciter_heatmap_days");
+    if (saved === "90") return 90;
+    if (saved === "30") return 30;
+    return 365;
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -252,12 +259,45 @@ export default function Stats() {
 
           {/* 热力图 */}
           <Card>
-            <CardHeader>
-              <CardTitle>学习热力图</CardTitle>
-              <CardDescription>365 天每日复习量（GitHub 贡献图风格，自定义 CSS Grid 实现）</CardDescription>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>学习热力图</CardTitle>
+                <CardDescription>
+                  {heatmapDays === 365
+                    ? "近一年（365 天）"
+                    : heatmapDays === 90
+                      ? "近三个月（90 天）"
+                      : "近一个月（30 天）"}
+                  每日复习量记录（GitHub 贡献图风格）
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-1 text-xs">
+                {([
+                  { label: "近一年", value: 365 },
+                  { label: "近三个月", value: 90 },
+                  { label: "近一个月", value: 30 },
+                ] as const).map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => {
+                      setHeatmapDays(item.value);
+                      localStorage.setItem("reciter_heatmap_days", String(item.value));
+                    }}
+                    className={cn(
+                      "cursor-pointer rounded-md px-2.5 py-1 font-medium transition-all",
+                      heatmapDays === item.value
+                        ? "bg-background text-foreground shadow-2xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </CardHeader>
             <CardContent>
-              <HeatmapGrid data={heatmap} days={365} />
+              <HeatmapGrid data={heatmap} days={heatmapDays} />
             </CardContent>
           </Card>
         </>

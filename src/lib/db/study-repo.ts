@@ -215,6 +215,14 @@ export class StudyRepository extends CardRepository {
     return rows.length > 0;
   }
 
+  /** 查询本地最新一条复习记录的 ISO 时间戳 */
+  async getLatestReviewTime(): Promise<string | null> {
+    const rows = await this.requireDb().select<{ reviewed_at: string }[]>(
+      "SELECT reviewed_at FROM review_logs ORDER BY reviewed_at DESC LIMIT 1"
+    );
+    return rows[0]?.reviewed_at ?? null;
+  }
+
   /** 全局今日待复习数（due < dayEnd 且已学过；可忽略标签，支持模糊/正则） */
   async getGlobalDueCount(before: string, ignoreTags: string[] = []): Promise<number> {
     const resolvedTags = await this.resolveMatchingTags(ignoreTags);

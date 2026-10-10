@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { sanitizeMarkdownBold } from "@/components/ai/AIReply";
 
 interface MarkdownViewProps {
   content: string;
@@ -26,7 +27,7 @@ export default function MarkdownView({ content, className = "" }: MarkdownViewPr
         [&_hr]:my-2 [&_hr]:border-border/60
         ${className}`}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{sanitizeMarkdownBold(content)}</ReactMarkdown>
     </div>
   );
 }

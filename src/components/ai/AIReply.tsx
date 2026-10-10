@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { parseAIJSON } from "@/lib/ai-parse";
 
 /** 教学优先的 JSON 字段 → 展示区段 */
@@ -20,6 +21,58 @@ const SECTIONS: { key: string; label: string; icon: string }[] = [
   { key: "quiz_chain", label: "递进练习", icon: "📚" },
 ];
 
+/**
+ * 修复大模型生成 Markdown 时常见的加粗格式异常：
+ * 1. 修复内侧含有空格的加粗，如 `** 单词 **` / `** 单词**` / `**单词 **` -> `**单词**`
+ * 2. 避免 CommonMark 因内侧空白字符判定 emphasis 规则失效
+ */
+export function sanitizeMarkdownBold(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/(?<!\*)\*\*\s+([^\n*]+?)\s+\*\*(?!\*)/g, "**$1**")
+    .replace(/(?<!\*)\*\*\s+([^\n*]+?)\*\*(?!\*)/g, "**$1**")
+    .replace(/(?<!\*)\*\*([^\n*]+?)\s+\*\*(?!\*)/g, "**$1**");
+}
+
+function InlineMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <span>{children}</span>,
+        strong: ({ children }) => (
+          <strong className="font-semibold text-foreground">{children}</strong>
+        ),
+        code: ({ children }) => (
+          <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">{children}</code>
+        ),
+      }}
+    >
+      {sanitizeMarkdownBold(content)}
+    </ReactMarkdown>
+  );
+}
+
+function BlockMarkdown({ content }: { content: string }) {
+  return (
+    <div className="text-[15px] leading-relaxed [&_strong]:font-semibold [&_strong]:text-foreground [&_p]:my-0.5">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          code: ({ children }) => (
+            <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">{children}</code>
+          ),
+        }}
+      >
+        {sanitizeMarkdownBold(content)}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function renderValue(v: unknown): React.ReactNode {
   if (Array.isArray(v)) {
     const items = v.filter((x) => typeof x === "string" && x.trim());
@@ -27,13 +80,18 @@ function renderValue(v: unknown): React.ReactNode {
     return (
       <ul className="space-y-1 text-[15px] leading-relaxed">
         {items.map((t, i) => (
-          <li key={i}>• {t}</li>
+          <li key={i} className="flex items-start gap-1.5">
+            <span className="text-muted-foreground select-none">•</span>
+            <div className="flex-1 [&_strong]:font-semibold [&_strong]:text-foreground">
+              <InlineMarkdown content={t} />
+            </div>
+          </li>
         ))}
       </ul>
     );
   }
   if (typeof v === "string" && v.trim()) {
-    return <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{v}</p>;
+    return <BlockMarkdown content={v} />;
   }
   if (v && typeof v === "object") {
     // 嵌套对象（如 { options: [...] }）拼成文本
@@ -42,7 +100,7 @@ function renderValue(v: unknown): React.ReactNode {
       .filter((x): x is string => typeof x === "string" && !!x.trim())
       .map((x) => x.trim());
     if (parts.length === 0) return null;
-    return <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{parts.join("；")}</p>;
+    return <BlockMarkdown content={parts.join("；")} />;
   }
   return null;
 }
@@ -108,8 +166,17 @@ export function MessageContent({ content }: { content: string }) {
   }
 
   return (
-    <div className="space-y-2 text-left text-[15px] leading-relaxed [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h1]:text-base [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-[15px] [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
-      <ReactMarkdown>{content}</ReactMarkdown>
+    <div className="space-y-2 text-left text-[15px] leading-relaxed [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_strong]:text-foreground [&_h1]:text-base [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-[15px] [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+        }}
+      >
+        {sanitizeMarkdownBold(content)}
+      </ReactMarkdown>
     </div>
   );
 }

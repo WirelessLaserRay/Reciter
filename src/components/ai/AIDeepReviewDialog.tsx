@@ -14,6 +14,7 @@ import { AIClient, getAIConfig, type AIGradeResult } from "@/lib/ai-client";
 import { getPromptTemplate, renderTemplate } from "@/lib/ai-prompts";
 import { cleanQuestionDisplay } from "@/lib/ai-adapter";
 import { cn } from "@/lib/utils";
+import MarkdownView from "@/components/common/MarkdownView";
 
 type Stage = "idle" | "generating" | "answering" | "grading" | "graded";
 
@@ -168,8 +169,8 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         {/* 作答 */}
         {stage === "answering" && (
           <div className="space-y-3">
-            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-sm">
-              {cleanQuestion || question}
+            <div className="max-h-56 overflow-y-auto rounded-lg border bg-muted/40 p-3 text-sm">
+              <MarkdownView content={cleanQuestion || question} />
             </div>
             <Textarea
               value={answer}
@@ -206,15 +207,17 @@ export default function AIDeepReviewDialog({ open, onOpenChange, front, back, on
         {/* 判分结果 + 申诉 */}
         {stage === "graded" && gradeResult && (
           <div className="space-y-3">
-            <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-              {cleanQuestion || question}
+            <div className="max-h-40 overflow-y-auto rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <MarkdownView content={cleanQuestion || question} />
             </div>
             <div className="rounded-lg border bg-muted/40 p-3 text-sm">
               <p className="mb-1 flex items-center gap-1.5 font-medium">
                 <CheckCircle2 className="size-4 text-green-500" />
                 AI 评分：{gradeResult.grade} · {GRADE_LABELS[gradeResult.grade]}
               </p>
-              <p className="text-muted-foreground">{gradeResult.comment}</p>
+              <div className="text-muted-foreground">
+                <MarkdownView content={gradeResult.comment} />
+              </div>
             </div>
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">

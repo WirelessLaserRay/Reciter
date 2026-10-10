@@ -370,7 +370,9 @@ export default function AIChatPanel({
               <p className="mb-1 flex items-center gap-1.5 font-medium">
                 AI 评分：{gradeResult.grade} · {["", "忘了", "困难", "良好", "简单"][gradeResult.grade]}
               </p>
-              <p className="mb-2 text-muted-foreground">{gradeResult.comment}</p>
+              <div className="mb-2 text-muted-foreground">
+                <MessageContent content={gradeResult.comment} />
+              </div>
               <div className="mb-2 grid grid-cols-4 gap-1.5">
                 {([1, 2, 3, 4] as const).map((g) => (
                   <Button
