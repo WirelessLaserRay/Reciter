@@ -79,7 +79,7 @@ async function safeHttpFetch(
         return execute(attempt + 1);
       }
       if (isAbort && !init?.signal?.aborted) {
-        throw new Error(`网络请求超时（${Math.round(timeoutMs / 1000)}秒未响应），请检查网络连接`);
+        throw new Error(`网络请求超时（${Math.round(timeoutMs / 1000)}秒未响应），请检查网络连接`, { cause: err });
       }
       throw err;
     } finally {
