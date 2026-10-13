@@ -576,87 +576,108 @@ export interface AutoPullResult {
   error?: string;
 }
 
+let activeAutoPullPromise: Promise<AutoPullResult> | null = null;
+let isSyncOperationActive = false;
+
 /**
  * 启动时静默检查并自动拉取云端新学习进度
  * - 只有当云端快照明确比本地记录更新时才自动拉取
  * - 严格保留本地独立业务与界面设置，绝不盲目覆盖本地配置
  * - 若本地在上次同步后有新增做题记录，暂停自动覆盖并提示冲突，避免丢失本地进度
+ * - 增加全局并发单例锁与 Promise 复用，彻底消除组件重复触发竞态
  */
-export async function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
-  const autoEnabled = await getAutoSyncEnabled();
-  if (!autoEnabled) return { synced: false };
-
-  const cfg = await getSyncConfig();
-  if (!cfg.endpoint || !cfg.token) {
-    useSyncStore.getState().setIsConfigured(false);
-    return { synced: false };
+export function autoPullIfRemoteNewer(): Promise<AutoPullResult> {
+  // 1. 若当前已有自动拉取在执行，直接复用该 Promise，彻底杜绝多组件并发竞态
+  if (activeAutoPullPromise) {
+    return activeAutoPullPromise;
   }
-  useSyncStore.getState().setIsConfigured(true);
+  // 2. 若当前正有前台手动同步在执行，跳过本次自动拉取
+  if (isSyncOperationActive) {
+    return Promise.resolve({ synced: false });
+  }
 
-  try {
-    const meta = await getSyncMetaInfo();
-    if (!meta.ok || !meta.remoteUpdatedAt) return { synced: false };
+  activeAutoPullPromise = (async () => {
+    isSyncOperationActive = true;
+    try {
+      const autoEnabled = await getAutoSyncEnabled();
+      if (!autoEnabled) return { synced: false };
 
-    const [myClientId, myDeviceId] = await Promise.all([getClientId(), getDeviceId()]);
-    const isSelfSnapshot =
-      (meta.remoteClientId && meta.remoteClientId === myClientId) ||
-      (meta.remoteDeviceId && meta.remoteDeviceId === myDeviceId) ||
-      (isTauri() &&
-        (meta.remoteDeviceId === "desktop-win32" || !meta.remoteDeviceId) &&
-        !(await db.hasReviewsSince(meta.remoteUpdatedAt)));
+      const cfg = await getSyncConfig();
+      if (!cfg.endpoint || !cfg.token) {
+        useSyncStore.getState().setIsConfigured(false);
+        return { synced: false };
+      }
+      useSyncStore.getState().setIsConfigured(true);
 
-    if (isSelfSnapshot) {
-      // 云端最新快照是由本客户端推送或无新进度差，本地已是最新，无需重复拉取
-      await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
-      useSyncStore.getState().setSynced(meta.localLastSyncTime || meta.remoteUpdatedAt, "学习进度已是最新");
-      return { synced: false };
-    }
+      const meta = await getSyncMetaInfo();
+      if (!meta.ok || !meta.remoteUpdatedAt) return { synced: false };
 
-    const remoteTime = new Date(meta.remoteUpdatedAt).getTime();
-    if (meta.localLastRemoteTime) {
-      const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
-      if (remoteTime <= localRemoteTime) {
-        // 本地已是最新
+      const [myClientId, myDeviceId] = await Promise.all([getClientId(), getDeviceId()]);
+      const isSelfSnapshot =
+        (meta.remoteClientId && meta.remoteClientId === myClientId) ||
+        (meta.remoteDeviceId && meta.remoteDeviceId === myDeviceId) ||
+        (isTauri() &&
+          (meta.remoteDeviceId === "desktop-win32" || !meta.remoteDeviceId) &&
+          !(await db.hasReviewsSince(meta.remoteUpdatedAt)));
+
+      if (isSelfSnapshot) {
+        // 云端最新快照是由本客户端推送或无新进度差，本地已是最新，无需重复拉取
+        await db.setSetting("sync_last_remote_time", meta.remoteUpdatedAt);
         useSyncStore.getState().setSynced(meta.localLastSyncTime || meta.remoteUpdatedAt, "学习进度已是最新");
         return { synced: false };
       }
-    } else {
-      // 本地无上次远端时间，若本地已有卡片，不强制静默覆盖，交由用户手动确认
-      const localCount = await db.getTotalCardCount();
-      if (localCount > 0) {
-        useSyncStore.getState().setConflict("云端检测到历史快照，请在设置页完成首次同步确认");
-        return { synced: false };
-      }
-    }
 
-    // 冲突安全检查：检查本地自上次同步以来是否有新的复习记录，避免覆盖本地未上传的做题进度
-    const lastSyncTime = meta.localLastSyncTime || meta.localLastRemoteTime;
-    if (lastSyncTime) {
-      const hasLocalReviews = await db.hasReviewsSince(lastSyncTime);
-      if (hasLocalReviews) {
-        useSyncStore.getState().setConflict("本地有未同步的学习记录，云端亦有更新，已暂停自动覆盖，请在设置中查看");
-        return { synced: false };
+      const remoteTime = new Date(meta.remoteUpdatedAt).getTime();
+      if (meta.localLastRemoteTime) {
+        const localRemoteTime = new Date(meta.localLastRemoteTime).getTime();
+        if (remoteTime <= localRemoteTime) {
+          // 本地已是最新
+          useSyncStore.getState().setSynced(meta.localLastSyncTime || meta.remoteUpdatedAt, "学习进度已是最新");
+          return { synced: false };
+        }
+      } else {
+        // 本地无上次远端时间，若本地已有卡片，不强制静默覆盖，交由用户手动确认
+        const localCount = await db.getTotalCardCount();
+        if (localCount > 0) {
+          useSyncStore.getState().setConflict("云端检测到历史快照，请在设置页完成首次同步确认");
+          return { synced: false };
+        }
       }
-    }
 
-    useSyncStore.getState().setSyncing("检测到云端有新进度，正在自动拉取...");
-    // 自动拉取时严格保留本地设置（preserveSettings: true），仅同步词库卡片与算法状态
-    const res = await pullSnapshot({ preserveSettings: true });
-    if (res.ok) {
-      useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "已自动拉取云端最新学习进度");
-      return {
-        synced: true,
-        message: res.message,
-        decks: res.decks,
-        cards: res.cards,
-      };
+      // 冲突安全检查：检查本地自上次同步以来是否有新的复习记录，避免覆盖本地未上传的做题进度
+      const lastSyncTime = meta.localLastSyncTime || meta.localLastRemoteTime;
+      if (lastSyncTime) {
+        const hasLocalReviews = await db.hasReviewsSince(lastSyncTime);
+        if (hasLocalReviews) {
+          useSyncStore.getState().setConflict("本地有未同步的学习记录，云端亦有更新，已暂停自动覆盖，请在设置中查看");
+          return { synced: false };
+        }
+      }
+
+      useSyncStore.getState().setSyncing("检测到云端有新进度，正在自动拉取...");
+      // 自动拉取时严格保留本地设置（preserveSettings: true），仅同步词库卡片与算法状态
+      const res = await pullSnapshot({ preserveSettings: true });
+      if (res.ok) {
+        useSyncStore.getState().setSynced(res.updatedAt || new Date().toISOString(), "已自动拉取云端最新学习进度");
+        return {
+          synced: true,
+          message: res.message,
+          decks: res.decks,
+          cards: res.cards,
+        };
+      }
+      useSyncStore.getState().setError(res.message);
+      return { synced: false, error: res.message };
+    } catch (e) {
+      useSyncStore.getState().setError(String(e));
+      return { synced: false, error: String(e) };
+    } finally {
+      isSyncOperationActive = false;
+      activeAutoPullPromise = null;
     }
-    useSyncStore.getState().setError(res.message);
-    return { synced: false, error: res.message };
-  } catch (e) {
-    useSyncStore.getState().setError(String(e));
-    return { synced: false, error: String(e) };
-  }
+  })();
+
+  return activeAutoPullPromise;
 }
 
 let settingsSyncTimer: ReturnType<typeof setTimeout> | null = null;

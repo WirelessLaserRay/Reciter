@@ -339,28 +339,33 @@ export async function restoreBackupData(
         preservedMap.set(s.key, s.value);
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn("读取本地已有配置时出错:", e);
+  }
 
   // 3. 执行原子恢复
   const snap = db.snapshot();
   try {
     await db.transaction(async () => {
+      // 业务实体数据清空并全量恢复（decks, cards, review_logs, daily_stats，绝不触碰 settings）
       await db.clearAllData();
       for (const d of data.decks) await db.restoreDeck(d);
       for (const c of data.cards) await db.restoreCard(c as never);
       for (const l of data.reviewLogs ?? []) await db.restoreReviewLog(l);
+      for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
 
-      // 从备份/云端恢复业务配置（如 exam_* 备考规划、学习目标等，排除设备私有、AI 与接口配置）
-      if (!preserveAllSettings) {
-        for (const s of data.settings ?? []) {
+      // 配置表处理逻辑：
+      // 1) 若 preserveAllSettings 为 true（云同步自动拉取、后台拉取）：完全不触碰设置表！本地所有设置保持不变。
+      // 2) 若 preserveAllSettings 为 false（用户手动恢复备份）：仅对非私有业务配置增量更新，私有配置绝对保留！
+      if (!preserveAllSettings && Array.isArray(data.settings)) {
+        for (const s of data.settings) {
           if (!isPreservedDeviceSetting(s.key)) {
             await db.restoreSetting(s.key, s.value);
           }
         }
       }
-      for (const s of data.dailyStats ?? []) await db.restoreDailyStat(s);
 
-      // 写回保留的本地设备配置（如 sync_endpoint、sync_token、ai_*、deepl_* 等）
+      // 再次确保本地设备私有配置（如 sync_*、ai_*、deepl_*、tts_* 等）绝对完好无损
       for (const [key, val] of preservedMap.entries()) {
         await db.restoreSetting(key, val);
       }

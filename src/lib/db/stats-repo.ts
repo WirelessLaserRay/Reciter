@@ -3,7 +3,7 @@ import { StudyRepository } from "./study-repo";
 import { nowIso } from "./helpers";
 
 export class StatsRepository extends StudyRepository {
-  /** 清空全部业务数据（恢复前调用，注意外键顺序） */
+  /** 清空全部业务实体数据（词库、卡片、记忆状态、复习记录、每日统计；恢复前调用，注意外键顺序；绝不清空 settings 配置表） */
   async clearAllData(): Promise<void> {
     const db = this.requireDb();
     await db.execute("DELETE FROM review_logs");
@@ -11,7 +11,6 @@ export class StatsRepository extends StudyRepository {
     await db.execute("DELETE FROM cards");
     await db.execute("DELETE FROM decks");
     await db.execute("DELETE FROM daily_stats");
-    await db.execute("DELETE FROM settings");
   }
 
   /** 危险区：重置学习进度（保留词库与卡片，清空 FSRS 状态 / 复习记录 / 日报） */

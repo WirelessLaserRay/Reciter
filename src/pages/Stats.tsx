@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 
 const DAYS = 30;
 
+const EASING_IN_OUT_QUAD = "cubic-bezier(0.45,0,0.55,1)" as const;
+
 const TOOLTIP_STYLE = {
   contentStyle: {
     backgroundColor: "var(--card)",
@@ -44,6 +46,23 @@ const TOOLTIP_STYLE = {
     fontWeight: 600,
     marginBottom: "4px",
   },
+  isAnimationActive: true,
+  animationDuration: 180,
+  animationEasing: EASING_IN_OUT_QUAD,
+};
+
+const BAR_ANIMATION_PROPS = {
+  isAnimationActive: true,
+  animationBegin: 50,
+  animationDuration: 1100,
+  animationEasing: EASING_IN_OUT_QUAD,
+};
+
+const LINE_ANIMATION_PROPS = {
+  isAnimationActive: true,
+  animationBegin: 100,
+  animationDuration: 1300,
+  animationEasing: EASING_IN_OUT_QUAD,
 };
 
 export default function Stats() {
@@ -95,13 +114,13 @@ export default function Stats() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div>
+      <div className="animate-in fade-in duration-300">
         <h2 className="text-2xl font-bold tracking-tight">学习统计</h2>
         <p className="text-sm text-muted-foreground mt-0.5">复习趋势 · 记忆保留率 · 预期复习量 · 热力图</p>
       </div>
 
       {loading && (
-        <Card>
+        <Card className="animate-in fade-in duration-200">
           <CardContent className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             加载统计数据…
@@ -110,13 +129,13 @@ export default function Stats() {
       )}
 
       {error && (
-        <Card>
+        <Card className="animate-in fade-in duration-200">
           <CardContent className="py-6 text-sm text-destructive">{error}</CardContent>
         </Card>
       )}
 
       {!loading && !error && (
-        <>
+        <div className="space-y-6 animate-in fade-in duration-300">
           {/* 概览统计卡片 */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
             <Card className="transition-all hover:border-border hover:shadow-xs">
@@ -157,7 +176,7 @@ export default function Stats() {
           </div>
 
           {/* 复习量趋势 */}
-          <Card>
+          <Card className="transition-all hover:border-border hover:shadow-xs">
             <CardHeader>
               <CardTitle>复习量趋势（近 {DAYS} 天）</CardTitle>
               <CardDescription>新学与复习的每日数量</CardDescription>
@@ -180,16 +199,16 @@ export default function Stats() {
                     allowDecimals={false}
                     tick={{ fill: "var(--muted-foreground)" }}
                   />
-                  <Tooltip {...TOOLTIP_STYLE} />
-                  <Bar dataKey="新学" stackId="a" fill="var(--chart-1)" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="复习" stackId="a" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+                  <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: "var(--muted)", opacity: 0.35, rx: 4 }} />
+                  <Bar dataKey="新学" stackId="a" fill="var(--chart-1)" radius={[0, 0, 0, 0]} {...BAR_ANIMATION_PROPS} />
+                  <Bar dataKey="复习" stackId="a" fill="var(--chart-2)" radius={[4, 4, 0, 0]} {...BAR_ANIMATION_PROPS} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
           {/* 记忆保留率 */}
-          <Card>
+          <Card className="transition-all hover:border-border hover:shadow-xs">
             <CardHeader>
               <CardTitle>记忆保留率（近 {DAYS} 天）</CardTitle>
               <CardDescription>每日正确率 = 1 − 忘记次数 / 复习次数</CardDescription>
@@ -212,7 +231,10 @@ export default function Stats() {
                     axisLine={false}
                     tick={{ fill: "var(--muted-foreground)" }}
                   />
-                  <Tooltip {...TOOLTIP_STYLE} />
+                  <Tooltip
+                    {...TOOLTIP_STYLE}
+                    cursor={{ stroke: "var(--primary)", strokeWidth: 1.5, strokeDasharray: "3 3", strokeOpacity: 0.6 }}
+                  />
                   <Line
                     type="monotone"
                     dataKey="保留率"
@@ -220,6 +242,7 @@ export default function Stats() {
                     strokeWidth={2.5}
                     dot={false}
                     connectNulls
+                    {...LINE_ANIMATION_PROPS}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -227,7 +250,7 @@ export default function Stats() {
           </Card>
 
           {/* 未来 7 天预期复习量 */}
-          <Card>
+          <Card className="transition-all hover:border-border hover:shadow-xs">
             <CardHeader>
               <CardTitle>未来 7 天预期复习量</CardTitle>
               <CardDescription>按 FSRS due 日期统计</CardDescription>
@@ -250,8 +273,8 @@ export default function Stats() {
                     allowDecimals={false}
                     tick={{ fill: "var(--muted-foreground)" }}
                   />
-                  <Tooltip {...TOOLTIP_STYLE} />
-                  <Bar dataKey="预期" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
+                  <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: "var(--muted)", opacity: 0.35, rx: 4 }} />
+                  <Bar dataKey="预期" fill="var(--chart-4)" radius={[4, 4, 0, 0]} {...BAR_ANIMATION_PROPS} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -297,10 +320,10 @@ export default function Stats() {
               </div>
             </CardHeader>
             <CardContent>
-              <HeatmapGrid data={heatmap} days={heatmapDays} />
+              <HeatmapGrid key={`heatmap-${heatmapDays}`} data={heatmap} days={heatmapDays} />
             </CardContent>
           </Card>
-        </>
+        </div>
       )}
     </div>
   );

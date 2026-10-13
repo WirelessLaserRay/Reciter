@@ -4,6 +4,7 @@ import { SqlJsBackend } from "@/lib/sql/sqljs-backend";
 import { isTauri } from "@/lib/env";
 import { runMigrations } from "@/lib/migrations";
 import { StatsRepository } from "./stats-repo";
+import { selfHealPrivateSettings } from "@/lib/private-settings-guard";
 
 export * from "./types";
 export * from "./helpers";
@@ -39,6 +40,18 @@ export class ReciterDB extends StatsRepository {
         } catch {}
         // 回填历史卡片音标（从 front/markdown 解析，仅补空值）
         await this.backfillCardPhonetics();
+        // 自动自愈保护：确保私有配置（AI 配置、API Key、TTS 等）未被任何异常覆盖，若 SQLite 缺失则从离线镜像秒级自愈
+        try {
+          await selfHealPrivateSettings(this);
+        } catch (healErr) {
+          console.warn("自愈私有配置检查异常:", healErr);
+        }
+        // 自动敏感凭据加密迁移：将现有 SQLite 数据库中的旧版明文 API Key/Token 自动升级为 AES-256-GCM 密文
+        try {
+          await this.migratePlaintextSensitiveSettings();
+        } catch (migErr) {
+          console.warn("自动加密敏感凭据迁移异常:", migErr);
+        }
       })();
     }
     return this.readyPromise;
