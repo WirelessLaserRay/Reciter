@@ -215,13 +215,19 @@ export function StudySession({
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      void db.flush();
       const store = useStudyStore.getState();
       const ratedCount = store.stats.reviewed + store.stats.newDone + store.stats.actions;
-      if (ratedCount > 0 && store.stats.actions > lastPushedActionsRef.current) {
+      const shouldPush = ratedCount > 0 && store.stats.actions > lastPushedActionsRef.current;
+      if (shouldPush) {
         lastPushedActionsRef.current = store.stats.actions;
-        void autoPushIfConfigured().catch(() => {});
       }
+      // 将落盘与云端同步推迟至后台空闲期执行，绝不阻塞切页关键帧
+      setTimeout(() => {
+        void db.flush().catch(() => {});
+        if (shouldPush) {
+          void autoPushIfConfigured().catch(() => {});
+        }
+      }, 800);
     };
   }, []);
 

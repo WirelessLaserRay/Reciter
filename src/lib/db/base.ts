@@ -44,12 +44,12 @@ export class BaseDB {
     let allTags: string[] | undefined;
 
     if (cacheKey === "all") {
-      if (this.tagsCache && now - this.tagsCache.time < 3000) {
+      if (this.tagsCache && now - this.tagsCache.time < 30000) {
         allTags = this.tagsCache.tags;
       }
     } else {
       const cached = this.tagsCacheByDecks.get(cacheKey);
-      if (cached && now - cached.time < 3000) {
+      if (cached && now - cached.time < 30000) {
         allTags = cached.tags;
       }
     }

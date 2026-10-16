@@ -12,16 +12,14 @@ import {
   getIgnoredTags,
   getLastAiTestAt,
   getLastStudyContext,
-  type LastStudyContext,
 } from "@/lib/study-prefs";
-import { fetchDailyQuote, getDailyQuote, refreshDailyQuote } from "@/lib/daily-quotes";
+import { fetchDailyQuote, refreshDailyQuote } from "@/lib/daily-quotes";
 import {
   generateAIOrchestrationAdvice,
   getSavedAIStudyPlan,
   getTodayOrchestratedPlan,
-  type TodayOrchestratedPlan,
 } from "@/lib/exam-planner";
-import type { Deck } from "@/types";
+import { useDashboardStore } from "@/stores/useDashboardStore";
 import ExamPlanDialog from "@/components/study/ExamPlanDialog";
 import {
   DashboardStatsGrid,
@@ -38,22 +36,30 @@ export default function Dashboard() {
   const lastSyncTime = useSyncStore((s) => s.lastSyncTime);
   const loadQueue = useStudyStore((s) => s.loadQueue);
   const loadOrchestratedQueue = useStudyStore((s) => s.loadOrchestratedQueue);
-  const [dueCount, setDueCount] = useState(0);
-  const [newCount, setNewCount] = useState(0);
-  const [lastContext, setLastContext] = useState<LastStudyContext | null>(null);
-  const [dueByDeck, setDueByDeck] = useState<Record<number, number>>({});
-  const [newByDeck, setNewByDeck] = useState<Record<number, number>>({});
-  const [recommendedDeck, setRecommendedDeck] = useState<Deck | null>(null);
-  const [weakCount, setWeakCount] = useState(0);
-  const [aiTestDue, setAiTestDue] = useState(true);
-  const [nextAiTestLabel, setNextAiTestLabel] = useState("");
-  const [quote, setQuote] = useState(() => getDailyQuote());
+
+  // 全局持久化看板状态（切换页面切回即刻秒开，名言与数据绝不闪跳）
+  const {
+    dueCount,
+    newCount,
+    weakCount,
+    lastContext,
+    dueByDeck,
+    newByDeck,
+    recommendedDeck,
+    aiTestDue,
+    nextAiTestLabel,
+    aiPlan,
+    orchestratedPlan,
+    quote,
+    setQuote,
+    setDashboardData,
+    setOrchestratedPlan,
+  } = useDashboardStore();
+
   const [quoteRefreshing, setQuoteRefreshing] = useState(false);
-  const [aiPlan, setAiPlan] = useState("");
   const [currentDateKey, setCurrentDateKey] = useState(() => toDateKey(new Date()));
 
-  // AI 辅助编排任务状态
-  const [orchestratedPlan, setOrchestratedPlan] = useState<TodayOrchestratedPlan | null>(null);
+  // 弹窗与交互局态
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [adviceLoading, setAdviceLoading] = useState(false);
   const [adviceError, setAdviceError] = useState<string | null>(null);
@@ -86,19 +92,41 @@ export default function Dashboard() {
 
   const loadDashboardData = useCallback(async () => {
     if (!dbReady) return;
-    await refresh();
-    const hour = parseDayStartHour(await db.getSetting("day_start"));
+
+    let currentDecks = useDeckStore.getState().decks;
+    if (currentDecks.length === 0) {
+      await refresh();
+      currentDecks = useDeckStore.getState().decks;
+    } else {
+      // 已有词库数据时后台静默刷新，不阻塞首屏
+      refresh().catch(() => {});
+    }
+
+    // 1. 并发获取基础配置与参数
+    const [
+      hourRaw,
+      ignoredTags,
+      reviewLimitRaw,
+      leech,
+      aiPlanSaved,
+      lastAiTest,
+    ] = await Promise.all([
+      db.getSetting("day_start"),
+      getIgnoredTags(),
+      db.getSetting("daily_review_limit"),
+      getLeechThreshold(),
+      getSavedAIStudyPlan(),
+      getLastAiTestAt(),
+    ]);
+
+    const hour = parseDayStartHour(hourRaw);
     const now = new Date();
     const dayStart = getDayStartDate(hour, now);
     const dayEnd = getDayEndDate(hour, now);
-    const currentDecks = useDeckStore.getState().decks;
-    const ignoredTags = await getIgnoredTags();
-    const reviewLimitRaw = await db.getSetting("daily_review_limit");
     const reviewLimit = reviewLimitRaw ? parseInt(reviewLimitRaw, 10) : 200;
-    const todayReviewed = await db.countReviewsToday(dayStart.toISOString());
-    const remainingLimit = Math.max(0, reviewLimit - todayReviewed);
-    const leech = await getLeechThreshold();
-    const [due, fresh, last, weak, deckDue, deckNew, plan] = await Promise.all([
+
+    // 2. 并发获取各项学习指标与统计
+    const [due, fresh, last, weak, deckDue, deckNew, plan, todayReviewed] = await Promise.all([
       db.getGlobalDueCount(dayEnd.toISOString(), ignoredTags),
       db.getGlobalNewCount(ignoredTags),
       getLastStudyContext(),
@@ -106,30 +134,21 @@ export default function Dashboard() {
       db.getDeckDueCounts(dayEnd.toISOString(), ignoredTags),
       db.getDeckNewCounts(ignoredTags),
       getTodayOrchestratedPlan(currentDecks),
+      db.countReviewsToday(dayStart.toISOString()),
     ]);
-    setDueCount(Math.min(due, remainingLimit));
-    setNewCount(fresh);
-    setLastContext(last);
-    setWeakCount(weak);
-    setDueByDeck(deckDue);
-    setNewByDeck(deckNew);
-    setOrchestratedPlan(plan);
-    setQuote(await fetchDailyQuote());
-    setAiPlan(await getSavedAIStudyPlan());
 
-    const lastAiTest = await getLastAiTestAt();
+    const remainingLimit = Math.max(0, reviewLimit - todayReviewed);
+
     const aiDue = lastAiTest === 0 || Date.now() - lastAiTest >= AI_TEST_INTERVAL_MS;
-    setAiTestDue(aiDue);
+    let nextAiTestLabel = "";
     if (!aiDue) {
       const next = new Date(lastAiTest + AI_TEST_INTERVAL_MS);
-      setNextAiTestLabel(
-        next.toLocaleString("zh-CN", {
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      );
+      nextAiTestLabel = next.toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     }
 
     // 推荐优先级：优先推荐有到期复习卡的词库；若暂无到期，则推荐有新词待学的词库
@@ -140,8 +159,26 @@ export default function Dashboard() {
       .filter((d) => (deckNew[d.id] ?? 0) > 0)
       .sort((a, b) => (deckNew[b.id] ?? 0) - (deckNew[a.id] ?? 0));
     const top = decksWithDue[0] ?? decksWithNew[0] ?? null;
-    setRecommendedDeck(top);
-  }, [dbReady, refresh]);
+
+    setDashboardData({
+      dueCount: Math.min(due, remainingLimit),
+      newCount: fresh,
+      lastContext: last,
+      weakCount: weak,
+      dueByDeck: deckDue,
+      newByDeck: deckNew,
+      orchestratedPlan: plan,
+      aiPlan: aiPlanSaved,
+      aiTestDue: aiDue,
+      nextAiTestLabel,
+      recommendedDeck: top,
+    });
+
+    // 每日一句后台静默拉取，绝不阻断界面秒开
+    void fetchDailyQuote()
+      .then((q) => setQuote(q))
+      .catch(() => {});
+  }, [dbReady, refresh, setDashboardData]);
 
   useEffect(() => {
     loadDashboardData().catch(() => {});

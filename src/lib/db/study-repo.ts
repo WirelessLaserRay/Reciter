@@ -354,7 +354,7 @@ export class StudyRepository extends CardRepository {
     const rows = await this.requireDb().select<{ deck_id: number; cnt: number }[]>(
       `SELECT c.deck_id, COUNT(*) AS cnt FROM cards c
        JOIN card_states cs ON cs.card_id = c.id
-       WHERE cs.reps > 0 AND cs.due < ?${ignoredTagsWhere(resolvedTags)}
+       WHERE cs.reps > 0 AND cs.due < ? AND c.ignored = 0${ignoredTagsWhere(resolvedTags)}
        GROUP BY c.deck_id`,
       [before, ...ignoredTagsParams(resolvedTags)]
     );

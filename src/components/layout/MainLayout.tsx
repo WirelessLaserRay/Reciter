@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -16,6 +16,7 @@ const SIDEBAR_KEY = "reciter-sidebar-collapsed";
 
 export default function MainLayout() {
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
   const dbReady = useDbStore((s) => s.ready);
   const dbError = useDbStore((s) => s.error);
   const [collapsed, setCollapsed] = useState(
@@ -62,6 +63,11 @@ export default function MainLayout() {
     });
   };
 
+  // 路由切换时平滑复位滚动条至顶部，无需暴力销毁整个 DOM 树
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [location.pathname]);
+
   return (
     <div className="flex h-screen md:h-screen min-h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-background text-foreground">
       <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
@@ -76,7 +82,7 @@ export default function MainLayout() {
           </div>
         )}
         <main
-          key={location.pathname}
+          ref={mainRef}
           className={cn(
             "flex-1 overflow-y-auto",
             isImmersiveStudy

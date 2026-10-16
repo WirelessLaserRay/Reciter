@@ -24,6 +24,7 @@ import {
 } from "@/lib/exam-planner";
 import { parseDayStartHour, getDayEndDate } from "@/lib/day";
 import { autoPullIfRemoteNewer } from "@/lib/sync";
+import { useDashboardStore } from "@/stores/useDashboardStore";
 
 /** 学习中心与词库选择台（移动端与桌面端自适应紧凑布局） */
 export function DeckPicker({
@@ -36,39 +37,64 @@ export function DeckPicker({
   onStartOrchestrated?: () => void;
 }) {
   const { decks, cardCounts, refresh } = useDeckStore();
-  const [lastStudy, setLastStudy] = useState<{ deckId: number; tag?: string; keyOnly?: boolean } | null>(null);
-  const [orchestratedPlan, setOrchestratedPlan] = useState<TodayOrchestratedPlan | null>(null);
-  const [dueMap, setDueMap] = useState<Record<number, number>>({});
+  const cachedPlan = useDashboardStore((s) => s.orchestratedPlan);
+  const cachedDueMap = useDashboardStore((s) => s.dueByDeck);
+  const cachedLastContext = useDashboardStore((s) => s.lastContext);
+  const [lastStudy, setLastStudy] = useState<{ deckId: number; tag?: string; keyOnly?: boolean } | null>(
+    () => cachedLastContext
+  );
+  const [orchestratedPlan, setOrchestratedPlan] = useState<TodayOrchestratedPlan | null>(
+    () => cachedPlan
+  );
+  const [dueMap, setDueMap] = useState<Record<number, number>>(() => cachedDueMap);
 
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+
+    const loadData = async (targetDecks = decks) => {
+      if (targetDecks.length === 0) return;
+      try {
+        const [hourRaw, last, plan] = await Promise.all([
+          db.getSetting("day_start"),
+          getLastStudyContext(),
+          getTodayOrchestratedPlan(targetDecks).catch(() => null),
+        ]);
+        if (cancelled) return;
+
+        const hour = parseDayStartHour(hourRaw);
+        const dayEndIso = getDayEndDate(hour).toISOString();
+        const deckDueMap = await db.getDeckDueCounts(dayEndIso).catch(() => ({}));
+        if (cancelled) return;
+
+        setLastStudy(last);
+        setOrchestratedPlan(plan);
+        setDueMap(deckDueMap);
+        useDashboardStore.getState().setDashboardData({
+          dueByDeck: deckDueMap,
+          orchestratedPlan: plan,
+          lastContext: last,
+        });
+      } catch {}
+    };
+
+    if (decks.length > 0) {
+      loadData(decks);
+    } else {
+      refresh().catch(() => {});
+    }
+
     void autoPullIfRemoteNewer()
       .then((pulled) => {
-        if (pulled) refresh();
+        if (pulled && !cancelled) {
+          refresh().then(() => loadData(useDeckStore.getState().decks)).catch(() => {});
+        }
       })
       .catch(() => {});
-  }, [refresh]);
 
-  useEffect(() => {
-    if (decks.length === 0) return;
-    (async () => {
-      const hour = parseDayStartHour(await db.getSetting("day_start"));
-      const dayEndIso = getDayEndDate(hour).toISOString();
-      const [last, plan, duePairs] = await Promise.all([
-        getLastStudyContext(),
-        getTodayOrchestratedPlan(decks).catch(() => null),
-        Promise.all(
-          decks.map(async (d) => {
-            const due = await db.getDueCountByDecks([d.id], dayEndIso).catch(() => 0);
-            return [d.id, due] as const;
-          })
-        ),
-      ]);
-      setLastStudy(last);
-      setOrchestratedPlan(plan);
-      setDueMap(Object.fromEntries(duePairs));
-    })().catch(() => {});
-  }, [decks]);
+    return () => {
+      cancelled = true;
+    };
+  }, [decks, refresh]);
 
   if (decks.length === 0) {
     return (
