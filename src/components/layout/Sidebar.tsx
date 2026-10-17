@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/backup";
 
 const NAV_ITEMS = [
   { to: "/", label: "今日学习", icon: LayoutDashboard },
@@ -162,7 +163,7 @@ export default function Sidebar({
             className="sidebar-collapse-text-inner px-2 text-center text-[10px] text-muted-foreground font-mono hover:text-primary transition-colors block"
             title="点击前往关于与检查更新"
           >
-            v0.16.8
+            v{APP_VERSION}
           </NavLink>
         </div>
       </div>
