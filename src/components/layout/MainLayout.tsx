@@ -90,7 +90,7 @@ export default function MainLayout() {
               : "p-3.5 sm:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-6"
           )}
         >
-          <div key={location.pathname} className="animate-page-enter w-full min-h-full flex-1 flex flex-col">
+          <div key={location.pathname} className="animate-page-enter">
             <Outlet />
           </div>
         </main>
