@@ -3,7 +3,6 @@ import { CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { isTauri } from "@/lib/env";
 import {
   getCleanWordForDisplay,
   getWordMaskHint,
@@ -27,6 +26,7 @@ import {
   RevealContext,
   WordBlock,
   shuffle,
+  useIsMobile,
 } from "./shared";
 
 /** 快速测试（熟练卡，秒答自动 Good） */
@@ -37,7 +37,8 @@ export function QuickTestView(props: ModeViewProps) {
   const [checked, setChecked] = useState<boolean | null>(null);
   const [fast, setFast] = useState(false);
   const [showMoreHint, setShowMoreHint] = useState(false);
-  const isDesktop = isTauri();
+  const isMobile = useIsMobile();
+  const isDesktop = !isMobile;
 
   const choice = useMemo(() => {
     const targetWord = row.front.trim();

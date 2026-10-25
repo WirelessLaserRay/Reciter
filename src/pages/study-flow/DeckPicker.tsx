@@ -23,8 +23,7 @@ import {
   type TodayOrchestratedPlan,
 } from "@/lib/exam-planner";
 import { parseDayStartHour, getDayEndDate } from "@/lib/day";
-import { autoPullIfRemoteNewer } from "@/lib/sync";
-import { useDashboardStore } from "@/stores/useDashboardStore";
+import { useDashboardStore, isDashboardFresh } from "@/stores/useDashboardStore";
 
 /** 学习中心与词库选择台（移动端与桌面端自适应紧凑布局） */
 export function DeckPicker({
@@ -77,24 +76,28 @@ export function DeckPicker({
       } catch {}
     };
 
-    if (decks.length > 0) {
-      loadData(decks);
-    } else {
-      refresh().catch(() => {});
+    // 若 60 秒内已在 Dashboard 规划且缓存存在，直接使用，不发起阻塞重算
+    const isFresh = isDashboardFresh(60_000);
+    if (isFresh && cachedPlan) {
+      return () => {
+        cancelled = true;
+      };
     }
 
-    void autoPullIfRemoteNewer()
-      .then((pulled) => {
-        if (pulled && !cancelled) {
-          refresh().then(() => loadData(useDeckStore.getState().decks)).catch(() => {});
-        }
-      })
-      .catch(() => {});
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      if (decks.length > 0) {
+        loadData(decks);
+      } else {
+        refresh().catch(() => {});
+      }
+    }, isFresh ? 350 : 0);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [decks, refresh]);
+  }, [decks, refresh, cachedPlan]);
 
   if (decks.length === 0) {
     return (

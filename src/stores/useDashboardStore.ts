@@ -18,6 +18,7 @@ export interface DashboardState {
   aiPlan: string;
   orchestratedPlan: TodayOrchestratedPlan | null;
   isLoaded: boolean;
+  lastUpdatedAt: number;
   quote: DailyQuote;
 
   setDashboardData: (
@@ -47,12 +48,14 @@ export const useDashboardStore = create<DashboardState>()(
       aiPlan: "",
       orchestratedPlan: null,
       isLoaded: false,
+      lastUpdatedAt: 0,
       quote: getDailyQuote(),
 
       setDashboardData: (data) =>
         set((state) => ({
           ...state,
           ...data,
+          lastUpdatedAt: Date.now(),
           isLoaded: true,
         })),
 
@@ -91,8 +94,15 @@ export const useDashboardStore = create<DashboardState>()(
         aiPlan: state.aiPlan,
         orchestratedPlan: state.orchestratedPlan,
         isLoaded: state.isLoaded,
+        lastUpdatedAt: state.lastUpdatedAt,
         quote: state.quote,
       }),
     }
   )
 );
+
+/** 检查当前看板缓存是否处于新鲜度有效期（默认 60 秒） */
+export function isDashboardFresh(maxAgeMs = 60_000): boolean {
+  const { isLoaded, lastUpdatedAt, orchestratedPlan } = useDashboardStore.getState();
+  return isLoaded && !!orchestratedPlan && Date.now() - (lastUpdatedAt || 0) < maxAgeMs;
+}

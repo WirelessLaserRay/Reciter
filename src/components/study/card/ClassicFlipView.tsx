@@ -17,6 +17,11 @@ export function ClassicFlipView(props: ModeViewProps) {
   const { row, preview, retrievability, ratingMode, busy, distractors, onReveal, onRate, onRateReadyChange } = props;
   const [flipped, setFlipped] = useState(false);
 
+  // 切卡时重置翻转状态，避免上一张卡翻开后新卡直接处于背面
+  useEffect(() => {
+    setFlipped(false);
+  }, [row.card_id]);
+
   useEffect(() => {
     onRateReadyChange(flipped && !busy);
   }, [flipped, busy, onRateReadyChange]);
@@ -65,7 +70,9 @@ export function ClassicFlipView(props: ModeViewProps) {
             onClick={!flipped ? showAnswer : undefined}
             className={cn(
               "absolute inset-0 flex flex-col items-center justify-center gap-4 sm:gap-5 rounded-xl border bg-card p-5 sm:p-8 [backface-visibility:hidden]",
-              !flipped && "cursor-pointer active:scale-[0.99] transition-transform select-none"
+              !flipped
+                ? "cursor-pointer active:scale-[0.99] transition-transform select-none z-10"
+                : "pointer-events-none opacity-0 select-none z-0"
             )}
           >
             <CardMetaBadges row={row} />
@@ -81,9 +88,17 @@ export function ClassicFlipView(props: ModeViewProps) {
             )}
             <p className="text-xs text-muted-foreground/70">正面 · 单词</p>
           </div>
-          {/* 背面：释义 + 原文语境 + 同族词 */}
-          <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-4 sm:p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+          {/* 背面：单词 + 释义 + 原文语境 + 同族词 */}
+          <div
+            className={cn(
+              "absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-4 sm:p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]",
+              flipped
+                ? "pointer-events-auto z-10"
+                : "pointer-events-none opacity-0 select-none z-0"
+            )}
+          >
             <CardMetaBadges row={row} />
+            <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
             <MeaningBlock row={row} className="text-center text-xl sm:text-2xl" />
             <RetrievabilityLine value={retrievability} />
             <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />

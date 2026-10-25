@@ -190,7 +190,7 @@ export function HeatmapGrid({ data, days = 365 }: HeatmapGridProps) {
   const rangeText = days === 365 ? "近一年" : days === 90 ? "近三个月" : days === 30 ? "近一个月" : `近 ${days} 天`;
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300">
+    <div className="space-y-4">
       {/* 居中排布的热力图主网格容器 */}
       <div className="overflow-x-auto pb-1">
         <div className="flex justify-center min-w-full py-1">

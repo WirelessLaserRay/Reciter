@@ -30,13 +30,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { db } from "@/lib/db";
 import { getLeechThreshold } from "@/lib/settings";
-import { getRetrievability } from "@/lib/fsrs";
+import { getScheduler, dbStateToFSRSCard } from "@/lib/fsrs";
 import { applyReview } from "@/lib/review";
 import type { Card as CardType, CardState, Deck } from "@/types";
 import { getCardMeaning } from "@/lib/meaning";
 import AIChatPanel from "@/components/ai/AIChatPanel";
 
-type WeakCard = CardType & CardState;
+type WeakCard = CardType & CardState & { retrievability?: number | null };
+
+let globalCachedWeakCards: WeakCard[] = [];
+let globalCachedDecks: Deck[] = [];
+let globalCachedThreshold = 3;
+let globalHasLoaded = false;
 
 function parseWeakImportLine(line: string): { front: string; back: string } | null {
   const t = line.trim();
@@ -60,19 +65,7 @@ function WeakRow({
   onAttack: (w: WeakCard) => void;
   onDelete: (w: WeakCard) => void;
 }) {
-  const [retrievability, setRetrievability] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getRetrievability(weak)
-      .then((r) => {
-        if (!cancelled) setRetrievability(r);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [weak]);
+  const retrievability = weak.retrievability ?? null;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3">
@@ -107,14 +100,14 @@ function WeakRow({
 
 export default function WeakWords() {
   const [searchParams] = useSearchParams();
-  const [decks, setDecks] = useState<Deck[]>([]);
+  const [decks, setDecks] = useState<Deck[]>(() => globalCachedDecks);
   // 支持 /weak-words?deck=<id>（词库掌握度全景一键跳转）
   const [deckFilter, setDeckFilter] = useState<string>(() => searchParams.get("deck") ?? "all");
-  const [weakCards, setWeakCards] = useState<WeakCard[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [weakCards, setWeakCards] = useState<WeakCard[]>(() => globalCachedWeakCards);
+  const [loading, setLoading] = useState(() => !globalHasLoaded);
   const [error, setError] = useState<string | null>(null);
   const [attackTarget, setAttackTarget] = useState<WeakCard | null>(null);
-  const [threshold, setThreshold] = useState(3);
+  const [threshold, setThreshold] = useState(() => globalCachedThreshold);
   const [importOpen, setImportOpen] = useState(false);
   const [importDeckId, setImportDeckId] = useState("");
   const [importText, setImportText] = useState("");
@@ -124,28 +117,44 @@ export default function WeakWords() {
   const [deleteTarget, setDeleteTarget] = useState<WeakCard | null>(null);
 
   const load = useCallback(async (deckId: string) => {
-    setLoading(true);
+    if (!globalHasLoaded) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const t = await getLeechThreshold();
       setThreshold(t);
+      globalCachedThreshold = t;
       const allDecks = await db.getDecks();
       setDecks(allDecks);
+      globalCachedDecks = allDecks;
       // 参数中的词库不存在时回退到「全部词库」
       if (deckId !== "all" && !allDecks.some((d) => String(d.id) === deckId)) {
         setDeckFilter("all");
       }
       const targetDeckId = deckId === "all" ? null : parseInt(deckId, 10);
-      let cards: WeakCard[] = [];
-      if (targetDeckId) {
-        cards = await db.getWeakCards(targetDeckId, t, 100);
-      } else {
-        const perDeck = await Promise.all(
-          allDecks.map((d) => db.getWeakCards(d.id, t, 100))
-        );
-        cards = perDeck.flat().sort((a, b) => b.lapses - a.lapses || a.stability - b.stability);
-      }
-      setWeakCards(cards);
+      const rawCards = await db.getWeakCards(targetDeckId, t, 100);
+
+      // 批量预计算 retrievability，0ms 极速就绪
+      let scheduler: Awaited<ReturnType<typeof getScheduler>> | null = null;
+      try {
+        scheduler = await getScheduler();
+      } catch {}
+
+      const now = new Date();
+      const withRetrievability: WeakCard[] = rawCards.map((c) => {
+        let r: number | null = null;
+        if (scheduler) {
+          try {
+            r = scheduler.get_retrievability(dbStateToFSRSCard(c), now, false) as number;
+          } catch {}
+        }
+        return { ...c, retrievability: r };
+      });
+
+      setWeakCards(withRetrievability);
+      globalCachedWeakCards = withRetrievability;
+      globalHasLoaded = true;
     } catch (e) {
       setError(String(e));
     } finally {

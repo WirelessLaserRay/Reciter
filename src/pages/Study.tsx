@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useStudyStore } from "@/stores/useStudyStore";
 import { useDeckStore } from "@/stores/useDeckStore";
+import { useDashboardStore } from "@/stores/useDashboardStore";
 import { saveLastAiTestAt } from "@/lib/study-prefs";
 import { getTodayOrchestratedPlan } from "@/lib/exam-planner";
 import QuizSession from "@/components/quiz/QuizSession";
@@ -126,8 +127,10 @@ export default function Study() {
           }}
           onOpenScope={(d: { id: number; name: string }) => setScopeDeck(d)}
           onStartOrchestrated={async () => {
-            const decks = useDeckStore.getState().decks;
-            const plan = await getTodayOrchestratedPlan(decks).catch(() => null);
+            const cachedPlan = useDashboardStore.getState().orchestratedPlan;
+            const plan =
+              cachedPlan ??
+              (await getTodayOrchestratedPlan(useDeckStore.getState().decks).catch(() => null));
             if (!plan) return;
             useStudyStore.getState().reset();
             await loadOrchestratedQueue({

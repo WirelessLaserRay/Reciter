@@ -454,8 +454,22 @@ export class CardRepository extends DeckRepository {
 
   // ==================== 弱词追踪（Phase 6B） ====================
 
-  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 3） */
-  async getWeakCards(deckId: number, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
+  /** 获取弱词列表（lapses >= threshold，按 lapses 降序、stability 升序；默认阈值 3；deckId 为空时执行单条全局优化 SQL） */
+  async getWeakCards(deckId?: number | null, threshold = 3, limit = 50): Promise<(Card & CardState)[]> {
+    if (deckId !== undefined && deckId !== null) {
+      return this.requireDb().select(
+        `SELECT c.id, c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
+                c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
+                cs.state, cs.stability, cs.difficulty, cs.due, cs.last_review,
+                cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
+                cs.desired_retention, cs.algorithm_version
+         FROM cards c JOIN card_states cs ON cs.card_id = c.id
+         WHERE c.deck_id = ? AND cs.lapses >= ? AND c.weak_dismissed = 0
+         ORDER BY cs.lapses DESC, cs.stability ASC
+         LIMIT ?`,
+        [deckId, threshold, limit]
+      );
+    }
     return this.requireDb().select(
       `SELECT c.id, c.id AS card_id, c.deck_id, c.front, c.back, c.markdown_content, c.phonetic, c.source_type, c.tags, c.is_key,
               c.meaning_primary, c.meaning_secondary, c.ignored, c.weak_source, c.weak_dismissed, c.created_at, c.updated_at,
@@ -463,10 +477,10 @@ export class CardRepository extends DeckRepository {
               cs.elapsed_days, cs.scheduled_days, cs.learning_steps, cs.reps, cs.lapses,
               cs.desired_retention, cs.algorithm_version
        FROM cards c JOIN card_states cs ON cs.card_id = c.id
-       WHERE c.deck_id = ? AND cs.lapses >= ? AND c.weak_dismissed = 0
+       WHERE cs.lapses >= ? AND c.weak_dismissed = 0
        ORDER BY cs.lapses DESC, cs.stability ASC
        LIMIT ?`,
-      [deckId, threshold, limit]
+      [threshold, limit]
     );
   }
 

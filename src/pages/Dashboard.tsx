@@ -19,7 +19,7 @@ import {
   getSavedAIStudyPlan,
   getTodayOrchestratedPlan,
 } from "@/lib/exam-planner";
-import { useDashboardStore } from "@/stores/useDashboardStore";
+import { useDashboardStore, isDashboardFresh } from "@/stores/useDashboardStore";
 import ExamPlanDialog from "@/components/study/ExamPlanDialog";
 import {
   DashboardStatsGrid,
@@ -178,23 +178,31 @@ export default function Dashboard() {
     void fetchDailyQuote()
       .then((q) => setQuote(q))
       .catch(() => {});
-  }, [dbReady, refresh, setDashboardData]);
+  }, [dbReady, refresh, setDashboardData, setQuote]);
 
   useEffect(() => {
+    // 60秒内已有缓存数据则 0ms 优先秒开展示；过期或冷启动时后台静默刷新
+    const fresh = isDashboardFresh(60_000);
+    if (fresh) {
+      const timer = setTimeout(() => {
+        loadDashboardData().catch(() => {});
+      }, 350);
+      return () => clearTimeout(timer);
+    }
     loadDashboardData().catch(() => {});
   }, [loadDashboardData, currentDateKey, lastSyncTime]);
 
-  const handleStartOrchestratedStudy = async () => {
+  const handleStartOrchestratedStudy = () => {
     if (!orchestratedPlan) return;
     useStudyStore.getState().reset();
-    await loadOrchestratedQueue({
+    navigate("/study");
+    void loadOrchestratedQueue({
       deckIds: orchestratedPlan.deckIds,
       ignoredTags: orchestratedPlan.ignoredTags,
       targetNew: orchestratedPlan.targetNew,
       targetReview: orchestratedPlan.targetReview,
       title: `${orchestratedPlan.examTitle} · 今日任务`,
     });
-    navigate("/study");
   };
 
   const handleGenerateAdvice = async () => {
@@ -213,10 +221,10 @@ export default function Dashboard() {
     }
   };
 
-  const startStudy = async (deckId: number, tag?: string, keyOnly?: boolean) => {
+  const startStudy = (deckId: number, tag?: string, keyOnly?: boolean) => {
     useStudyStore.getState().reset();
-    await loadQueue(deckId, tag, keyOnly);
     navigate("/study");
+    void loadQueue(deckId, tag, keyOnly);
   };
 
   const aiTestDeck =

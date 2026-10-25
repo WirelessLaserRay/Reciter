@@ -379,20 +379,47 @@ body,
     color 0.3s ease;
 }
 
-/* 页面淡入 */
-@keyframes reciter-fade-in {
-  from {
+/* ============ 界面切换平滑微动画（180ms 轻柔微浮现） ============ */
+
+@keyframes reciter-page-enter {
+  0% {
     opacity: 0;
     transform: translateY(4px);
   }
-  to {
+  100% {
     opacity: 1;
-    transform: none;
+    transform: translateY(0);
   }
 }
 
-main {
-  animation: reciter-fade-in 0.25s ease;
+@keyframes reciter-tab-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter,
+.animate-view-enter {
+  animation: reciter-page-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+
+.animate-tab-enter {
+  animation: reciter-tab-enter 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter,
+  .animate-view-enter,
+  .animate-tab-enter {
+    animation: none !important;
+  }
 }
 
 /* ============ 侧栏折叠动画（grid-template-columns 平滑折叠文本） ============ */

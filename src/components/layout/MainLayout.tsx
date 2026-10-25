@@ -90,7 +90,9 @@ export default function MainLayout() {
               : "p-3.5 sm:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-6"
           )}
         >
-          <Outlet />
+          <div key={location.pathname} className="animate-page-enter w-full min-h-full flex-1 flex flex-col">
+            <Outlet />
+          </div>
         </main>
         {/* 学习会话进行中时在移动端隐藏底部导航栏，选择词库时正常展示 */}
         <div className={cn(isImmersiveStudy && "hidden md:block")}>

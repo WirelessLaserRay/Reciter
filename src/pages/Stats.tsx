@@ -114,13 +114,13 @@ export default function Stats() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="animate-in fade-in duration-300">
+      <div>
         <h2 className="text-2xl font-bold tracking-tight">学习统计</h2>
         <p className="text-sm text-muted-foreground mt-0.5">复习趋势 · 记忆保留率 · 预期复习量 · 热力图</p>
       </div>
 
       {loading && (
-        <Card className="animate-in fade-in duration-200">
+        <Card>
           <CardContent className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             加载统计数据…
@@ -129,13 +129,13 @@ export default function Stats() {
       )}
 
       {error && (
-        <Card className="animate-in fade-in duration-200">
+        <Card>
           <CardContent className="py-6 text-sm text-destructive">{error}</CardContent>
         </Card>
       )}
 
       {!loading && !error && (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="space-y-6">
           {/* 概览统计卡片 */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
             <Card className="transition-all hover:border-border hover:shadow-xs">

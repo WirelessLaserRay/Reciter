@@ -190,17 +190,52 @@ export function RevealContext({ row }: { row: StudyCardRow }) {
   );
 }
 
-/** 主要释义加粗 + 次要释义第二栏（短语自动去除残留词性） */
-export function MeaningBlock({ row, className }: { row: StudyCardRow; className?: string }) {
+/** 清洗释义中夹带的 Markdown 粗体/斜体格式符号 */
+export function cleanMarkdownFormatting(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .trim();
+}
+
+/** 智能提取主要释义与次要释义 */
+export function getCardPrimarySecondary(row: StudyCardRow): { primary: string; secondary?: string } {
   const isP = isPhrase(row.front);
-  const rawPrimary = row.meaning_primary || row.back;
+  let rawPrimary = row.meaning_primary || row.back || "";
+  let rawSecondary = row.meaning_secondary || "";
+
+  // 若无独立 primary 且 back 含多行，将首行提取为主释义，后续行为次释义
+  if (!row.meaning_primary && rawPrimary.includes("\n")) {
+    const lines = rawPrimary.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      rawPrimary = lines[0];
+      if (lines.length > 1) {
+        rawSecondary = lines.slice(1).join("\n");
+      }
+    }
+  }
+
+  rawPrimary = cleanMarkdownFormatting(rawPrimary);
+  if (rawSecondary) {
+    rawSecondary = cleanMarkdownFormatting(rawSecondary);
+  }
+
   const primary = isP ? removePosPrefix(rawPrimary) : rawPrimary;
-  const secondary = isP && row.meaning_secondary ? removePosPrefix(row.meaning_secondary) : row.meaning_secondary;
+  const secondary = isP && rawSecondary ? removePosPrefix(rawSecondary) : rawSecondary;
+  return { primary, secondary: secondary || undefined };
+}
+
+/** 主要释义加粗 + 次要释义第二栏（短语自动去除残留词性，并过滤 markdown 符号） */
+export function MeaningBlock({ row, className }: { row: StudyCardRow; className?: string }) {
+  const { primary, secondary } = getCardPrimarySecondary(row);
   return (
-    <div className={cn("space-y-0.5", className)}>
+    <div className={cn("space-y-1.5 text-center", className)}>
       <div className="font-semibold whitespace-pre-wrap break-words">{primary}</div>
       {secondary && (
-        <div className="whitespace-pre-wrap break-words text-muted-foreground">{secondary}</div>
+        <div className="whitespace-pre-wrap break-words text-sm sm:text-base font-normal text-muted-foreground">
+          {secondary}
+        </div>
       )}
     </div>
   );
