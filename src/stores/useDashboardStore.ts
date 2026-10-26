@@ -103,6 +103,6 @@ export const useDashboardStore = create<DashboardState>()(
 
 /** 检查当前看板缓存是否处于新鲜度有效期（默认 60 秒） */
 export function isDashboardFresh(maxAgeMs = 60_000): boolean {
-  const { isLoaded, lastUpdatedAt, orchestratedPlan } = useDashboardStore.getState();
-  return isLoaded && !!orchestratedPlan && Date.now() - (lastUpdatedAt || 0) < maxAgeMs;
+  const { isLoaded, lastUpdatedAt } = useDashboardStore.getState();
+  return isLoaded && (lastUpdatedAt || 0) > 0 && Date.now() - (lastUpdatedAt || 0) < maxAgeMs;
 }

@@ -760,7 +760,7 @@ export function StudySession({
       back={getCardMeaning(item.row)}
       cardState={rowToState(item.row)}
       strategyOverride={modeConfig?.aiStrategy ?? undefined}
-      defaultExpanded={modeConfig?.mode === "new_teach" || modeConfig?.mode === "ai_drill"}
+      defaultExpanded={modeConfig?.mode === "ai_drill"}
       onGradeDecided={(grade, question, answer) =>
         handleAIComplete(grade, question ?? "", answer ?? "")
       }

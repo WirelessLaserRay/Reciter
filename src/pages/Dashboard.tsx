@@ -50,6 +50,7 @@ export default function Dashboard() {
     nextAiTestLabel,
     aiPlan,
     orchestratedPlan,
+    isLoaded,
     quote,
     setQuote,
     setDashboardData,
@@ -97,9 +98,6 @@ export default function Dashboard() {
     if (currentDecks.length === 0) {
       await refresh();
       currentDecks = useDeckStore.getState().decks;
-    } else {
-      // 已有词库数据时后台静默刷新，不阻塞首屏
-      refresh().catch(() => {});
     }
 
     // 1. 并发获取基础配置与参数
@@ -181,16 +179,20 @@ export default function Dashboard() {
   }, [dbReady, refresh, setDashboardData, setQuote]);
 
   useEffect(() => {
-    // 60秒内已有缓存数据则 0ms 优先秒开展示；过期或冷启动时后台静默刷新
-    const fresh = isDashboardFresh(60_000);
-    if (fresh) {
-      const timer = setTimeout(() => {
-        loadDashboardData().catch(() => {});
-      }, 350);
-      return () => clearTimeout(timer);
+    if (!dbReady) return;
+    // 60秒内已有缓存数据直接跳过，零阻塞零查询秒开呈现
+    if (isDashboardFresh(60_000)) {
+      return;
     }
-    loadDashboardData().catch(() => {});
-  }, [loadDashboardData, currentDateKey, lastSyncTime]);
+
+    // 若本地已有缓存数据但过期，延迟 500ms 空闲后台拉取，确保界面切换渐进动画满帧运行；仅冷启动无缓存时迅速拉取
+    const delay = isLoaded ? 500 : 50;
+    const timer = setTimeout(() => {
+      loadDashboardData().catch(() => {});
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [dbReady, isLoaded, loadDashboardData, currentDateKey, lastSyncTime]);
 
   const handleStartOrchestratedStudy = () => {
     if (!orchestratedPlan) return;

@@ -76,14 +76,15 @@ export function DeckPicker({
       } catch {}
     };
 
-    // 若 60 秒内已在 Dashboard 规划且缓存存在，直接使用，不发起阻塞重算
+    // 若 60 秒内看板缓存有效，直接复用，不发起阻塞重算
     const isFresh = isDashboardFresh(60_000);
-    if (isFresh && cachedPlan) {
+    if (isFresh) {
       return () => {
         cancelled = true;
       };
     }
 
+    // 过期或未缓存时，延迟 500ms 空闲刷新，确保路由切换动画丝滑
     const timer = setTimeout(() => {
       if (cancelled) return;
       if (decks.length > 0) {
@@ -91,7 +92,7 @@ export function DeckPicker({
       } else {
         refresh().catch(() => {});
       }
-    }, isFresh ? 350 : 0);
+    }, 500);
 
     return () => {
       cancelled = true;

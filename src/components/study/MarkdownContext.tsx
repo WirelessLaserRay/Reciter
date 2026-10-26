@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface MarkdownContextProps {
   /** cards.markdown_content 原始片段（列表项 + 可选引用例句） */
@@ -9,6 +10,8 @@ interface MarkdownContextProps {
   word: string;
   /** 折叠模式下最多显示行数 */
   maxCollapsedLines?: number;
+  /** 自定义外部类名 */
+  className?: string;
 }
 
 /** 去掉行内 Markdown 标记，保留纯文本 */
@@ -50,6 +53,7 @@ export default function MarkdownContext({
   markdownContent,
   word,
   maxCollapsedLines = 3,
+  className,
 }: MarkdownContextProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -68,7 +72,7 @@ export default function MarkdownContext({
   const visible = expanded || !collapsible ? lines : lines.slice(0, maxCollapsedLines);
 
   return (
-    <div className="rounded-lg border-l-2 border-primary/60 bg-muted/40 p-3 text-left">
+    <div className={cn("rounded-lg border-l-2 border-primary/60 bg-muted/40 p-3 text-left", className)}>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <BookOpen className="size-3.5" />

@@ -181,10 +181,10 @@ export function WordBlock({ word, phonetic }: { word: string; phonetic?: string 
 }
 
 /** 揭示答案后展示原文语境 */
-export function RevealContext({ row }: { row: StudyCardRow }) {
+export function RevealContext({ row, className }: { row: StudyCardRow; className?: string }) {
   if (!row.markdown_content) return null;
   return (
-    <div className="w-full max-w-lg text-left">
+    <div className={cn("w-full max-w-lg text-left", className)}>
       <MarkdownContext markdownContent={row.markdown_content} word={row.front} />
     </div>
   );
@@ -226,11 +226,19 @@ export function getCardPrimarySecondary(row: StudyCardRow): { primary: string; s
   return { primary, secondary: secondary || undefined };
 }
 
-/** 主要释义加粗 + 次要释义第二栏（短语自动去除残留词性，并过滤 markdown 符号） */
-export function MeaningBlock({ row, className }: { row: StudyCardRow; className?: string }) {
+/** 主要释义加粗 + 次要释义第二栏（短语自动去除残留词性，并过滤 markdown 符号；支持对齐方向） */
+export function MeaningBlock({
+  row,
+  className,
+  align = "center",
+}: {
+  row: StudyCardRow;
+  className?: string;
+  align?: "center" | "left";
+}) {
   const { primary, secondary } = getCardPrimarySecondary(row);
   return (
-    <div className={cn("space-y-1.5 text-center", className)}>
+    <div className={cn("space-y-1.5", align === "left" ? "text-left" : "text-center", className)}>
       <div className="font-semibold whitespace-pre-wrap break-words">{primary}</div>
       {secondary && (
         <div className="whitespace-pre-wrap break-words text-sm sm:text-base font-normal text-muted-foreground">
@@ -242,14 +250,22 @@ export function MeaningBlock({ row, className }: { row: StudyCardRow; className?
 }
 
 /** 同族词提示：从全词库干扰项池中匹配共享词干 */
-export function RelatedWordsChips({ front, fronts }: { front: string; fronts: string[] }) {
+export function RelatedWordsChips({
+  front,
+  fronts,
+  className,
+}: {
+  front: string;
+  fronts: string[];
+  className?: string;
+}) {
   const related = findRelatedWords(front, fronts);
   if (related.length === 0) return null;
   return (
-    <div className="flex max-w-lg flex-wrap items-center justify-center gap-1.5 text-xs">
+    <div className={cn("flex max-w-lg flex-wrap items-center gap-1.5 text-xs", className ?? "justify-center")}>
       <span className="text-muted-foreground">同族词：</span>
       {related.map((w) => (
-        <Badge key={w} variant="secondary" className="text-[11px]">
+        <Badge key={w} variant="secondary" className="text-[11px] font-normal">
           {w}
         </Badge>
       ))}

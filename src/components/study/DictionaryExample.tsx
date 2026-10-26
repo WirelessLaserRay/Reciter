@@ -4,6 +4,7 @@ import { fetchExamples, type DictionaryResult } from "@/lib/dictionary";
 import { getCardExamples } from "@/lib/card-examples";
 import { speak } from "@/lib/tts";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL: Record<DictionaryResult["source"], string> = {
   dictionary: "词典权威例句",
@@ -58,10 +59,12 @@ export function DictionaryExample({
   word,
   existingMarkdown,
   tags,
+  className,
 }: {
   word: string;
   existingMarkdown?: string;
   tags?: string;
+  className?: string;
 }) {
   const cardExamples = useMemo(() => getCardExamples(tags), [tags]);
   const [result, setResult] = useState<DictionaryResult | null>(null);
@@ -119,7 +122,7 @@ export function DictionaryExample({
         : "AI 匹配";
 
     return (
-      <div className="w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left">
+      <div className={cn("w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left", className)}>
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5 font-medium text-primary">
             <BookOpen className="size-3" />
@@ -170,7 +173,7 @@ export function DictionaryExample({
   // 2. 加载骨架屏（平滑防抖动）
   if (loading && !result) {
     return (
-      <div className="w-full max-w-lg rounded-md border border-dashed bg-muted/30 p-3 text-left">
+      <div className={cn("w-full max-w-lg rounded-md border border-dashed bg-muted/30 p-3 text-left", className)}>
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <Loader2 className="size-3 animate-spin text-primary" />
@@ -193,7 +196,7 @@ export function DictionaryExample({
   const sourceName = SOURCE_LABEL[result.source] || "在线获取";
 
   return (
-    <div className="w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left">
+    <div className={cn("w-full max-w-lg rounded-md border bg-muted/50 p-3 text-left", className)}>
       <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <BookOpen className="size-3 text-primary" />

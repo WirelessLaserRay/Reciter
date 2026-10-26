@@ -3,12 +3,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DictionaryExample } from "../DictionaryExample";
 import type { ModeViewProps } from "./types";
+import { Volume2 } from "lucide-react";
+import { speak } from "@/lib/tts";
 import {
   CardMetaBadges,
   MeaningBlock,
   RatingButtons,
   RelatedWordsChips,
-  RetrievabilityLine,
   RevealContext,
   WordBlock,
 } from "./shared";
@@ -61,7 +62,7 @@ export function ClassicFlipView(props: ModeViewProps) {
       <div className="[perspective:1000px]">
         <div
           className={cn(
-            "relative min-h-[50vh] sm:min-h-80 w-full transition-transform duration-500 [transform-style:preserve-3d]",
+            "relative min-h-[50vh] sm:min-h-[420px] w-full transition-transform duration-500 [transform-style:preserve-3d]",
             flipped && "[transform:rotateY(180deg)]"
           )}
         >
@@ -88,23 +89,75 @@ export function ClassicFlipView(props: ModeViewProps) {
             )}
             <p className="text-xs text-muted-foreground/70">正面 · 单词</p>
           </div>
-          {/* 背面：单词 + 释义 + 原文语境 + 同族词 */}
+          {/* 背面：专为沉浸阅读释义与例句设计的舒适排版（等宽展示框 + 居中对齐） */}
           <div
             className={cn(
-              "absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-3 overflow-y-auto rounded-xl border bg-card p-4 sm:p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]",
+              "absolute inset-0 flex flex-col items-center overflow-y-auto rounded-xl border bg-card p-4 sm:p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]",
               flipped
                 ? "pointer-events-auto z-10"
                 : "pointer-events-none opacity-0 select-none z-0"
             )}
           >
-            <CardMetaBadges row={row} />
-            <WordBlock word={row.front} phonetic={props.phonetic ?? row.phonetic} />
-            <MeaningBlock row={row} className="text-center text-xl sm:text-2xl" />
-            <RetrievabilityLine value={retrievability} />
-            <RelatedWordsChips front={row.front} fronts={distractors.map((d) => d.front)} />
-            <RevealContext row={row} />
-            <DictionaryExample word={row.front} existingMarkdown={row.markdown_content} tags={row.tags} />
-            <p className="text-xs text-muted-foreground/70">背面 · 释义</p>
+            <div className="w-full max-w-xl flex flex-col items-center gap-3.5 sm:gap-4 my-auto py-1">
+              {/* 1. 顶部单词信息：居中对称，翻卡视线自然对齐 */}
+              <div className="flex flex-col items-center gap-1.5 text-center w-full">
+                <CardMetaBadges row={row} />
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground select-text">
+                    {row.front}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground hover:text-foreground"
+                    onClick={() => speak(row.front)}
+                    title="发音"
+                  >
+                    <Volume2 className="size-4" />
+                  </Button>
+                </div>
+                {(props.phonetic ?? row.phonetic) && (
+                  <span className="text-sm font-mono text-muted-foreground">
+                    {props.phonetic ?? row.phonetic}
+                  </span>
+                )}
+                {retrievability !== null && (
+                  <span className="text-[11px] font-mono text-muted-foreground/80 bg-muted px-2 py-0.5 rounded-full border border-border/60">
+                    可检索度 {(retrievability * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+
+              {/* 2. 核心释义区域：居中展示，框体等宽 */}
+              <div className="w-full rounded-lg bg-muted/30 p-3.5 sm:p-4 border border-border/40 text-center">
+                <MeaningBlock
+                  row={row}
+                  align="center"
+                  className="space-y-1.5 text-lg sm:text-xl"
+                />
+              </div>
+
+              {/* 3. 例句与原文语境：展示框等宽对齐 */}
+              <div className="w-full space-y-3">
+                <RevealContext
+                  row={row}
+                  className="w-full max-w-none"
+                />
+                <DictionaryExample
+                  word={row.front}
+                  existingMarkdown={row.markdown_content}
+                  tags={row.tags}
+                  className="w-full max-w-none rounded-lg bg-muted/30 p-3.5 sm:p-4 border-border/40"
+                />
+              </div>
+
+              {/* 4. 同族词：居中收敛于底部 */}
+              <RelatedWordsChips
+                front={row.front}
+                fronts={distractors.map((d) => d.front)}
+                className="justify-center pt-1"
+              />
+            </div>
           </div>
         </div>
       </div>
